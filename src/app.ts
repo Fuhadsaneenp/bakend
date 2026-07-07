@@ -37,7 +37,20 @@ export const createApp = () => {
   app.use(rateLimit({ windowMs: 60_000, limit: 300 }));
   app.use("/files", express.static(path.resolve(env.LOCAL_STORAGE_PATH)));
 
-  app.get("/health", (_req, res) => res.json({ ok: true, service: "hr-saas-backend" }));
+  app.get("/health", async (_req, res) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({ ok: true, service: "hr-saas-backend", database: "connected" });
+    } catch (dbError: any) {
+      console.error("Database connection check failed:", dbError);
+      res.status(500).json({ 
+        ok: false, 
+        service: "hr-saas-backend", 
+        database: "disconnected", 
+        error: dbError.message || dbError 
+      });
+    }
+  });
   app.use("/api", apiRouter);
   app.use(errorHandler);
   return app;
