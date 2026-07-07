@@ -1,0 +1,49 @@
+import { Role } from "@prisma/client";
+import { Router } from "express";
+import { z } from "zod";
+import { requireAuth, requireRoles } from "../../middleware/auth.js";
+import { ApiError } from "../../lib/errors.js";
+import { payrollService } from "./payroll.service.js";
+import { prisma } from "../../lib/prisma.js";
+
+export const payrollRouter = Router();
+payrollRouter.use(requireAuth);
+
+payrollRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const runs = await prisma.payrollRun.findMany({
+      where: { companyId: req.user.companyId },
+      orderBy: { createdAt: "desc" },
+      include: {
+        payslips: {
+          include: {
+            employee: true
+          }
+        }
+      }
+    });
+    res.json(runs);
+  } catch (error) {
+    next(error);
+  }
+});
+
+payrollRouter.post("/generate", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const body = z.object({ month: z.number().min(1).max(12), year: z.number().min(2020) }).parse(req.body);
+    res.status(201).json(await payrollService.generate(req.user.companyId, req.user.id, body.month, body.year));
+  } catch (error) {
+    next(error);
+  }
+});
+
+payrollRouter.post("/payslips/:id/send", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    res.json(await payrollService.sendPayslip(req.params.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
