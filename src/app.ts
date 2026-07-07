@@ -7,6 +7,7 @@ import path from "node:path";
 import { env } from "./config/env.js";
 import { apiRouter } from "./routes/index.js";
 import { errorHandler } from "./middleware/error.js";
+import { prisma } from "./lib/prisma.js";
 
 export const createApp = () => {
   const app = express();
