@@ -11,7 +11,27 @@ import { errorHandler } from "./middleware/error.js";
 export const createApp = () => {
   const app = express();
   app.use(helmet());
-  app.use(cors({ origin: env.APP_ORIGIN, credentials: true }));
+  app.use(cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const allowedOrigins = [
+        env.APP_ORIGIN,
+        "https://ptimeworks.com",
+        "https://www.ptimeworks.com",
+        "http://localhost:3000"
+      ];
+      if (
+        allowedOrigins.includes(origin) || 
+        origin.endsWith(".ptimeworks.com") || 
+        origin === "https://ptimeworks.com"
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true
+  }));
   app.use(express.json({ limit: "2mb" }));
   app.use(morgan("combined"));
   app.use(rateLimit({ windowMs: 60_000, limit: 300 }));
