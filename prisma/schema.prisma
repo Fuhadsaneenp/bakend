@@ -50,6 +50,20 @@ enum NotificationStatus {
   FAILED
 }
 
+enum OnboardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum LetterType {
+  OFFER
+  EXPERIENCE
+  RELIEVING
+  CONFIRMATION
+  CUSTOM
+}
+
 model Company {
   id          String       @id @default(cuid())
   name        String
@@ -117,11 +131,27 @@ model Employee {
   lastName       String
   phone          String?
   personalEmail  String?
+  dateOfBirth    DateTime?
+  gender         String?
+  addressLine1   String?
+  addressLine2   String?
+  city           String?
+  state          String?
+  country        String?
+  postalCode     String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  bankName       String?
+  bankAccountNumber String?
+  bankIfsc       String?
+  taxId          String?
   dateOfJoining  DateTime
   status         EmployeeStatus  @default(ACTIVE)
+  onboardingStatus OnboardingStatus @default(NOT_STARTED)
   baseCurrency   String          @default("INR")
   salary         Salary?
   documents      EmployeeDocument[]
+  letters        EmployeeLetter[]
   attendance     Attendance[]
   wfhRequests    WFHRequest[]
   expenseClaims  ExpenseClaim[]
@@ -147,10 +177,28 @@ model EmployeeDocument {
   employeeId  String
   employee    Employee @relation(fields: [employeeId], references: [id])
   type        String
+  status      String   @default("UPLOADED")
   fileKey     String
   fileName    String
   mimeType    String
+  uploadedBy  String?
+  verifiedAt  DateTime?
+  verifiedBy  String?
+  notes       String?
   uploadedAt  DateTime @default(now())
+}
+
+model EmployeeLetter {
+  id          String     @id @default(cuid())
+  employeeId  String
+  employee    Employee   @relation(fields: [employeeId], references: [id])
+  type        LetterType
+  title       String
+  body        String     @db.Text
+  fileKey     String?
+  generatedBy String?
+  issuedAt    DateTime   @default(now())
+  createdAt   DateTime   @default(now())
 }
 
 model PayrollRun {

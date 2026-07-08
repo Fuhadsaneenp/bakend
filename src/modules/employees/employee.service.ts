@@ -1,20 +1,64 @@
 import bcrypt from "bcryptjs";
-import { Prisma, Role } from "@prisma/client";
+import { LetterType, Prisma, Role } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { notFound } from "../../lib/errors.js";
+import { ApiError, notFound } from "../../lib/errors.js";
 import { storageService } from "../../storage/storage.service.js";
 import type { AuthUser } from "../../middleware/auth.js";
+import { renderEmployeeLetterPdf } from "./employee-letter.pdf.js";
 
 const nextEmployeeCode = async (companyId: string) => {
   const count = await prisma.employee.count({ where: { companyId } });
   return `EMP-${String(count + 1).padStart(5, "0")}`;
 };
 
+const isHrRole = (role: Role) => role === Role.SUPER_ADMIN || role === Role.HR_ADMIN;
+
+const employeeProfileFields = {
+  user: true,
+  department: true,
+  designation: true,
+  salary: true,
+  documents: { orderBy: { uploadedAt: "desc" as const } },
+  letters: { orderBy: { issuedAt: "desc" as const } }
+};
+
+const employeeOperationalFields = {
+  user: true,
+  department: true,
+  designation: true
+};
+
+const defaultLetterTitle = (type: LetterType) => {
+  const titleMap: Record<LetterType, string> = {
+    OFFER: "Offer Letter",
+    EXPERIENCE: "Experience Letter",
+    RELIEVING: "Relieving Letter",
+    CONFIRMATION: "Confirmation Letter",
+    CUSTOM: "Employee Letter"
+  };
+  return titleMap[type];
+};
+
+const defaultLetterBody = (type: LetterType, employeeName: string) => {
+  switch (type) {
+    case LetterType.OFFER:
+      return `Dear ${employeeName},\n\nWe are pleased to offer you employment with our organization. This letter confirms our intent to welcome you as part of the team, subject to completion of the onboarding formalities.\n\nWe look forward to working with you.`;
+    case LetterType.EXPERIENCE:
+      return `This is to certify that ${employeeName} was employed with our organization and has carried out assigned responsibilities during the tenure of employment.\n\nWe wish ${employeeName} success in future endeavors.`;
+    case LetterType.RELIEVING:
+      return `This is to confirm that ${employeeName} has been relieved from duties with our organization after completion of applicable exit formalities.\n\nWe wish ${employeeName} all the best.`;
+    case LetterType.CONFIRMATION:
+      return `Dear ${employeeName},\n\nWe are pleased to confirm your employment following successful completion of the applicable review period.\n\nWe appreciate your contribution and look forward to your continued success.`;
+    default:
+      return `Dear ${employeeName},\n\nThis letter has been generated from the HR management system.`;
+  }
+};
+
 export const employeeService = {
   list(companyId: string) {
     return prisma.employee.findMany({
       where: { companyId },
-      include: { user: true, department: true, designation: true, salary: true },
+      include: employeeProfileFields,
       orderBy: { createdAt: "desc" }
     });
   },
@@ -22,7 +66,7 @@ export const employeeService = {
   async listForUser(user: AuthUser) {
     if (!user.companyId) return [];
 
-    if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
+    if (isHrRole(user.role)) {
       return this.list(user.companyId);
     }
 
@@ -32,14 +76,14 @@ export const employeeService = {
     if (user.role === Role.MANAGER) {
       return prisma.employee.findMany({
         where: { companyId: user.companyId, managerId: currentEmployee.id },
-        include: { user: true, department: true, designation: true },
+        include: employeeOperationalFields,
         orderBy: { createdAt: "desc" }
       });
     }
 
     return prisma.employee.findMany({
       where: { companyId: user.companyId, userId: user.id },
-      include: { user: true, department: true, designation: true },
+      include: { ...employeeOperationalFields, documents: { orderBy: { uploadedAt: "desc" } }, letters: { orderBy: { issuedAt: "desc" } } },
       orderBy: { createdAt: "desc" }
     });
   },
@@ -57,6 +101,20 @@ export const employeeService = {
     managerId?: string;
     role?: Role;
     biometricId?: string;
+    dateOfBirth?: string;
+    gender?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    postalCode?: string;
+    emergencyContactName?: string;
+    emergencyContactPhone?: string;
+    bankName?: string;
+    bankAccountNumber?: string;
+    bankIfsc?: string;
+    taxId?: string;
     salary?: { basic: number; allowances: number; deductions: number; effectiveFrom: string };
   }) {
     return prisma.$transaction(async (tx) => {
@@ -80,6 +138,20 @@ export const employeeService = {
           phone: data.phone,
           personalEmail: data.personalEmail,
           dateOfJoining: new Date(data.dateOfJoining),
+          dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+          gender: data.gender,
+          addressLine1: data.addressLine1,
+          addressLine2: data.addressLine2,
+          city: data.city,
+          state: data.state,
+          country: data.country,
+          postalCode: data.postalCode,
+          emergencyContactName: data.emergencyContactName,
+          emergencyContactPhone: data.emergencyContactPhone,
+          bankName: data.bankName,
+          bankAccountNumber: data.bankAccountNumber,
+          bankIfsc: data.bankIfsc,
+          taxId: data.taxId,
           departmentId: data.departmentId,
           designationId: data.designationId,
           managerId: data.managerId
@@ -98,7 +170,7 @@ export const employeeService = {
         });
       }
 
-      return tx.employee.findUniqueOrThrow({ where: { id: employee.id }, include: { user: true, salary: true } });
+      return tx.employee.findUniqueOrThrow({ where: { id: employee.id }, include: employeeProfileFields });
     });
   },
 
@@ -118,6 +190,20 @@ export const employeeService = {
     managerId?: string | null;
     role?: Role;
     biometricId?: string | null;
+    dateOfBirth?: string | null;
+    gender?: string | null;
+    addressLine1?: string | null;
+    addressLine2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    country?: string | null;
+    postalCode?: string | null;
+    emergencyContactName?: string | null;
+    emergencyContactPhone?: string | null;
+    bankName?: string | null;
+    bankAccountNumber?: string | null;
+    bankIfsc?: string | null;
+    taxId?: string | null;
     salary?: { basic: number; allowances: number; deductions: number; effectiveFrom: string };
   }) {
     const employee = await prisma.employee.findFirst({
@@ -143,9 +229,23 @@ export const employeeService = {
           departmentId: data.departmentId,
           designationId: data.designationId,
           managerId: data.managerId,
-          biometricId: data.biometricId
+          biometricId: data.biometricId,
+          dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : data.dateOfBirth,
+          gender: data.gender,
+          addressLine1: data.addressLine1,
+          addressLine2: data.addressLine2,
+          city: data.city,
+          state: data.state,
+          country: data.country,
+          postalCode: data.postalCode,
+          emergencyContactName: data.emergencyContactName,
+          emergencyContactPhone: data.emergencyContactPhone,
+          bankName: data.bankName,
+          bankAccountNumber: data.bankAccountNumber,
+          bankIfsc: data.bankIfsc,
+          taxId: data.taxId
         },
-        include: { user: true, department: true, designation: true, salary: true }
+        include: employeeProfileFields
       });
 
       if (data.salary) {
@@ -171,13 +271,117 @@ export const employeeService = {
     });
   },
 
-  async attachDocument(companyId: string, employeeId: string, file: Express.Multer.File, type: string) {
-    const employee = await prisma.employee.findFirst({ where: { id: employeeId, companyId } });
+  async assertSelfOrHr(user: AuthUser, employeeId: string) {
+    if (!user.companyId) throw new ApiError(400, "Company context required");
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, companyId: user.companyId } });
     if (!employee) throw notFound("Employee");
-    const key = `companies/${companyId}/employees/${employeeId}/documents/${Date.now()}-${file.originalname}`;
+    if (isHrRole(user.role) || employee.userId === user.id) return employee;
+    throw new ApiError(403, "Insufficient permissions");
+  },
+
+  async updateOnboardingStatus(employeeId: string) {
+    const documents = await prisma.employeeDocument.findMany({ where: { employeeId } });
+    const verifiedCount = documents.filter((document) => document.status === "VERIFIED").length;
+    const onboardingStatus = verifiedCount >= 3
+      ? "COMPLETED"
+      : documents.length > 0
+        ? "IN_PROGRESS"
+        : "NOT_STARTED";
+
+    await prisma.employee.update({ where: { id: employeeId }, data: { onboardingStatus } });
+  },
+
+  async attachDocument(user: AuthUser, employeeId: string, file: Express.Multer.File, type: string, notes?: string) {
+    const employee = await this.assertSelfOrHr(user, employeeId);
+    const key = `companies/${employee.companyId}/employees/${employeeId}/documents/${Date.now()}-${file.originalname}`;
     await storageService.putObject(key, file.buffer, file.mimetype);
-    return prisma.employeeDocument.create({
-      data: { employeeId, type, fileKey: key, fileName: file.originalname, mimeType: file.mimetype }
+    const document = await prisma.employeeDocument.create({
+      data: {
+        employeeId,
+        type,
+        fileKey: key,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        uploadedBy: user.id,
+        notes
+      }
     });
+    await this.updateOnboardingStatus(employeeId);
+    return { ...document, fileUrl: storageService.publicUrl(document.fileKey) };
+  },
+
+  async listDocumentsForUser(user: AuthUser, employeeId: string) {
+    await this.assertSelfOrHr(user, employeeId);
+    const documents = await prisma.employeeDocument.findMany({
+      where: { employeeId },
+      orderBy: { uploadedAt: "desc" }
+    });
+    return documents.map((document) => ({ ...document, fileUrl: storageService.publicUrl(document.fileKey) }));
+  },
+
+  async verifyDocument(user: AuthUser, documentId: string, status: "UPLOADED" | "VERIFIED" | "REJECTED", notes?: string) {
+    if (!isHrRole(user.role) || !user.companyId) throw new ApiError(403, "Insufficient permissions");
+    const document = await prisma.employeeDocument.findFirst({
+      where: { id: documentId, employee: { companyId: user.companyId } }
+    });
+    if (!document) throw notFound("Document");
+
+    const updated = await prisma.employeeDocument.update({
+      where: { id: documentId },
+      data: {
+        status,
+        notes,
+        verifiedBy: status === "VERIFIED" ? user.id : null,
+        verifiedAt: status === "VERIFIED" ? new Date() : null
+      }
+    });
+    await this.updateOnboardingStatus(updated.employeeId);
+    return { ...updated, fileUrl: storageService.publicUrl(updated.fileKey) };
+  },
+
+  async listLettersForUser(user: AuthUser, employeeId: string) {
+    await this.assertSelfOrHr(user, employeeId);
+    const letters = await prisma.employeeLetter.findMany({
+      where: { employeeId },
+      orderBy: { issuedAt: "desc" }
+    });
+    return letters.map((letter) => ({ ...letter, fileUrl: letter.fileKey ? storageService.publicUrl(letter.fileKey) : null }));
+  },
+
+  async generateLetter(companyId: string, employeeId: string, userId: string, data: { type: LetterType; title?: string; body?: string }) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, companyId },
+      include: { company: true }
+    });
+    if (!employee) throw notFound("Employee");
+
+    const employeeName = `${employee.firstName} ${employee.lastName}`;
+    const title = data.title || defaultLetterTitle(data.type);
+    const body = data.body || defaultLetterBody(data.type, employeeName);
+
+    const letter = await prisma.employeeLetter.create({
+      data: {
+        employeeId,
+        type: data.type,
+        title,
+        body,
+        generatedBy: userId
+      }
+    });
+
+    const pdf = await renderEmployeeLetterPdf({
+      companyName: employee.company.name,
+      employeeName,
+      employeeCode: employee.employeeCode,
+      title,
+      body,
+      issuedAt: letter.issuedAt
+    });
+
+    const key = `companies/${companyId}/employees/${employeeId}/letters/${letter.id}.pdf`;
+    await storageService.putObject(key, pdf, "application/pdf");
+    const updated = await prisma.employeeLetter.update({ where: { id: letter.id }, data: { fileKey: key } });
+
+    return { ...updated, fileUrl: storageService.publicUrl(key) };
   }
 };

@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+import { LetterType, Role } from "@prisma/client";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
@@ -10,6 +10,40 @@ import { audit } from "../audit/audit.service.js";
 export const employeeRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 employeeRouter.use(requireAuth);
+
+const profileFieldsSchema = {
+  dateOfBirth: z.string().optional(),
+  gender: z.string().optional(),
+  addressLine1: z.string().optional(),
+  addressLine2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  country: z.string().optional(),
+  postalCode: z.string().optional(),
+  emergencyContactName: z.string().optional(),
+  emergencyContactPhone: z.string().optional(),
+  bankName: z.string().optional(),
+  bankAccountNumber: z.string().optional(),
+  bankIfsc: z.string().optional(),
+  taxId: z.string().optional()
+};
+
+const nullableProfileFieldsSchema = {
+  dateOfBirth: z.string().optional().nullable(),
+  gender: z.string().optional().nullable(),
+  addressLine1: z.string().optional().nullable(),
+  addressLine2: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  state: z.string().optional().nullable(),
+  country: z.string().optional().nullable(),
+  postalCode: z.string().optional().nullable(),
+  emergencyContactName: z.string().optional().nullable(),
+  emergencyContactPhone: z.string().optional().nullable(),
+  bankName: z.string().optional().nullable(),
+  bankAccountNumber: z.string().optional().nullable(),
+  bankIfsc: z.string().optional().nullable(),
+  taxId: z.string().optional().nullable()
+};
 
 employeeRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
@@ -36,6 +70,7 @@ employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (r
       managerId: z.string().optional(),
       role: z.nativeEnum(Role).optional(),
       biometricId: z.string().optional(),
+      ...profileFieldsSchema,
       salary: z.object({
         basic: z.number().nonnegative(),
         allowances: z.number().nonnegative(),
@@ -64,6 +99,7 @@ employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
       managerId: z.string().optional().nullable(),
       role: z.nativeEnum(Role).optional(),
       biometricId: z.string().optional().nullable(),
+      ...nullableProfileFieldsSchema,
       salary: z.object({
         basic: z.number().nonnegative(),
         allowances: z.number().nonnegative(),
@@ -90,12 +126,53 @@ employeeRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN
   }
 });
 
-employeeRouter.post("/:id/documents", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), upload.single("file"), async (req, res, next) => {
+employeeRouter.get("/:id/documents", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE), async (req, res, next) => {
+  try {
+    res.json(await employeeService.listDocumentsForUser(req.user!, req.params.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.post("/:id/documents", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE), upload.single("file"), async (req, res, next) => {
+  try {
+    if (!req.file) throw new ApiError(400, "Document file is required");
+    const body = z.object({ type: z.string().min(2), notes: z.string().optional() }).parse(req.body);
+    res.status(201).json(await employeeService.attachDocument(req.user!, req.params.id, req.file, body.type, body.notes));
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.patch("/documents/:documentId/verify", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const body = z.object({
+      status: z.enum(["UPLOADED", "VERIFIED", "REJECTED"]),
+      notes: z.string().optional()
+    }).parse(req.body);
+    res.json(await employeeService.verifyDocument(req.user!, req.params.documentId, body.status, body.notes));
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.get("/:id/letters", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE), async (req, res, next) => {
+  try {
+    res.json(await employeeService.listLettersForUser(req.user!, req.params.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.post("/:id/letters", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    if (!req.file) throw new ApiError(400, "Document file is required");
-    const body = z.object({ type: z.string().min(2) }).parse(req.body);
-    res.status(201).json(await employeeService.attachDocument(req.user.companyId, req.params.id, req.file, body.type));
+    const body = z.object({
+      type: z.nativeEnum(LetterType),
+      title: z.string().optional(),
+      body: z.string().optional()
+    }).parse(req.body);
+    res.status(201).json(await employeeService.generateLetter(req.user.companyId, req.params.id, req.user.id, body));
   } catch (error) {
     next(error);
   }
