@@ -6,7 +6,7 @@ async function main() {
   const company = await prisma.company.upsert({
     where: { id: "seed-company" },
     update: {},
-    create: { id: "seed-company", name: "Acme People Ops", legalName: "Acme People Ops LLC" }
+    create: { id: "seed-company", name: "Second Tales EMS", legalName: "Second Tales EMS LLC" }
   });
 
   const department = await prisma.department.upsert({
