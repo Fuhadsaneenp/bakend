@@ -70,6 +70,7 @@ employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (r
       managerId: z.string().optional(),
       role: z.nativeEnum(Role).optional(),
       biometricId: z.string().optional(),
+      employeeCode: z.string().min(2).optional(),
       ...profileFieldsSchema,
       salary: z.object({
         basic: z.number().nonnegative(),
@@ -99,6 +100,7 @@ employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
       managerId: z.string().optional().nullable(),
       role: z.nativeEnum(Role).optional(),
       biometricId: z.string().optional().nullable(),
+      employeeCode: z.string().min(2).optional(),
       ...nullableProfileFieldsSchema,
       salary: z.object({
         basic: z.number().nonnegative(),
@@ -121,6 +123,18 @@ employeeRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const body = z.object({ status: z.enum(["ACTIVE", "INACTIVE", "TERMINATED"]) }).parse(req.body);
     res.json(await employeeService.updateStatus(req.user.companyId, req.params.id, body.status));
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.delete("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const body = z.object({ confirmation: z.literal("CONFIRM") }).parse(req.body);
+    const result = await employeeService.deleteEmployee(req.user.companyId, req.params.id, body.confirmation);
+    await audit.record({ actorUserId: req.user.id, action: "EMPLOYEE_DELETED", entity: "Employee", entityId: req.params.id, ipAddress: req.ip });
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -151,6 +165,14 @@ employeeRouter.patch("/documents/:documentId/verify", requireRoles(Role.SUPER_AD
       notes: z.string().optional()
     }).parse(req.body);
     res.json(await employeeService.verifyDocument(req.user!, req.params.documentId, body.status, body.notes));
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.delete("/documents/:documentId", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    res.json(await employeeService.deleteDocument(req.user!, req.params.documentId));
   } catch (error) {
     next(error);
   }

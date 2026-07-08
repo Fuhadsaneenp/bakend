@@ -101,6 +101,7 @@ export const employeeService = {
     managerId?: string;
     role?: Role;
     biometricId?: string;
+    employeeCode?: string;
     dateOfBirth?: string;
     gender?: string;
     addressLine1?: string;
@@ -131,7 +132,7 @@ export const employeeService = {
         data: {
           companyId,
           userId: user.id,
-          employeeCode: await nextEmployeeCode(companyId),
+          employeeCode: data.employeeCode || await nextEmployeeCode(companyId),
           biometricId: data.biometricId || null,
           firstName: data.firstName,
           lastName: data.lastName,
@@ -190,6 +191,7 @@ export const employeeService = {
     managerId?: string | null;
     role?: Role;
     biometricId?: string | null;
+    employeeCode?: string;
     dateOfBirth?: string | null;
     gender?: string | null;
     addressLine1?: string | null;
@@ -230,6 +232,7 @@ export const employeeService = {
           designationId: data.designationId,
           managerId: data.managerId,
           biometricId: data.biometricId,
+          employeeCode: data.employeeCode,
           dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : data.dateOfBirth,
           gender: data.gender,
           addressLine1: data.addressLine1,
@@ -293,6 +296,9 @@ export const employeeService = {
 
   async attachDocument(user: AuthUser, employeeId: string, file: Express.Multer.File, type: string, notes?: string) {
     const employee = await this.assertSelfOrHr(user, employeeId);
+    if (type === "PHOTO" && file.size > 150 * 1024) {
+      throw new ApiError(400, "Employee photo must be below 150 KB");
+    }
     const key = `companies/${employee.companyId}/employees/${employeeId}/documents/${Date.now()}-${file.originalname}`;
     await storageService.putObject(key, file.buffer, file.mimetype);
     const document = await prisma.employeeDocument.create({
@@ -337,6 +343,40 @@ export const employeeService = {
     });
     await this.updateOnboardingStatus(updated.employeeId);
     return { ...updated, fileUrl: storageService.publicUrl(updated.fileKey) };
+  },
+
+  async deleteDocument(user: AuthUser, documentId: string) {
+    if (!isHrRole(user.role) || !user.companyId) throw new ApiError(403, "Insufficient permissions");
+    const document = await prisma.employeeDocument.findFirst({
+      where: { id: documentId, employee: { companyId: user.companyId } }
+    });
+    if (!document) throw notFound("Document");
+
+    await prisma.employeeDocument.delete({ where: { id: documentId } });
+    await this.updateOnboardingStatus(document.employeeId);
+    return { ok: true };
+  },
+
+  async deleteEmployee(companyId: string, employeeId: string, confirmation: string) {
+    if (confirmation !== "CONFIRM") throw new ApiError(400, "Type CONFIRM to delete this employee");
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, companyId } });
+    if (!employee) throw notFound("Employee");
+
+    return prisma.$transaction(async (tx) => {
+      await tx.employee.updateMany({ where: { managerId: employeeId }, data: { managerId: null } });
+      await tx.employeeDocument.deleteMany({ where: { employeeId } });
+      await tx.employeeLetter.deleteMany({ where: { employeeId } });
+      await tx.salary.deleteMany({ where: { employeeId } });
+      await tx.attendance.deleteMany({ where: { employeeId } });
+      await tx.wFHRequest.deleteMany({ where: { employeeId } });
+      await tx.expenseClaim.deleteMany({ where: { employeeId } });
+      await tx.payslip.deleteMany({ where: { employeeId } });
+      await tx.employee.delete({ where: { id: employeeId } });
+      await tx.auditLog.updateMany({ where: { actorUserId: employee.userId }, data: { actorUserId: null } });
+      await tx.notification.updateMany({ where: { userId: employee.userId }, data: { userId: null } });
+      await tx.user.delete({ where: { id: employee.userId } });
+      return { ok: true };
+    });
   },
 
   async listLettersForUser(user: AuthUser, employeeId: string) {
