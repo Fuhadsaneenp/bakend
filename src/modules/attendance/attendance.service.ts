@@ -1,6 +1,8 @@
+import { Role } from "@prisma/client";
 import { differenceInMinutes, endOfDay, startOfDay } from "date-fns";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
+import type { AuthUser } from "../../middleware/auth.js";
 
 const lateHour = 9;
 const standardWorkMinutes = 8 * 60;
@@ -45,6 +47,30 @@ export const attendanceService = {
     const to = endOfDay(new Date(year, month, 0));
     return prisma.attendance.findMany({
       where: { employee: { companyId }, workDate: { gte: from, lte: to } },
+      include: { employee: true },
+      orderBy: [{ workDate: "asc" }]
+    });
+  },
+
+  async monthlyReportForUser(user: AuthUser, month: number, year: number) {
+    if (!user.companyId) return [];
+    const from = new Date(year, month - 1, 1);
+    const to = endOfDay(new Date(year, month, 0));
+
+    if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
+      return this.monthlyReport(user.companyId, month, year);
+    }
+
+    const employee = await prisma.employee.findUnique({ where: { userId: user.id } });
+    if (!employee) return [];
+
+    const employeeWhere =
+      user.role === Role.MANAGER
+        ? { managerId: employee.id }
+        : { id: employee.id };
+
+    return prisma.attendance.findMany({
+      where: { employee: employeeWhere, workDate: { gte: from, lte: to } },
       include: { employee: true },
       orderBy: [{ workDate: "asc" }]
     });

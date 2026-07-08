@@ -3,6 +3,7 @@ import { Prisma, Role } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { notFound } from "../../lib/errors.js";
 import { storageService } from "../../storage/storage.service.js";
+import type { AuthUser } from "../../middleware/auth.js";
 
 const nextEmployeeCode = async (companyId: string) => {
   const count = await prisma.employee.count({ where: { companyId } });
@@ -14,6 +15,31 @@ export const employeeService = {
     return prisma.employee.findMany({
       where: { companyId },
       include: { user: true, department: true, designation: true, salary: true },
+      orderBy: { createdAt: "desc" }
+    });
+  },
+
+  async listForUser(user: AuthUser) {
+    if (!user.companyId) return [];
+
+    if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
+      return this.list(user.companyId);
+    }
+
+    const currentEmployee = await prisma.employee.findUnique({ where: { userId: user.id } });
+    if (!currentEmployee) return [];
+
+    if (user.role === Role.MANAGER) {
+      return prisma.employee.findMany({
+        where: { companyId: user.companyId, managerId: currentEmployee.id },
+        include: { user: true, department: true, designation: true },
+        orderBy: { createdAt: "desc" }
+      });
+    }
+
+    return prisma.employee.findMany({
+      where: { companyId: user.companyId, userId: user.id },
+      include: { user: true, department: true, designation: true },
       orderBy: { createdAt: "desc" }
     });
   },

@@ -17,10 +17,10 @@ wfhRouter.post("/request", async (req, res, next) => {
   }
 });
 
-wfhRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
+wfhRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    res.json(await wfhService.list(req.user.companyId));
+    res.json(await wfhService.listForUser(req.user));
   } catch (error) {
     next(error);
   }
@@ -29,7 +29,7 @@ wfhRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), 
 wfhRouter.patch("/:id/review", requireRoles(Role.HR_ADMIN, Role.MANAGER, Role.SUPER_ADMIN), async (req, res, next) => {
   try {
     const body = z.object({ status: z.enum([ApprovalStatus.APPROVED, ApprovalStatus.REJECTED]) }).parse(req.body);
-    res.json(await wfhService.review(req.params.id, req.user!.id, body.status));
+    res.json(await wfhService.review(req.params.id, req.user!, body.status));
   } catch (error) {
     next(error);
   }

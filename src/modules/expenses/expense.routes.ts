@@ -23,10 +23,10 @@ expenseRouter.post("/submit", async (req, res, next) => {
   }
 });
 
-expenseRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
+expenseRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    res.json(await expenseService.list(req.user.companyId));
+    res.json(await expenseService.listForUser(req.user));
   } catch (error) {
     next(error);
   }
@@ -35,7 +35,7 @@ expenseRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGE
 expenseRouter.patch("/:id/manager-review", requireRoles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN), async (req, res, next) => {
   try {
     const body = z.object({ status: z.enum([ApprovalStatus.APPROVED, ApprovalStatus.REJECTED]) }).parse(req.body);
-    res.json(await expenseService.managerReview(req.params.id, body.status));
+    res.json(await expenseService.managerReview(req.params.id, req.user!, body.status));
   } catch (error) {
     next(error);
   }

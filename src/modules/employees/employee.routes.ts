@@ -11,10 +11,10 @@ export const employeeRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 employeeRouter.use(requireAuth);
 
-employeeRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
+employeeRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    res.json(await employeeService.list(req.user.companyId));
+    res.json(await employeeService.listForUser(req.user));
   } catch (error) {
     next(error);
   }

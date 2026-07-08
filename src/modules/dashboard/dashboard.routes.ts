@@ -9,7 +9,7 @@ dashboardRouter.use(requireAuth);
 dashboardRouter.get("/", async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    res.json(await dashboardService.company(req.user.companyId));
+    res.json(await dashboardService.forUser(req.user));
   } catch (error) {
     next(error);
   }
