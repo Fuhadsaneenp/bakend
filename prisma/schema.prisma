@@ -1,9 +1,10 @@
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
+  engineType = "library"
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
 }
 
 enum Role {
@@ -75,6 +76,8 @@ model Company {
   departments Department[]
   employees   Employee[]
   payrollRuns PayrollRun[]
+  clients     Client[]
+  workCards   WorkCard[]
 }
 
 model User {
@@ -89,6 +92,8 @@ model User {
   employee        Employee?
   notifications   Notification[]
   auditLogs       AuditLog[]   @relation("ActorAuditLogs")
+  statusHistories StatusHistory[]
+  comments        Comment[]
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 }
@@ -156,6 +161,12 @@ model Employee {
   wfhRequests    WFHRequest[]
   expenseClaims  ExpenseClaim[]
   payslips       Payslip[]
+  assignedWorkCards WorkCard[] @relation("AssignedWorkCards")
+  createdWorkCards  WorkCard[] @relation("CreatedWorkCards")
+  reworkCharged     ReworkLog[] @relation("ReworkCharged")
+  pointsLedgers     PointsLedger[]
+  ratingsGiven      Rating[] @relation("RatingsGiven")
+  managedClients    Client[] @relation("ManagedClients")
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   @@unique([companyId, employeeCode])
@@ -305,4 +316,123 @@ model AuditLog {
   ipAddress   String?
   metadata    Json?
   createdAt   DateTime @default(now())
+}
+
+model Client {
+  id               String       @id @default(cuid())
+  companyId        String
+  company          Company      @relation(fields: [companyId], references: [id])
+  name             String
+  details          String?      @db.Text
+  contacts         String?      @db.Text
+  accountManagerId String?
+  accountManager   Employee?    @relation("ManagedClients", fields: [accountManagerId], references: [id])
+  specialDays      SpecialDay[]
+  workCards        WorkCard[]
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model SpecialDay {
+  id        String   @id @default(cuid())
+  clientId  String?
+  client    Client?  @relation(fields: [clientId], references: [id])
+  title     String
+  type      String   // FESTIVAL, BIRTHDAY, ANNIVERSARY, CAMPAIGN
+  date      DateTime
+  createdAt DateTime @default(now())
+}
+
+model WorkCard {
+  id            String          @id @default(cuid())
+  companyId     String
+  company       Company         @relation(fields: [companyId], references: [id])
+  workId        String          @unique
+  clientId      String
+  client        Client          @relation(fields: [clientId], references: [id])
+  title         String
+  brief         String          @db.Text
+  category      String
+  priority      String          // URGENT, HIGH, NORMAL, LOW
+  complexity    String          // SIMPLE, MEDIUM, HEAVY
+  deadline      DateTime
+  assignedToId  String?
+  assignedTo    Employee?       @relation("AssignedWorkCards", fields: [assignedToId], references: [id])
+  assignedById  String?
+  assignedBy    Employee?       @relation("CreatedWorkCards", fields: [assignedById], references: [id])
+  status        String          // PENDING, IN_PROGRESS, FINISHED, OUT_TO_DELIVER, APPROVED, REWORK
+  reworkCount   Int             @default(0)
+  files         String?         @db.Text // JSON string
+  pointsEarned  Float?          @default(0)
+  ratings       Rating[]
+  statusHistory StatusHistory[]
+  comments      Comment[]
+  reworkLogs    ReworkLog[]
+  pointsLedgers PointsLedger[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+model StatusHistory {
+  id         String   @id @default(cuid())
+  workCardId String
+  workCard   WorkCard @relation(fields: [workCardId], references: [id])
+  status     String
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  createdAt  DateTime @default(now())
+}
+
+model ReworkLog {
+  id          String   @id @default(cuid())
+  workCardId  String
+  workCard    WorkCard @relation(fields: [workCardId], references: [id])
+  roundNumber Int
+  reason      String
+  comment     String?  @db.Text
+  chargedToId String?
+  chargedTo   Employee? @relation("ReworkCharged", fields: [chargedToId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model PointsLedger {
+  id          String    @id @default(cuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  workCardId  String?
+  workCard    WorkCard? @relation(fields: [workCardId], references: [id])
+  points      Float
+  description String
+  createdAt   DateTime  @default(now())
+}
+
+model Rating {
+  id         String   @id @default(cuid())
+  workCardId String
+  workCard   WorkCard @relation(fields: [workCardId], references: [id])
+  rating     Int
+  feedback   String?  @db.Text
+  ratedById  String?
+  ratedBy    Employee? @relation("RatingsGiven", fields: [ratedById], references: [id])
+  createdAt  DateTime @default(now())
+}
+
+model Comment {
+  id         String   @id @default(cuid())
+  workCardId String
+  workCard   WorkCard @relation(fields: [workCardId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  text       String   @db.Text
+  createdAt  DateTime @default(now())
+}
+
+model WorkTrackSetting {
+  id             String @id @default("settings")
+  companyId      String @unique
+  pointValues    String @db.Text // JSON string
+  slaTimes       String @db.Text // JSON string
+  categories     String @db.Text // JSON string
+  reworkReasons  String @db.Text // JSON string
+  promotionRules String @db.Text // JSON string
 }

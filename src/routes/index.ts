@@ -8,6 +8,7 @@ import { expenseRouter } from "../modules/expenses/expense.routes.js";
 import { notificationRouter } from "../modules/notifications/notification.routes.js";
 import { dashboardRouter } from "../modules/dashboard/dashboard.routes.js";
 import { orgRouter } from "../modules/org/org.routes.js";
+import { workTrackRouter } from "../modules/work-track/work-track.routes.js";
 
 export const apiRouter = Router();
 
@@ -19,4 +20,5 @@ apiRouter.use("/wfh", wfhRouter);
 apiRouter.use("/expenses", expenseRouter);
 apiRouter.use("/notifications", notificationRouter);
 apiRouter.use("/dashboard", dashboardRouter);
+apiRouter.use("/work-track", workTrackRouter);
 apiRouter.use("/", orgRouter);
