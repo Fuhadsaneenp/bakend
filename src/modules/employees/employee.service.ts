@@ -423,5 +423,61 @@ export const employeeService = {
     const updated = await prisma.employeeLetter.update({ where: { id: letter.id }, data: { fileKey: key } });
 
     return { ...updated, fileUrl: storageService.publicUrl(key) };
+  },
+
+  async getByUserId(userId: string) {
+    return prisma.employee.findUnique({
+      where: { userId },
+      include: employeeProfileFields
+    });
+  },
+
+  async updateProfile(userId: string, data: {
+    firstName?: string;
+    lastName?: string;
+    phone?: string | null;
+    personalEmail?: string | null;
+    dateOfBirth?: string | null;
+    gender?: string | null;
+    addressLine1?: string | null;
+    addressLine2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    country?: string | null;
+    postalCode?: string | null;
+    emergencyContactName?: string | null;
+    emergencyContactPhone?: string | null;
+    bankName?: string | null;
+    bankAccountNumber?: string | null;
+    bankIfsc?: string | null;
+    taxId?: string | null;
+  }) {
+    const employee = await prisma.employee.findUnique({ where: { userId } });
+    if (!employee) throw notFound("Employee not found");
+
+    return prisma.employee.update({
+      where: { id: employee.id },
+      data: {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone,
+        personalEmail: data.personalEmail,
+        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : data.dateOfBirth,
+        gender: data.gender,
+        addressLine1: data.addressLine1,
+        addressLine2: data.addressLine2,
+        city: data.city,
+        state: data.state,
+        country: data.country,
+        postalCode: data.postalCode,
+        emergencyContactName: data.emergencyContactName,
+        emergencyContactPhone: data.emergencyContactPhone,
+        bankName: data.bankName,
+        bankAccountNumber: data.bankAccountNumber,
+        bankIfsc: data.bankIfsc,
+        taxId: data.taxId
+      },
+      include: employeeProfileFields
+    });
   }
 };

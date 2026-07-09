@@ -6,6 +6,7 @@ import { requireAuth, requireRoles } from "../../middleware/auth.js";
 import { ApiError } from "../../lib/errors.js";
 import { employeeService } from "./employee.service.js";
 import { audit } from "../audit/audit.service.js";
+import { authService } from "../auth/auth.service.js";
 
 export const employeeRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -49,6 +50,50 @@ employeeRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAG
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     res.json(await employeeService.listForUser(req.user));
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.get("/me", async (req, res, next) => {
+  try {
+    const employee = await employeeService.getByUserId(req.user!.id);
+    if (!employee) {
+      res.status(404).json({ message: "Employee profile not found for this user account" });
+      return;
+    }
+    res.json(employee);
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.patch("/me", async (req, res, next) => {
+  try {
+    const body = z.object({
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
+      phone: z.string().optional().nullable(),
+      personalEmail: z.string().email().optional().nullable(),
+      ...nullableProfileFieldsSchema
+    }).parse(req.body);
+
+    const employee = await employeeService.updateProfile(req.user!.id, body);
+    await audit.record({ actorUserId: req.user!.id, action: "PROFILE_UPDATED", entity: "Employee", entityId: employee.id, ipAddress: req.ip });
+    res.json(employee);
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.post("/me/change-password", async (req, res, next) => {
+  try {
+    const body = z.object({
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(8)
+    }).parse(req.body);
+
+    res.json(await authService.changePassword(req.user!.id, body.currentPassword, body.newPassword));
   } catch (error) {
     next(error);
   }
