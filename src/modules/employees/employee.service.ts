@@ -15,6 +15,7 @@ const isHrRole = (role: Role) => role === Role.SUPER_ADMIN || role === Role.HR_A
 
 const employeeProfileFields = {
   user: true,
+  company: true,
   department: true,
   designation: true,
   salary: true,
@@ -24,6 +25,7 @@ const employeeProfileFields = {
 
 const employeeOperationalFields = {
   user: true,
+  company: true,
   department: true,
   designation: true
 };
@@ -64,6 +66,13 @@ export const employeeService = {
   },
 
   async listForUser(user: AuthUser) {
+    if (user.role === Role.SUPER_ADMIN) {
+      return prisma.employee.findMany({
+        include: employeeProfileFields,
+        orderBy: { createdAt: "desc" }
+      });
+    }
+
     if (!user.companyId) return [];
 
     if (isHrRole(user.role)) {
@@ -175,17 +184,20 @@ export const employeeService = {
     });
   },
 
-  async updateStatus(companyId: string, employeeId: string, status: "ACTIVE" | "INACTIVE" | "TERMINATED") {
-    const employee = await prisma.employee.findFirst({ where: { id: employeeId, companyId } });
+  async updateStatus(user: AuthUser, employeeId: string, status: "ACTIVE" | "INACTIVE" | "TERMINATED") {
+    const employee = await prisma.employee.findFirst({
+      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
+    });
     if (!employee) throw notFound("Employee");
     return prisma.employee.update({ where: { id: employeeId }, data: { status } });
   },
 
-  async update(companyId: string, id: string, data: {
+  async update(user: AuthUser, id: string, data: {
     firstName?: string;
     lastName?: string;
     phone?: string | null;
     personalEmail?: string | null;
+    companyId?: string | null;
     departmentId?: string | null;
     designationId?: string | null;
     managerId?: string | null;
@@ -209,7 +221,7 @@ export const employeeService = {
     salary?: { basic: number; allowances: number; deductions: number; effectiveFrom: string };
   }) {
     const employee = await prisma.employee.findFirst({
-      where: { id, companyId }
+      where: user.role === Role.SUPER_ADMIN ? { id } : { id, companyId: user.companyId || undefined }
     });
     if (!employee) throw notFound("Employee not found");
 
@@ -228,6 +240,7 @@ export const employeeService = {
           lastName: data.lastName,
           phone: data.phone,
           personalEmail: data.personalEmail,
+          companyId: data.companyId !== undefined ? (data.companyId || undefined) : undefined,
           departmentId: data.departmentId,
           designationId: data.designationId,
           managerId: data.managerId,
@@ -275,6 +288,11 @@ export const employeeService = {
   },
 
   async assertSelfOrHr(user: AuthUser, employeeId: string) {
+    if (user.role === Role.SUPER_ADMIN) {
+      const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+      if (!employee) throw notFound("Employee");
+      return employee;
+    }
     if (!user.companyId) throw new ApiError(400, "Company context required");
     const employee = await prisma.employee.findFirst({ where: { id: employeeId, companyId: user.companyId } });
     if (!employee) throw notFound("Employee");
@@ -326,9 +344,10 @@ export const employeeService = {
   },
 
   async verifyDocument(user: AuthUser, documentId: string, status: "UPLOADED" | "VERIFIED" | "REJECTED", notes?: string) {
-    if (!isHrRole(user.role) || !user.companyId) throw new ApiError(403, "Insufficient permissions");
+    if (!isHrRole(user.role)) throw new ApiError(403, "Insufficient permissions");
+    if (user.role !== Role.SUPER_ADMIN && !user.companyId) throw new ApiError(403, "Insufficient permissions");
     const document = await prisma.employeeDocument.findFirst({
-      where: { id: documentId, employee: { companyId: user.companyId } }
+      where: user.role === Role.SUPER_ADMIN ? { id: documentId } : { id: documentId, employee: { companyId: user.companyId || undefined } }
     });
     if (!document) throw notFound("Document");
 
@@ -346,9 +365,10 @@ export const employeeService = {
   },
 
   async deleteDocument(user: AuthUser, documentId: string) {
-    if (!isHrRole(user.role) || !user.companyId) throw new ApiError(403, "Insufficient permissions");
+    if (!isHrRole(user.role)) throw new ApiError(403, "Insufficient permissions");
+    if (user.role !== Role.SUPER_ADMIN && !user.companyId) throw new ApiError(403, "Insufficient permissions");
     const document = await prisma.employeeDocument.findFirst({
-      where: { id: documentId, employee: { companyId: user.companyId } }
+      where: user.role === Role.SUPER_ADMIN ? { id: documentId } : { id: documentId, employee: { companyId: user.companyId || undefined } }
     });
     if (!document) throw notFound("Document");
 
@@ -357,9 +377,11 @@ export const employeeService = {
     return { ok: true };
   },
 
-  async deleteEmployee(companyId: string, employeeId: string, confirmation: string) {
+  async deleteEmployee(user: AuthUser, employeeId: string, confirmation: string) {
     if (confirmation !== "CONFIRM") throw new ApiError(400, "Type CONFIRM to delete this employee");
-    const employee = await prisma.employee.findFirst({ where: { id: employeeId, companyId } });
+    const employee = await prisma.employee.findFirst({
+      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
+    });
     if (!employee) throw notFound("Employee");
 
     return prisma.$transaction(async (tx) => {
@@ -388,9 +410,9 @@ export const employeeService = {
     return letters.map((letter) => ({ ...letter, fileUrl: letter.fileKey ? storageService.publicUrl(letter.fileKey) : null }));
   },
 
-  async generateLetter(companyId: string, employeeId: string, userId: string, data: { type: LetterType; title?: string; body?: string }) {
+  async generateLetter(user: AuthUser, employeeId: string, userId: string, data: { type: LetterType; title?: string; body?: string }) {
     const employee = await prisma.employee.findFirst({
-      where: { id: employeeId, companyId },
+      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined },
       include: { company: true }
     });
     if (!employee) throw notFound("Employee");
@@ -410,7 +432,7 @@ export const employeeService = {
     });
 
     const pdf = await renderEmployeeLetterPdf({
-      companyName: employee.company.name,
+      companyName: (employee as any).company.name,
       employeeName,
       employeeCode: employee.employeeCode,
       title,
@@ -418,7 +440,8 @@ export const employeeService = {
       issuedAt: letter.issuedAt
     });
 
-    const key = `companies/${companyId}/employees/${employeeId}/letters/${letter.id}.pdf`;
+    const targetCompanyId = employee.companyId;
+    const key = `companies/${targetCompanyId}/employees/${employeeId}/letters/${letter.id}.pdf`;
     await storageService.putObject(key, pdf, "application/pdf");
     const updated = await prisma.employeeLetter.update({ where: { id: letter.id }, data: { fileKey: key } });
 

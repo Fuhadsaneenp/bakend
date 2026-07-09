@@ -1,6 +1,67 @@
 import { prisma } from "../../lib/prisma.js";
 
 export const orgService = {
+  companies() {
+    return prisma.company.findMany({ orderBy: { name: "asc" } });
+  },
+
+  createCompany(data: { name: string; legalName?: string; logoUrl?: string }) {
+    return prisma.company.create({
+      data: {
+        name: data.name,
+        legalName: data.legalName || null,
+        logoUrl: data.logoUrl || null
+      }
+    });
+  },
+
+  updateCompany(id: string, data: { name?: string; legalName?: string | null; logoUrl?: string | null }) {
+    return prisma.company.update({
+      where: { id },
+      data
+    });
+  },
+
+  async deleteCompany(id: string) {
+    // Delete company and all its related entities in a transaction
+    return prisma.$transaction(async (tx) => {
+      // Find all employees in this company to delete their dependencies
+      const employees = await tx.employee.findMany({ where: { companyId: id } });
+      const employeeIds = employees.map(e => e.id);
+      const userIds = employees.map(e => e.userId);
+
+      if (employeeIds.length > 0) {
+        await tx.employeeDocument.deleteMany({ where: { employeeId: { in: employeeIds } } });
+        await tx.employeeLetter.deleteMany({ where: { employeeId: { in: employeeIds } } });
+        await tx.salary.deleteMany({ where: { employeeId: { in: employeeIds } } });
+        await tx.attendance.deleteMany({ where: { employeeId: { in: employeeIds } } });
+        await tx.wFHRequest.deleteMany({ where: { employeeId: { in: employeeIds } } });
+        await tx.expenseClaim.deleteMany({ where: { employeeId: { in: employeeIds } } });
+        await tx.payslip.deleteMany({ where: { employeeId: { in: employeeIds } } });
+        await tx.pointsLedger.deleteMany({ where: { employeeId: { in: employeeIds } } });
+        await tx.rating.deleteMany({ where: { ratedById: { in: employeeIds } } });
+        await tx.client.deleteMany({ where: { companyId: id } });
+        await tx.workCard.deleteMany({ where: { companyId: id } });
+        await tx.employee.deleteMany({ where: { companyId: id } });
+      }
+
+      if (userIds.length > 0) {
+        await tx.auditLog.deleteMany({ where: { actorUserId: { in: userIds } } });
+        await tx.notification.deleteMany({ where: { userId: { in: userIds } } });
+        await tx.statusHistory.deleteMany({ where: { userId: { in: userIds } } });
+        await tx.comment.deleteMany({ where: { userId: { in: userIds } } });
+        await tx.user.deleteMany({ where: { id: { in: userIds } } });
+      }
+
+      await tx.designation.deleteMany({ where: { department: { companyId: id } } });
+      await tx.department.deleteMany({ where: { companyId: id } });
+      await tx.payrollRun.deleteMany({ where: { companyId: id } });
+      await tx.workTrackSetting.deleteMany({ where: { companyId: id } });
+
+      return tx.company.delete({ where: { id } });
+    });
+  },
+
   departments(companyId: string) {
     return prisma.department.findMany({ where: { companyId }, include: { designations: true }, orderBy: { name: "asc" } });
   },
@@ -9,7 +70,29 @@ export const orgService = {
     return prisma.department.create({ data: { companyId, name: data.name, code: data.code } });
   },
 
+  updateDepartment(id: string, data: { name?: string; code?: string }) {
+    return prisma.department.update({ where: { id }, data });
+  },
+
+  async deleteDepartment(id: string) {
+    return prisma.$transaction(async (tx) => {
+      // Nullify department references or delete designations under this department
+      await tx.designation.deleteMany({ where: { departmentId: id } });
+      await tx.employee.updateMany({ where: { departmentId: id }, data: { departmentId: null, designationId: null } });
+      return tx.department.delete({ where: { id } });
+    });
+  },
+
   createDesignation(departmentId: string, title: string) {
     return prisma.designation.create({ data: { departmentId, title } });
+  },
+
+  updateDesignation(id: string, title: string) {
+    return prisma.designation.update({ where: { id }, data: { title } });
+  },
+
+  async deleteDesignation(id: string) {
+    await prisma.employee.updateMany({ where: { designationId: id }, data: { designationId: null } });
+    return prisma.designation.delete({ where: { id } });
   }
 };

@@ -9,6 +9,18 @@ import { apiRouter } from "./routes/index.js";
 import { errorHandler } from "./middleware/error.js";
 import { prisma } from "./lib/prisma.js";
 
+const isDesktopAppOrigin = (origin: string) => {
+  try {
+    const url = new URL(origin);
+    return (
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
+      (url.protocol === "http:" || url.protocol === "https:")
+    );
+  } catch {
+    return false;
+  }
+};
+
 export const createApp = () => {
   const app = express();
   app.use(helmet());
@@ -24,7 +36,8 @@ export const createApp = () => {
       if (
         allowedOrigins.includes(origin) || 
         origin.endsWith(".ptimeworks.com") || 
-        origin === "https://ptimeworks.com"
+        origin === "https://ptimeworks.com" ||
+        isDesktopAppOrigin(origin)
       ) {
         callback(null, true);
       } else {

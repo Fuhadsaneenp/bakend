@@ -48,8 +48,10 @@ const nullableProfileFieldsSchema = {
 
 employeeRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    res.json(await employeeService.listForUser(req.user));
+    if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
+      throw new ApiError(400, "Company context required");
+    }
+    res.json(await employeeService.listForUser(req.user!));
   } catch (error) {
     next(error);
   }
@@ -101,7 +103,9 @@ employeeRouter.post("/me/change-password", async (req, res, next) => {
 
 employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
+      throw new ApiError(400, "Company context required");
+    }
     const body = z.object({
       email: z.string().email(),
       password: z.string().min(8),
@@ -110,6 +114,7 @@ employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (r
       phone: z.string().optional(),
       personalEmail: z.string().email().optional(),
       dateOfJoining: z.string(),
+      companyId: z.string().optional(),
       departmentId: z.string().optional(),
       designationId: z.string().optional(),
       managerId: z.string().optional(),
@@ -124,8 +129,12 @@ employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (r
         effectiveFrom: z.string()
       }).optional()
     }).parse(req.body);
-    const employee = await employeeService.onboard(req.user.companyId, body);
-    await audit.record({ actorUserId: req.user.id, action: "EMPLOYEE_ONBOARDED", entity: "Employee", entityId: employee.id, ipAddress: req.ip });
+
+    const targetCompanyId = req.user!.role === Role.SUPER_ADMIN ? (body.companyId || req.user!.companyId) : req.user!.companyId;
+    if (!targetCompanyId) throw new ApiError(400, "Company context required");
+
+    const employee = await employeeService.onboard(targetCompanyId, body);
+    await audit.record({ actorUserId: req.user!.id, action: "EMPLOYEE_ONBOARDED", entity: "Employee", entityId: employee.id, ipAddress: req.ip });
     res.status(201).json(employee);
   } catch (error) {
     next(error);
@@ -134,12 +143,15 @@ employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (r
 
 employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
+      throw new ApiError(400, "Company context required");
+    }
     const body = z.object({
       firstName: z.string().optional(),
       lastName: z.string().optional(),
       phone: z.string().optional().nullable(),
       personalEmail: z.string().email().optional().nullable(),
+      companyId: z.string().optional().nullable(),
       departmentId: z.string().optional().nullable(),
       designationId: z.string().optional().nullable(),
       managerId: z.string().optional().nullable(),
@@ -155,8 +167,8 @@ employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
       }).optional()
     }).parse(req.body);
 
-    const employee = await employeeService.update(req.user.companyId, req.params.id, body);
-    await audit.record({ actorUserId: req.user.id, action: "EMPLOYEE_UPDATED", entity: "Employee", entityId: employee.id, ipAddress: req.ip });
+    const employee = await employeeService.update(req.user!, req.params.id, body);
+    await audit.record({ actorUserId: req.user!.id, action: "EMPLOYEE_UPDATED", entity: "Employee", entityId: employee.id, ipAddress: req.ip });
     res.json(employee);
   } catch (error) {
     next(error);
@@ -165,9 +177,11 @@ employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
 
 employeeRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
+      throw new ApiError(400, "Company context required");
+    }
     const body = z.object({ status: z.enum(["ACTIVE", "INACTIVE", "TERMINATED"]) }).parse(req.body);
-    res.json(await employeeService.updateStatus(req.user.companyId, req.params.id, body.status));
+    res.json(await employeeService.updateStatus(req.user!, req.params.id, body.status));
   } catch (error) {
     next(error);
   }
@@ -175,10 +189,12 @@ employeeRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN
 
 employeeRouter.delete("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
+      throw new ApiError(400, "Company context required");
+    }
     const body = z.object({ confirmation: z.literal("CONFIRM") }).parse(req.body);
-    const result = await employeeService.deleteEmployee(req.user.companyId, req.params.id, body.confirmation);
-    await audit.record({ actorUserId: req.user.id, action: "EMPLOYEE_DELETED", entity: "Employee", entityId: req.params.id, ipAddress: req.ip });
+    const result = await employeeService.deleteEmployee(req.user!, req.params.id, body.confirmation);
+    await audit.record({ actorUserId: req.user!.id, action: "EMPLOYEE_DELETED", entity: "Employee", entityId: req.params.id, ipAddress: req.ip });
     res.json(result);
   } catch (error) {
     next(error);
@@ -233,13 +249,15 @@ employeeRouter.get("/:id/letters", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN,
 
 employeeRouter.post("/:id/letters", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
+      throw new ApiError(400, "Company context required");
+    }
     const body = z.object({
       type: z.nativeEnum(LetterType),
       title: z.string().optional(),
       body: z.string().optional()
     }).parse(req.body);
-    res.status(201).json(await employeeService.generateLetter(req.user.companyId, req.params.id, req.user.id, body));
+    res.status(201).json(await employeeService.generateLetter(req.user!, req.params.id, req.user!.id, body));
   } catch (error) {
     next(error);
   }

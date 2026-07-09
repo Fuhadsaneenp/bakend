@@ -39,6 +39,25 @@ payrollRouter.post("/generate", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), a
   }
 });
 
+payrollRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const body = z.object({ status: z.enum(["PROCESSED", "PAID"]) }).parse(req.body);
+    const run = await prisma.payrollRun.findFirst({
+      where: { id: req.params.id, companyId: req.user.companyId }
+    });
+    if (!run) throw new ApiError(404, "Payroll run not found");
+
+    res.json(await prisma.payrollRun.update({
+      where: { id: run.id },
+      data: { status: body.status },
+      include: { payslips: { include: { employee: true } } }
+    }));
+  } catch (error) {
+    next(error);
+  }
+});
+
 payrollRouter.post("/payslips/:id/send", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     res.json(await payrollService.sendPayslip(req.params.id));
@@ -46,4 +65,3 @@ payrollRouter.post("/payslips/:id/send", requireRoles(Role.SUPER_ADMIN, Role.HR_
     next(error);
   }
 });
-
