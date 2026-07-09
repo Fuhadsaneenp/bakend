@@ -4,6 +4,8 @@ import { env } from "../../config/env.js";
 type EmailAttachment = { filename: string; content: Buffer; contentType: string };
 type EmailInput = { to: string; subject: string; html: string; attachments?: EmailAttachment[] };
 
+const cleanAddress = (value: string) => value.trim().replace(/^["']|["']$/g, "");
+
 const transporter = env.SMTP_HOST
   ? nodemailer.createTransport({
       host: env.SMTP_HOST,
@@ -21,7 +23,7 @@ async function sendViaResend(input: EmailInput) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      from: env.RESEND_FROM,
+      from: cleanAddress(env.RESEND_FROM),
       to: [input.to],
       subject: input.subject,
       html: input.html,
