@@ -243,6 +243,9 @@ model Payslip {
   basic          Decimal    @db.Decimal(12, 2)
   allowances     Decimal    @db.Decimal(12, 2)
   deductions     Decimal    @db.Decimal(12, 2)
+  gratuity       Decimal    @default(0.00) @db.Decimal(12, 2)
+  leaveEncashment Decimal   @default(0.00) @db.Decimal(12, 2)
+  noticePay      Decimal    @default(0.00) @db.Decimal(12, 2)
   attendanceDays Int
   payableDays    Int
   grossPay       Decimal    @db.Decimal(12, 2)

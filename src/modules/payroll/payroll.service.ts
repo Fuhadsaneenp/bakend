@@ -135,19 +135,35 @@ export const payrollService = {
   async updatePayslip(
     companyId: string,
     payslipId: string,
-    data: { payableDays: number; basic: number; allowances: number; deductions: number }
+    data: {
+      payableDays: number;
+      basic: number;
+      allowances: number;
+      deductions: number;
+      gratuity?: number;
+      leaveEncashment?: number;
+      noticePay?: number;
+    }
   ) {
     const payslip = await prisma.payslip.findFirst({
       where: { id: payslipId, payrollRun: { companyId } },
       include: { employee: { include: { company: true } }, payrollRun: true }
     });
     if (!payslip) throw new ApiError(404, "Payslip not found");
-    if (payslip.payrollRun.status !== "DRAFT") {
+    if (payslip.payrollRun.status !== "DRAFT" && payslip.payrollRun.status !== "DRAFT_FINAL") {
       throw new ApiError(400, "Can only modify payslips in a DRAFT payroll run");
     }
 
-    const grossPay = Number(data.basic) + Number(data.allowances);
+    const gratuity = Number(data.gratuity || 0);
+    const leaveEncashment = Number(data.leaveEncashment || 0);
+    const noticePay = Number(data.noticePay || 0);
+
+    const grossPay = Number(data.basic) + Number(data.allowances) + gratuity + leaveEncashment + noticePay;
     const netPay = Math.max(0, grossPay - Number(data.deductions));
+
+    // Map additional fields into allowances/deductions for PDF presentation to avoid layout shifts
+    const pdfAllowances = Number(data.allowances) + gratuity + leaveEncashment + (noticePay > 0 ? noticePay : 0);
+    const pdfDeductions = Number(data.deductions) + (noticePay < 0 ? Math.abs(noticePay) : 0);
 
     const pdf = await renderPayslipPdf({
       companyName: payslip.employee.company.name,
@@ -157,8 +173,8 @@ export const payrollService = {
       month: payslip.month,
       year: payslip.year,
       basic: Number(data.basic),
-      allowances: Number(data.allowances),
-      deductions: Number(data.deductions),
+      allowances: pdfAllowances,
+      deductions: pdfDeductions,
       grossPay,
       netPay,
       attendanceDays: payslip.attendanceDays,
@@ -175,6 +191,9 @@ export const payrollService = {
           basic: data.basic,
           allowances: data.allowances,
           deductions: data.deductions,
+          gratuity,
+          leaveEncashment,
+          noticePay,
           grossPay,
           netPay,
           pdfKey

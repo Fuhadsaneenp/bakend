@@ -75,7 +75,10 @@ payrollRouter.patch("/payslips/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMI
       payableDays: z.number().min(0),
       basic: z.number().min(0),
       allowances: z.number().min(0),
-      deductions: z.number().min(0)
+      deductions: z.number().min(0),
+      gratuity: z.number().optional(),
+      leaveEncashment: z.number().optional(),
+      noticePay: z.number().optional()
     }).parse(req.body);
 
     const result = await payrollService.updatePayslip(req.user.companyId, req.params.id, body);
