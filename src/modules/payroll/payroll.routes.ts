@@ -18,7 +18,11 @@ payrollRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req
       include: {
         payslips: {
           include: {
-            employee: true
+            employee: {
+              include: {
+                salary: true
+              }
+            }
           }
         }
       }
@@ -42,7 +46,7 @@ payrollRouter.post("/generate", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), a
 payrollRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    const body = z.object({ status: z.enum(["PROCESSED", "PAID"]) }).parse(req.body);
+    const body = z.object({ status: z.enum(["DRAFT", "APPROVED", "PAID"]) }).parse(req.body);
     const run = await prisma.payrollRun.findFirst({
       where: { id: req.params.id, companyId: req.user.companyId }
     });
@@ -51,8 +55,35 @@ payrollRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN)
     res.json(await prisma.payrollRun.update({
       where: { id: run.id },
       data: { status: body.status },
-      include: { payslips: { include: { employee: true } } }
+      include: { payslips: { include: { employee: { include: { salary: true } } } } }
     }));
+  } catch (error) {
+    next(error);
+  }
+});
+
+payrollRouter.patch("/payslips/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const body = z.object({
+      payableDays: z.number().min(0),
+      basic: z.number().min(0),
+      allowances: z.number().min(0),
+      deductions: z.number().min(0)
+    }).parse(req.body);
+
+    const result = await payrollService.updatePayslip(req.user.companyId, req.params.id, body);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+payrollRouter.delete("/payslips/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const result = await payrollService.skipPayslip(req.user.companyId, req.params.id);
+    res.json(result);
   } catch (error) {
     next(error);
   }
