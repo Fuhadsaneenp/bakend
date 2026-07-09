@@ -2,6 +2,7 @@ import { LetterType, Role } from "@prisma/client";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
+import { prisma } from "../../lib/prisma.js";
 import { requireAuth, requireRoles } from "../../middleware/auth.js";
 import { ApiError } from "../../lib/errors.js";
 import { employeeService } from "./employee.service.js";
@@ -258,6 +259,66 @@ employeeRouter.post("/:id/letters", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN
       body: z.string().optional()
     }).parse(req.body);
     res.status(201).json(await employeeService.generateLetter(req.user!, req.params.id, req.user!.id, body));
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.post("/:id/exit", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
+      throw new ApiError(400, "Company context required");
+    }
+    const body = z.object({
+      dateOfExit: z.string(),
+      exitReason: z.string(),
+      exitRemarks: z.string().optional()
+    }).parse(req.body);
+
+    const employee = await prisma.employee.findFirst({
+      where: req.user!.role === Role.SUPER_ADMIN ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+    });
+    if (!employee) throw new ApiError(404, "Employee not found");
+
+    const updated = await prisma.employee.update({
+      where: { id: employee.id },
+      data: {
+        status: "TERMINATED",
+        dateOfExit: new Date(body.dateOfExit),
+        exitReason: body.exitReason,
+        exitRemarks: body.exitRemarks || null,
+        settlementStatus: "PENDING"
+      }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.patch("/:id/settlement", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
+      throw new ApiError(400, "Company context required");
+    }
+    const body = z.object({
+      settlementStatus: z.enum(["PENDING", "SETTLED"])
+    }).parse(req.body);
+
+    const employee = await prisma.employee.findFirst({
+      where: req.user!.role === Role.SUPER_ADMIN ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+    });
+    if (!employee) throw new ApiError(404, "Employee not found");
+
+    const updated = await prisma.employee.update({
+      where: { id: employee.id },
+      data: {
+        settlementStatus: body.settlementStatus
+      }
+    });
+
+    res.json(updated);
   } catch (error) {
     next(error);
   }

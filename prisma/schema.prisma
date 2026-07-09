@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
 }
 
 enum Role {
@@ -151,6 +151,10 @@ model Employee {
   taxId          String?
   dateOfJoining  DateTime
   status         EmployeeStatus  @default(ACTIVE)
+  dateOfExit       DateTime?
+  exitReason       String?
+  exitRemarks      String?
+  settlementStatus String?         @default("PENDING")
   onboardingStatus OnboardingStatus @default(NOT_STARTED)
   baseCurrency   String          @default("INR")
   salary         Salary?
