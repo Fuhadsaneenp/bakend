@@ -9,9 +9,11 @@ import { renderPayslipPdf } from "./payslip.pdf.js";
 const decimalToNumber = (value: Prisma.Decimal | number) => Number(value);
 
 export const payrollService = {
-  async generate(companyId: string, processedBy: string, month: number, year: number) {
-    const existing = await prisma.payrollRun.findUnique({ where: { companyId_month_year: { companyId, month, year } } });
-    if (existing) throw new ApiError(409, "Payroll already generated for this period");
+  async generate(companyId: string, processedBy: string, month: number, year: number, type: "REGULAR" | "FINAL" = "REGULAR") {
+    const existing = await prisma.payrollRun.findUnique({
+      where: { companyId_month_year_type: { companyId, month, year, type } }
+    });
+    if (existing) throw new ApiError(409, "Payroll already generated for this period and type");
 
     const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });
     const endOfMonthDate = new Date(year, month, 0);
@@ -20,9 +22,12 @@ export const payrollService = {
     const employees = await prisma.employee.findMany({
       where: {
         companyId,
-        status: "ACTIVE",
+        status: type === "FINAL" ? "TERMINATED" : "ACTIVE",
         salary: { isNot: null },
-        dateOfJoining: { lte: endOfDay(endOfMonthDate) }
+        ...(type === "FINAL"
+          ? { dateOfExit: { gte: startOfMonthDate, lte: endOfDay(endOfMonthDate) } }
+          : { dateOfJoining: { lte: endOfDay(endOfMonthDate) } }
+        )
       },
       include: {
         salary: true,
@@ -43,7 +48,16 @@ export const payrollService = {
 
     return prisma.$transaction(async (tx) => {
       const run = await tx.payrollRun.create({
-        data: { companyId, month, year, processedBy, grossTotal: 0, netTotal: 0, status: "DRAFT" }
+        data: {
+          companyId,
+          month,
+          year,
+          processedBy,
+          type,
+          grossTotal: 0,
+          netTotal: 0,
+          status: type === "FINAL" ? "DRAFT_FINAL" : "DRAFT"
+        }
       });
 
       for (const employee of employees) {
@@ -52,8 +66,9 @@ export const payrollService = {
         
         let attendanceDays = totalDaysInMonth;
         
-        // Middle-of-month joining check
-        if (employee.dateOfJoining > startOfMonthDate) {
+        if (type === "FINAL" && employee.dateOfExit) {
+          attendanceDays = employee.dateOfExit.getDate();
+        } else if (employee.dateOfJoining > startOfMonthDate) {
           attendanceDays = totalDaysInMonth - employee.dateOfJoining.getDate() + 1;
         }
 
@@ -71,7 +86,7 @@ export const payrollService = {
         grossTotal += grossPay;
         netTotal += netPay;
 
-        const payslipNumber = `PS-${year}${String(month).padStart(2, "0")}-${employee.employeeCode}`;
+        const payslipNumber = `PS-${year}${String(month).padStart(2, "0")}-${employee.employeeCode}${type === "FINAL" ? "-F" : ""}`;
         const pdf = await renderPayslipPdf({
           companyName: company.name,
           employeeName: `${employee.firstName} ${employee.lastName}`,
@@ -87,7 +102,7 @@ export const payrollService = {
           attendanceDays,
           payableDays
         });
-        const pdfKey = `companies/${companyId}/payslips/${year}-${month}/${employee.id}.pdf`;
+        const pdfKey = `companies/${companyId}/payslips/${year}-${month}/${employee.id}${type === "FINAL" ? "-final" : ""}.pdf`;
         await storageService.putObject(pdfKey, pdf, "application/pdf");
 
         await tx.payslip.create({

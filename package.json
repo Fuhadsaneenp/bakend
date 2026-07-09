@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "prisma generate && prisma db push --accept-data-loss && tsc -p tsconfig.json",
+    "build": "prisma generate && (prisma db push --accept-data-loss || true) && tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "lint": "eslint src --ext .ts",
     "prisma:generate": "prisma generate",

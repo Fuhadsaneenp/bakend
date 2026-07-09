@@ -223,11 +223,12 @@ model PayrollRun {
   year        Int
   processedBy String
   status      String    @default("PROCESSED")
+  type        String    @default("REGULAR")
   grossTotal  Decimal   @db.Decimal(14, 2)
   netTotal    Decimal   @db.Decimal(14, 2)
   payslips    Payslip[]
   createdAt   DateTime  @default(now())
-  @@unique([companyId, month, year])
+  @@unique([companyId, month, year, type])
 }
 
 model Payslip {
