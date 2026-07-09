@@ -62,18 +62,25 @@ export const authService = {
       expires: Date.now() + 15 * 60 * 1000
     });
 
-    const emailResult = await emailService.send({
-      to: user.email,
-      subject: "Your Second Tales EMS password reset code",
-      html: `
-        <div style="font-family: Arial, sans-serif; color: #1e293b; line-height: 1.5;">
-          <h2 style="margin: 0 0 12px;">Password reset code</h2>
-          <p>Use this 6-digit code to reset your Second Tales EMS password.</p>
-          <p style="font-size: 28px; font-weight: 700; letter-spacing: 6px; color: #047857; margin: 20px 0;">${code}</p>
-          <p>This code expires in 15 minutes. If you did not request this, you can ignore this email.</p>
-        </div>
-      `
-    });
+    let emailResult: Awaited<ReturnType<typeof emailService.send>>;
+    try {
+      emailResult = await emailService.send({
+        to: user.email,
+        subject: "Your Second Tales EMS password reset code",
+        html: `
+          <div style="font-family: Arial, sans-serif; color: #1e293b; line-height: 1.5;">
+            <h2 style="margin: 0 0 12px;">Password reset code</h2>
+            <p>Use this 6-digit code to reset your Second Tales EMS password.</p>
+            <p style="font-size: 28px; font-weight: 700; letter-spacing: 6px; color: #047857; margin: 20px 0;">${code}</p>
+            <p>This code expires in 15 minutes. If you did not request this, you can ignore this email.</p>
+          </div>
+        `
+      });
+    } catch (error) {
+      const deliveryError = error instanceof Error ? error.message : "Unknown email provider error";
+      console.error("[PASSWORD RESET EMAIL FAILED]", deliveryError);
+      throw new ApiError(502, "Password reset email could not be sent", { reason: deliveryError });
+    }
 
     if (!emailResult.delivered) {
       console.log("\n=========================================");
