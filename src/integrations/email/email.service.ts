@@ -14,7 +14,7 @@ export const emailService = {
   async send(input: { to: string; subject: string; html: string; attachments?: { filename: string; content: Buffer; contentType: string }[] }) {
     if (!transporter) {
       console.info("[email:dry-run]", input.to, input.subject);
-      return { providerMessageId: "dry-run" };
+      return { providerMessageId: "dry-run", delivered: false };
     }
 
     const info = await transporter.sendMail({
@@ -24,6 +24,6 @@ export const emailService = {
       html: input.html,
       attachments: input.attachments
     });
-    return { providerMessageId: info.messageId };
+    return { providerMessageId: info.messageId, delivered: true };
   }
 };

@@ -1,11 +1,10 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import fs from "fs";
-import path from "path";
 import { prisma } from "../../lib/prisma.js";
 import { env } from "../../config/env.js";
 import { ApiError } from "../../lib/errors.js";
 import type { AuthUser } from "../../middleware/auth.js";
+import { emailService } from "../../integrations/email/email.service.js";
 
 const signAccessToken = (payload: AuthUser) => jwt.sign(payload, env.JWT_ACCESS_SECRET, { expiresIn: env.ACCESS_TOKEN_TTL as any });
 const signRefreshToken = (payload: AuthUser) => jwt.sign(payload, env.JWT_REFRESH_SECRET, { expiresIn: env.REFRESH_TOKEN_TTL as any });
@@ -53,26 +52,42 @@ export const authService = {
   },
 
   async requestResetPassword(email: string) {
-    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    const normalizedEmail = email.toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (!user) throw new ApiError(404, "User with this email does not exist");
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    resetCodes.set(email.toLowerCase(), {
+    resetCodes.set(normalizedEmail, {
       code,
       expires: Date.now() + 15 * 60 * 1000
     });
 
-    console.log("\n=========================================");
-    console.log(`[PASSWORD RESET CODE] Reset PIN for ${email} is: ${code}`);
-    console.log("=========================================\n");
+    const emailResult = await emailService.send({
+      to: user.email,
+      subject: "Your Second Tales EMS password reset code",
+      html: `
+        <div style="font-family: Arial, sans-serif; color: #1e293b; line-height: 1.5;">
+          <h2 style="margin: 0 0 12px;">Password reset code</h2>
+          <p>Use this 6-digit code to reset your Second Tales EMS password.</p>
+          <p style="font-size: 28px; font-weight: 700; letter-spacing: 6px; color: #047857; margin: 20px 0;">${code}</p>
+          <p>This code expires in 15 minutes. If you did not request this, you can ignore this email.</p>
+        </div>
+      `
+    });
 
-    try {
-      fs.writeFileSync("/Users/saneen/Personal/hr-saas-platform/reset-pin.txt", `Reset PIN code for ${email} is: ${code}\nGenerated at: ${new Date().toLocaleString()}\n`);
-    } catch (e) {
-      console.error("Failed to write reset-pin.txt:", e);
+    if (!emailResult.delivered) {
+      console.log("\n=========================================");
+      console.log(`[PASSWORD RESET CODE] Reset PIN for ${user.email} is: ${code}`);
+      console.log("SMTP is not configured, so the reset PIN was not emailed.");
+      console.log("=========================================\n");
     }
 
-    return { ok: true, message: "A 6-digit reset code has been printed to the server logs and written to reset-pin.txt." };
+    return {
+      ok: true,
+      message: emailResult.delivered
+        ? "A 6-digit reset code has been sent to your email."
+        : "Email sending is not configured on the server. The reset code was printed to the backend logs."
+    };
   },
 
   async resetPassword(email: string, code: string, newPass: string) {
@@ -92,13 +107,6 @@ export const authService = {
     });
 
     resetCodes.delete(email.toLowerCase());
-    try {
-      if (fs.existsSync("/Users/saneen/Personal/hr-saas-platform/reset-pin.txt")) {
-        fs.unlinkSync("/Users/saneen/Personal/hr-saas-platform/reset-pin.txt");
-      }
-    } catch (e) {
-      console.error("Failed to delete reset-pin.txt:", e);
-    }
     return { ok: true, message: "Password updated successfully" };
   }
 };
