@@ -25,7 +25,7 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().default("HR Platform <no-reply@example.com>"),
   RESEND_API_KEY: z.string().optional(),
-  RESEND_FROM: z.string().default("Second Tales EMS <onboarding@resend.dev>"),
+  RESEND_FROM: z.string().default("Second Tales EMS <noreplay@ptimeworks.com>"),
   WHATSAPP_PROVIDER: z.enum(["meta", "twilio"]).default("meta"),
   WHATSAPP_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
