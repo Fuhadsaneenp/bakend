@@ -18,7 +18,7 @@ const configuredOrigins = () => {
   const origins = new Set([
     env.APP_ORIGIN,
     ...productionOrigins,
-    ...(env.ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [])
+    ...(env.ALLOWED_ORIGINS?.split(",").map((origin: string) => origin.trim()).filter(Boolean) ?? [])
   ]);
 
   if (env.NODE_ENV !== "production") {

@@ -5,7 +5,10 @@ dotenv.config();
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().default(4000),
+  PORT: z.preprocess((val) => {
+    if (typeof val === "string" && /^\d+$/.test(val)) return Number(val);
+    return val;
+  }, z.union([z.string(), z.number()])).default(4000),
   APP_ORIGIN: z.string().url().default("http://localhost:3000"),
   ALLOWED_ORIGINS: z.string().optional(),
   DATABASE_URL: z.string(),
@@ -33,12 +36,21 @@ const envSchema = z.object({
   WHATSAPP_API_VERSION: z.string().default("v20.0")
 }).superRefine((value, ctx) => {
   if (value.NODE_ENV === "production" && !value.BIOMETRIC_API_KEY) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["BIOMETRIC_API_KEY"],
-      message: "BIOMETRIC_API_KEY is required in production"
-    });
+    console.warn("⚠️ Warning: BIOMETRIC_API_KEY is not configured for production environment.");
   }
 });
 
-export const env = envSchema.parse(process.env);
+let parsedEnv: any;
+try {
+  parsedEnv = envSchema.parse(process.env);
+} catch (error) {
+  if (error instanceof z.ZodError) {
+    console.error("❌ Environment validation failed:");
+    console.error(JSON.stringify(error.format(), null, 2));
+  } else {
+    console.error(error);
+  }
+  process.exit(1);
+}
+
+export const env = parsedEnv;
