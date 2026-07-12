@@ -148,8 +148,11 @@ orgRouter.patch("/designations/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMI
     if (req.user!.role !== Role.SUPER_ADMIN && desg.department.companyId !== req.user!.companyId) {
       throw new ApiError(403, "Insufficient permissions");
     }
-    const body = z.object({ title: z.string() }).parse(req.body);
-    res.json(await orgService.updateDesignation(req.params.id, body.title));
+    const body = z.object({
+      title: z.string().optional(),
+      departmentId: z.string().optional()
+    }).parse(req.body);
+    res.json(await orgService.updateDesignation(req.params.id, body.title, body.departmentId));
   } catch (error) {
     next(error);
   }

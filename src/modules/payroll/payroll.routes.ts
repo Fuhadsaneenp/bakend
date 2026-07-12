@@ -106,6 +106,14 @@ payrollRouter.post("/payslips/:id/send", requireRoles(Role.SUPER_ADMIN, Role.HR_
   }
 });
 
+payrollRouter.post("/runs/:id/send-all", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    res.json(await payrollService.sendAllPayslips(req.params.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
 payrollRouter.delete("/runs/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const runId = req.params.id;

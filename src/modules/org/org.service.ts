@@ -87,8 +87,14 @@ export const orgService = {
     return prisma.designation.create({ data: { departmentId, title } });
   },
 
-  updateDesignation(id: string, title: string) {
-    return prisma.designation.update({ where: { id }, data: { title } });
+  updateDesignation(id: string, title?: string, departmentId?: string) {
+    return prisma.designation.update({
+      where: { id },
+      data: {
+        ...(title !== undefined ? { title } : {}),
+        ...(departmentId !== undefined ? { departmentId } : {})
+      }
+    });
   },
 
   async deleteDesignation(id: string) {

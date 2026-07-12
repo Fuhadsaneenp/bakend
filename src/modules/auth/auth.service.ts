@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { createHash, randomInt } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { prisma } from "../../lib/prisma.js";
 import { env } from "../../config/env.js";
@@ -9,11 +10,16 @@ import { emailService } from "../../integrations/email/email.service.js";
 const signAccessToken = (payload: AuthUser) => jwt.sign(payload, env.JWT_ACCESS_SECRET, { expiresIn: env.ACCESS_TOKEN_TTL as any });
 const signRefreshToken = (payload: AuthUser) => jwt.sign(payload, env.JWT_REFRESH_SECRET, { expiresIn: env.REFRESH_TOKEN_TTL as any });
 
-const resetCodes = new Map<string, { code: string; expires: number }>();
+const resetCodes = new Map<string, { codeHash: string; expires: number; attempts: number }>();
+const hashResetCode = (email: string, code: string) => createHash("sha256")
+  .update(`${email}:${code}:${env.JWT_REFRESH_SECRET}`)
+  .digest("hex");
+const createResetCode = () => randomInt(100000, 1_000_000).toString();
+const resetRequestMessage = "If an account exists for this email, a password reset code has been sent.";
 
 export const authService = {
   async login(email: string, password: string) {
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user || !user.isActive) throw new ApiError(401, "Invalid credentials");
 
     const valid = await bcrypt.compare(password, user.passwordHash);
@@ -27,9 +33,14 @@ export const authService = {
   },
 
   async refresh(refreshToken: string) {
-    const payload = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET) as AuthUser;
+    let payload: AuthUser;
+    try {
+      payload = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET) as AuthUser;
+    } catch {
+      throw new ApiError(401, "Invalid refresh token");
+    }
     const user = await prisma.user.findUnique({ where: { id: payload.id } });
-    if (!user?.refreshHash || !(await bcrypt.compare(refreshToken, user.refreshHash))) {
+    if (!user?.isActive || !user.refreshHash || !(await bcrypt.compare(refreshToken, user.refreshHash))) {
       throw new ApiError(401, "Invalid refresh token");
     }
     const freshPayload = { id: user.id, companyId: user.companyId, role: user.role, email: user.email };
@@ -54,12 +65,13 @@ export const authService = {
   async requestResetPassword(email: string) {
     const normalizedEmail = email.toLowerCase();
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-    if (!user) throw new ApiError(404, "User with this email does not exist");
+    if (!user?.isActive) return { ok: true, message: resetRequestMessage };
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = createResetCode();
     resetCodes.set(normalizedEmail, {
-      code,
-      expires: Date.now() + 15 * 60 * 1000
+      codeHash: hashResetCode(normalizedEmail, code),
+      expires: Date.now() + 15 * 60 * 1000,
+      attempts: 0
     });
 
     let emailResult: Awaited<ReturnType<typeof emailService.send>>;
@@ -79,10 +91,13 @@ export const authService = {
     } catch (error) {
       const deliveryError = error instanceof Error ? error.message : "Unknown email provider error";
       console.error("[PASSWORD RESET EMAIL FAILED]", deliveryError);
-      throw new ApiError(502, "Password reset email could not be sent", { reason: deliveryError });
+      if (env.NODE_ENV !== "production") {
+        throw new ApiError(502, "Password reset email could not be sent", { reason: deliveryError });
+      }
+      throw new ApiError(502, "Password reset email could not be sent");
     }
 
-    if (!emailResult.delivered) {
+    if (!emailResult.delivered && env.NODE_ENV !== "production") {
       console.log("\n=========================================");
       console.log(`[PASSWORD RESET CODE] Reset PIN for ${user.email} is: ${code}`);
       console.log("SMTP is not configured, so the reset PIN was not emailed.");
@@ -91,29 +106,35 @@ export const authService = {
 
     return {
       ok: true,
-      message: emailResult.delivered
-        ? "A 6-digit reset code has been sent to your email."
-        : "Email sending is not configured on the server. The reset code was printed to the backend logs."
+      message: resetRequestMessage
     };
   },
 
   async resetPassword(email: string, code: string, newPass: string) {
-    const record = resetCodes.get(email.toLowerCase());
+    const normalizedEmail = email.toLowerCase();
+    const record = resetCodes.get(normalizedEmail);
     if (!record) throw new ApiError(400, "No password reset requested for this email");
 
-    if (record.code !== code) throw new ApiError(400, "Invalid reset code");
     if (Date.now() > record.expires) {
-      resetCodes.delete(email.toLowerCase());
+      resetCodes.delete(normalizedEmail);
       throw new ApiError(400, "Reset code has expired");
+    }
+    if (record.attempts >= 5) {
+      resetCodes.delete(normalizedEmail);
+      throw new ApiError(400, "Reset code has expired");
+    }
+    if (record.codeHash !== hashResetCode(normalizedEmail, code)) {
+      record.attempts += 1;
+      throw new ApiError(400, "Invalid reset code");
     }
 
     const newHash = await bcrypt.hash(newPass, 12);
     await prisma.user.update({
-      where: { email: email.toLowerCase() },
+      where: { email: normalizedEmail },
       data: { passwordHash: newHash, refreshHash: null }
     });
 
-    resetCodes.delete(email.toLowerCase());
+    resetCodes.delete(normalizedEmail);
     return { ok: true, message: "Password updated successfully" };
   }
 };

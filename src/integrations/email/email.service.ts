@@ -5,13 +5,25 @@ type EmailAttachment = { filename: string; content: Buffer; contentType: string 
 type EmailInput = { to: string; subject: string; html: string; attachments?: EmailAttachment[] };
 
 const cleanAddress = (value: string) => value.trim().replace(/^["']|["']$/g, "");
+const rejectHeaderValue = (value: string, field: string) => {
+  if (/[\r\n]/.test(value)) throw new Error(`Invalid ${field}`);
+  return value;
+};
+const sanitizeAttachmentName = (value: string) => value
+  .split(/[\\/]/)
+  .pop()
+  ?.replace(/[^\w.\- ]+/g, "")
+  .replace(/\s+/g, "-")
+  .slice(0, 120) || "attachment";
 
 const transporter = env.SMTP_HOST
   ? nodemailer.createTransport({
       host: env.SMTP_HOST,
       port: env.SMTP_PORT,
       secure: env.SMTP_PORT === 465,
-      auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined
+      auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
+      disableFileAccess: true,
+      disableUrlAccess: true
     })
   : null;
 
@@ -23,12 +35,12 @@ async function sendViaResend(input: EmailInput) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      from: cleanAddress(env.RESEND_FROM),
-      to: [input.to],
-      subject: input.subject,
+      from: rejectHeaderValue(cleanAddress(env.RESEND_FROM), "from address"),
+      to: [rejectHeaderValue(cleanAddress(input.to), "recipient address")],
+      subject: rejectHeaderValue(input.subject, "subject"),
       html: input.html,
       attachments: input.attachments?.map((attachment) => ({
-        filename: attachment.filename,
+        filename: sanitizeAttachmentName(attachment.filename),
         content: attachment.content.toString("base64"),
         content_type: attachment.contentType
       }))
@@ -55,11 +67,16 @@ export const emailService = {
     }
 
     const info = await transporter.sendMail({
-      from: env.SMTP_FROM,
-      to: input.to,
-      subject: input.subject,
+      from: rejectHeaderValue(cleanAddress(env.SMTP_FROM), "from address"),
+      to: rejectHeaderValue(cleanAddress(input.to), "recipient address"),
+      subject: rejectHeaderValue(input.subject, "subject"),
       html: input.html,
-      attachments: input.attachments
+      attachments: input.attachments?.map((attachment) => ({
+        ...attachment,
+        filename: sanitizeAttachmentName(attachment.filename)
+      })),
+      disableFileAccess: true,
+      disableUrlAccess: true
     });
     return { providerMessageId: info.messageId, delivered: true, provider: "smtp" };
   }

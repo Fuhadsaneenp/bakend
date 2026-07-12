@@ -9,7 +9,28 @@ import { apiRouter } from "./routes/index.js";
 import { errorHandler } from "./middleware/error.js";
 import { prisma } from "./lib/prisma.js";
 
+const productionOrigins = [
+  "https://ptimeworks.com",
+  "https://www.ptimeworks.com"
+];
+
+const configuredOrigins = () => {
+  const origins = new Set([
+    env.APP_ORIGIN,
+    ...productionOrigins,
+    ...(env.ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [])
+  ]);
+
+  if (env.NODE_ENV !== "production") {
+    origins.add("http://localhost:3000");
+    origins.add("http://127.0.0.1:3000");
+  }
+
+  return origins;
+};
+
 const isDesktopAppOrigin = (origin: string) => {
+  if (env.NODE_ENV === "production") return false;
   try {
     const url = new URL(origin);
     return (
@@ -23,33 +44,55 @@ const isDesktopAppOrigin = (origin: string) => {
 
 export const createApp = () => {
   const app = express();
-  app.use(helmet());
+  app.set("trust proxy", 1);
+  app.disable("x-powered-by");
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: "same-site" },
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        baseUri: ["'none'"],
+        formAction: ["'none'"],
+        frameAncestors: ["'none'"],
+        imgSrc: ["'self'", "data:"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"]
+      }
+    }
+  }));
   app.use(cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      const allowedOrigins = [
-        env.APP_ORIGIN,
-        "https://ptimeworks.com",
-        "https://www.ptimeworks.com",
-        "http://localhost:3000"
-      ];
-      if (
-        allowedOrigins.includes(origin) || 
-        origin.endsWith(".ptimeworks.com") || 
-        origin === "https://ptimeworks.com" ||
-        isDesktopAppOrigin(origin)
-      ) {
+      if (configuredOrigins().has(origin) || isDesktopAppOrigin(origin)) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));
       }
     },
-    credentials: true
+    credentials: true,
+    maxAge: 600
   }));
   app.use(express.json({ limit: "2mb" }));
+  app.use(express.urlencoded({ extended: false, limit: "100kb" }));
   app.use(morgan("combined"));
-  app.use(rateLimit({ windowMs: 60_000, limit: 300 }));
-  app.use("/files", express.static(path.resolve(env.LOCAL_STORAGE_PATH)));
+  app.use(rateLimit({
+    windowMs: 60_000,
+    limit: 300,
+    standardHeaders: "draft-7",
+    legacyHeaders: false
+  }));
+  app.use("/files", express.static(path.resolve(env.LOCAL_STORAGE_PATH), {
+    dotfiles: "deny",
+    fallthrough: false,
+    immutable: true,
+    maxAge: "1h",
+    setHeaders: (res) => {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Content-Disposition", "attachment");
+    }
+  }));
 
   app.get("/health", async (_req, res) => {
     try {
@@ -60,8 +103,7 @@ export const createApp = () => {
       res.status(500).json({ 
         ok: false, 
         service: "hr-saas-backend", 
-        database: "disconnected", 
-        error: dbError.message || dbError 
+        database: "disconnected"
       });
     }
   });

@@ -12,6 +12,15 @@ const nextEmployeeCode = async (companyId: string) => {
 };
 
 const isHrRole = (role: Role) => role === Role.SUPER_ADMIN || role === Role.HR_ADMIN;
+const sanitizeFileName = (fileName: string) => {
+  const baseName = fileName.split(/[\\/]/).pop() || "document";
+  return baseName
+    .normalize("NFKD")
+    .replace(/[^\w.\- ]+/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/^\.+/, "")
+    .slice(0, 120) || "document";
+};
 
 const employeeProfileFields = {
   user: true,
@@ -192,7 +201,9 @@ export const employeeService = {
     return prisma.employee.update({ where: { id: employeeId }, data: { status } });
   },
 
-  async update(user: AuthUser, id: string, data: {
+   async update(user: AuthUser, id: string, data: {
+    email?: string;
+    password?: string;
     firstName?: string;
     lastName?: string;
     phone?: string | null;
@@ -226,10 +237,15 @@ export const employeeService = {
     if (!employee) throw notFound("Employee not found");
 
     return prisma.$transaction(async (tx) => {
-      if (data.role) {
+      const userUpdateData: any = {};
+      if (data.role) userUpdateData.role = data.role;
+      if (data.email) userUpdateData.email = data.email;
+      if (data.password) userUpdateData.passwordHash = await bcrypt.hash(data.password, 12);
+
+      if (Object.keys(userUpdateData).length > 0) {
         await tx.user.update({
           where: { id: employee.userId },
-          data: { role: data.role }
+          data: userUpdateData
         });
       }
 
@@ -317,14 +333,15 @@ export const employeeService = {
     if (type === "PHOTO" && file.size > 150 * 1024) {
       throw new ApiError(400, "Employee photo must be below 150 KB");
     }
-    const key = `companies/${employee.companyId}/employees/${employeeId}/documents/${Date.now()}-${file.originalname}`;
+    const safeFileName = sanitizeFileName(file.originalname);
+    const key = `companies/${employee.companyId}/employees/${employeeId}/documents/${Date.now()}-${safeFileName}`;
     await storageService.putObject(key, file.buffer, file.mimetype);
     const document = await prisma.employeeDocument.create({
       data: {
         employeeId,
         type,
         fileKey: key,
-        fileName: file.originalname,
+        fileName: safeFileName,
         mimeType: file.mimetype,
         uploadedBy: user.id,
         notes

@@ -10,7 +10,32 @@ import { audit } from "../audit/audit.service.js";
 import { authService } from "../auth/auth.service.js";
 
 export const employeeRouter = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const allowedDocumentMimeTypes = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp"
+]);
+const passwordSchema = z.string()
+  .min(12)
+  .regex(/[a-z]/)
+  .regex(/[A-Z]/)
+  .regex(/[0-9]/)
+  .regex(/[^A-Za-z0-9]/);
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: 1
+  },
+  fileFilter: (_req, file, callback) => {
+    if (!allowedDocumentMimeTypes.has(file.mimetype)) {
+      callback(new ApiError(400, "Only PDF, JPEG, PNG, or WebP files are allowed"));
+      return;
+    }
+    callback(null, true);
+  }
+});
 employeeRouter.use(requireAuth);
 
 const profileFieldsSchema = {
@@ -93,7 +118,7 @@ employeeRouter.post("/me/change-password", async (req, res, next) => {
   try {
     const body = z.object({
       currentPassword: z.string().min(1),
-      newPassword: z.string().min(8)
+      newPassword: passwordSchema
     }).parse(req.body);
 
     res.json(await authService.changePassword(req.user!.id, body.currentPassword, body.newPassword));
@@ -109,7 +134,7 @@ employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (r
     }
     const body = z.object({
       email: z.string().email(),
-      password: z.string().min(8),
+      password: passwordSchema,
       firstName: z.string(),
       lastName: z.string(),
       phone: z.string().optional(),
@@ -148,6 +173,8 @@ employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
       throw new ApiError(400, "Company context required");
     }
     const body = z.object({
+      email: z.string().email().optional(),
+      password: passwordSchema.optional(),
       firstName: z.string().optional(),
       lastName: z.string().optional(),
       phone: z.string().optional().nullable(),

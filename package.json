@@ -4,17 +4,18 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "prisma generate && (prisma db push --accept-data-loss || true) && tsc -p tsconfig.json",
-    "start": "node dist/src/server.js",
+    "dev": "cross-env TZ=Asia/Kolkata tsx watch src/server.ts",
+    "build": "cross-env TZ=Asia/Kolkata prisma generate && (cross-env TZ=Asia/Kolkata prisma db push --accept-data-loss || true) && tsc -p tsconfig.json",
+    "start": "cross-env TZ=Asia/Kolkata node dist/src/server.js",
     "lint": "eslint src --ext .ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "cross-env TZ=Asia/Kolkata tsx prisma/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.614.0",
     "@prisma/adapter-mariadb": "^7.8.0",
+    "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
@@ -36,8 +37,9 @@
     "mariadb": "^3.5.3",
     "morgan": "^1.10.0",
     "multer": "^2.2.0",
-    "nodemailer": "^6.9.14",
+    "nodemailer": "^9.0.3",
     "pdfkit": "^0.15.0",
+    "pg": "^8.22.0",
     "pino": "^9.3.2",
     "typescript": "^5.5.3",
     "zod": "^3.23.8"

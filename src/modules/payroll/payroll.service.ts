@@ -8,6 +8,30 @@ import { renderPayslipPdf } from "./payslip.pdf.js";
 
 const decimalToNumber = (value: Prisma.Decimal | number) => Number(value);
 
+async function deliverPayslipById(payslipId: string) {
+  const payslip = await prisma.payslip.findUnique({
+    where: { id: payslipId },
+    include: { employee: { include: { user: true, company: true } } }
+  });
+  if (!payslip?.pdfKey) throw new ApiError(404, "Payslip PDF not found");
+
+  const pdfUrl = storageService.publicUrl(payslip.pdfKey);
+  const pdf = await storageService.getObject(payslip.pdfKey);
+  await notificationService.sendPayslip({
+    userId: payslip.employee.userId,
+    email: payslip.employee.user.email,
+    phone: payslip.employee.phone,
+    employeeName: `${payslip.employee.firstName} ${payslip.employee.lastName}`,
+    month: payslip.month,
+    year: payslip.year,
+    pdf,
+    pdfUrl,
+    filename: `${payslip.payslipNumber}.pdf`
+  });
+
+  return prisma.payslip.update({ where: { id: payslip.id }, data: { sentAt: new Date() } });
+}
+
 export const payrollService = {
   async generate(companyId: string, processedBy: string, month: number, year: number, type: "REGULAR" | "FINAL" = "REGULAR") {
     const existing = await prisma.payrollRun.findUnique({
@@ -46,7 +70,7 @@ export const payrollService = {
     let grossTotal = 0;
     let netTotal = 0;
 
-    return prisma.$transaction(async (tx) => {
+    const run = await prisma.$transaction(async (tx) => {
       const run = await tx.payrollRun.create({
         data: {
           companyId,
@@ -130,6 +154,33 @@ export const payrollService = {
         include: { payslips: { include: { employee: true } } }
       });
     });
+
+    const dispatchSummary = {
+      attempted: run.payslips.length,
+      sent: 0,
+      failed: 0,
+      failures: [] as Array<{ payslipId: string; employeeId: string; employeeName: string; reason: string }>
+    };
+
+    for (const payslip of run.payslips) {
+      try {
+        await deliverPayslipById(payslip.id);
+        dispatchSummary.sent += 1;
+      } catch (error) {
+        dispatchSummary.failed += 1;
+        dispatchSummary.failures.push({
+          payslipId: payslip.id,
+          employeeId: payslip.employeeId,
+          employeeName: `${payslip.employee.firstName} ${payslip.employee.lastName}`,
+          reason: error instanceof Error ? error.message : "Unknown delivery error"
+        });
+      }
+    }
+
+    return {
+      ...run,
+      dispatchSummary
+    };
   },
 
   async updatePayslip(
@@ -248,25 +299,22 @@ export const payrollService = {
   },
 
   async sendPayslip(payslipId: string) {
-    const payslip = await prisma.payslip.findUnique({
-      where: { id: payslipId },
-      include: { employee: { include: { user: true, company: true } } }
-    });
-    if (!payslip?.pdfKey) throw new ApiError(404, "Payslip PDF not found");
+    return deliverPayslipById(payslipId);
+  },
 
-    const pdfUrl = storageService.publicUrl(payslip.pdfKey);
-    const pdf = await storageService.getObject(payslip.pdfKey);
-    await notificationService.sendPayslip({
-      userId: payslip.employee.userId,
-      email: payslip.employee.user.email,
-      phone: payslip.employee.phone,
-      employeeName: `${payslip.employee.firstName} ${payslip.employee.lastName}`,
-      month: payslip.month,
-      year: payslip.year,
-      pdf,
-      pdfUrl,
-      filename: `${payslip.payslipNumber}.pdf`
+  async sendAllPayslips(runId: string) {
+    const payslips = await prisma.payslip.findMany({
+      where: { payrollRunId: runId }
     });
-    return prisma.payslip.update({ where: { id: payslip.id }, data: { sentAt: new Date() } });
+    const results = [];
+    for (const payslip of payslips) {
+      try {
+        await deliverPayslipById(payslip.id);
+        results.push({ id: payslip.id, success: true });
+      } catch (error) {
+        results.push({ id: payslip.id, success: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    return results;
   }
 };
