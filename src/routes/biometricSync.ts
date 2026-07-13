@@ -122,6 +122,8 @@ export async function runBiometricSync() {
         // Parse Attendance Punch logs
         // Line format: PIN\tTimestamp\tState\tVerifyMode\t...
         // Example: ST013\t2026-06-22 10:06:12\t0\t1\t0\t\t\t0\t0\t
+        const punchesToProcess: { biometricId: string; punchTimeStr: string; timestamp: number }[] = [];
+        
         for (const line of rawLines) {
           if (!line.trim()) continue;
 
@@ -131,14 +133,32 @@ export async function runBiometricSync() {
             const punchTimeStr = parts[1].trim();
 
             if (biometricId && punchTimeStr) {
-              try {
-                await attendanceService.biometricPunch(biometricId, punchTimeStr);
-                successCount++;
-              } catch (punchErr: any) {
-                console.error(`[Biometric Sync] Punch failed for ${biometricId} at ${punchTimeStr}:`, punchErr.message);
-                failCount++;
+              let punchTime: Date;
+              if (punchTimeStr.includes("Z") || punchTimeStr.includes("+")) {
+                punchTime = new Date(punchTimeStr);
+              } else {
+                const isoStr = punchTimeStr.replace(" ", "T") + "+05:30";
+                punchTime = new Date(isoStr);
               }
+              punchesToProcess.push({
+                biometricId,
+                punchTimeStr,
+                timestamp: punchTime.getTime()
+              });
             }
+          }
+        }
+
+        // Sort chronologically by timestamp asc to process in exact sequence
+        punchesToProcess.sort((a, b) => a.timestamp - b.timestamp);
+
+        for (const punch of punchesToProcess) {
+          try {
+            await attendanceService.biometricPunch(punch.biometricId, punch.punchTimeStr);
+            successCount++;
+          } catch (punchErr: any) {
+            console.error(`[Biometric Sync] Punch failed for ${punch.biometricId} at ${punch.punchTimeStr}:`, punchErr.message);
+            failCount++;
           }
         }
 

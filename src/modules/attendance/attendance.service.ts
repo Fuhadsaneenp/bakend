@@ -128,13 +128,28 @@ export const attendanceService = {
       return { employeeId: employee.id, type: "CHECK_IN", attendanceId: attendance.id };
     }
 
-    const checkInAt = attendance.checkInAt || punchTime;
-    const worked = Math.max(0, differenceInMinutes(punchTime, checkInAt));
+    let checkInAt = attendance.checkInAt;
+    let checkOutAt = attendance.checkOutAt;
+
+    if (!checkInAt || punchTime < checkInAt) {
+      if (checkInAt && (!checkOutAt || checkInAt > checkOutAt)) {
+        checkOutAt = checkInAt;
+      }
+      checkInAt = punchTime;
+    } else {
+      if (!checkOutAt || punchTime > checkOutAt) {
+        checkOutAt = punchTime;
+      }
+    }
+
+    const worked = checkInAt && checkOutAt ? Math.max(0, differenceInMinutes(checkOutAt, checkInAt)) : 0;
 
     attendance = await prisma.attendance.update({
       where: { id: attendance.id },
       data: {
-        checkOutAt: punchTime,
+        checkInAt,
+        checkOutAt,
+        isLate: checkInAt ? getKolkataHour(checkInAt) >= lateHour : false,
         workMinutes: worked,
         overtimeMinutes: Math.max(0, worked - standardWorkMinutes)
       }
