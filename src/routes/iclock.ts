@@ -97,6 +97,17 @@ iclockRouter.get("/debug-logs", async (req, res) => {
 
     if (pathFilter === "reset") {
       const { runBiometricSync } = await import("./biometricSync.js");
+      
+      const biometricEmployees = await prisma.employee.findMany({
+        where: { biometricId: { not: null } },
+        select: { id: true }
+      });
+      const empIds = biometricEmployees.map(e => e.id);
+
+      await prisma.attendance.deleteMany({
+        where: { employeeId: { in: empIds } }
+      });
+
       const updated = await prisma.biometricRawLog.updateMany({
         data: {
           processingStatus: "PENDING",
@@ -104,7 +115,7 @@ iclockRouter.get("/debug-logs", async (req, res) => {
         }
       });
       runBiometricSync().catch(console.error);
-      return res.json({ message: `Reset ${updated.count} logs to PENDING and triggered sync.` });
+      return res.json({ message: `Cleared biometric attendance and reset ${updated.count} logs to PENDING.` });
     }
 
     if (pathFilter === "attendance") {
