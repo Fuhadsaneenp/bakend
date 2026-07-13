@@ -1,5 +1,5 @@
 import { Role } from "@prisma/client";
-import { differenceInMinutes, endOfDay, startOfDay } from "date-fns";
+import { differenceInMinutes } from "date-fns";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
 import type { AuthUser } from "../../middleware/auth.js";
@@ -7,20 +7,40 @@ import type { AuthUser } from "../../middleware/auth.js";
 const lateHour = 9;
 const standardWorkMinutes = 8 * 60;
 
+function getKolkataStartOfDay(date: Date): Date {
+  const datePart = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+  const [mm, dd, yyyy] = datePart.split("/");
+  return new Date(`${yyyy}-${mm}-${dd}T00:00:00+05:30`);
+}
+
+function getKolkataHour(date: Date): number {
+  const hourPart = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    hour: "numeric",
+    hour12: false
+  }).format(date);
+  return parseInt(hourPart, 10);
+}
+
 export const attendanceService = {
   async checkIn(userId: string, location?: { latitude?: number; longitude?: number }) {
     const employee = await prisma.employee.findUnique({ where: { userId } });
     if (!employee) throw notFound("Employee");
 
     const now = new Date();
-    const workDate = startOfDay(now);
+    const workDate = getKolkataStartOfDay(now);
     return prisma.attendance.upsert({
       where: { employeeId_workDate: { employeeId: employee.id, workDate } },
       create: {
         employeeId: employee.id,
         workDate,
         checkInAt: now,
-        isLate: now.getHours() >= lateHour,
+        isLate: getKolkataHour(now) >= lateHour,
         latitude: location?.latitude,
         longitude: location?.longitude
       },
@@ -31,10 +51,10 @@ export const attendanceService = {
   async checkOut(userId: string) {
     const employee = await prisma.employee.findUnique({ where: { userId } });
     if (!employee) throw notFound("Employee");
-    const workDate = startOfDay(new Date());
+    const now = new Date();
+    const workDate = getKolkataStartOfDay(now);
     const attendance = await prisma.attendance.findUnique({ where: { employeeId_workDate: { employeeId: employee.id, workDate } } });
     if (!attendance?.checkInAt) throw new ApiError(400, "Check-in required before checkout");
-    const now = new Date();
     const worked = Math.max(0, differenceInMinutes(now, attendance.checkInAt));
     return prisma.attendance.update({
       where: { id: attendance.id },
@@ -43,8 +63,9 @@ export const attendanceService = {
   },
 
   monthlyReport(companyId: string, month: number, year: number) {
-    const from = new Date(year, month - 1, 1);
-    const to = endOfDay(new Date(year, month, 0));
+    const from = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`);
+    const totalDays = new Date(year, month, 0).getDate();
+    const to = new Date(`${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}T23:59:59+05:30`);
     return prisma.attendance.findMany({
       where: { employee: { companyId }, workDate: { gte: from, lte: to } },
       include: { employee: true },
@@ -54,8 +75,9 @@ export const attendanceService = {
 
   async monthlyReportForUser(user: AuthUser, month: number, year: number) {
     if (!user.companyId) return [];
-    const from = new Date(year, month - 1, 1);
-    const to = endOfDay(new Date(year, month, 0));
+    const from = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`);
+    const totalDays = new Date(year, month, 0).getDate();
+    const to = new Date(`${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}T23:59:59+05:30`);
 
     if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
       return this.monthlyReport(user.companyId, month, year);
@@ -80,8 +102,15 @@ export const attendanceService = {
     const employee = await prisma.employee.findUnique({ where: { biometricId } });
     if (!employee) throw notFound("Employee with biometric ID " + biometricId);
 
-    const punchTime = new Date(punchTimeStr);
-    const workDate = startOfDay(punchTime);
+    let punchTime: Date;
+    if (punchTimeStr.includes("Z") || punchTimeStr.includes("+")) {
+      punchTime = new Date(punchTimeStr);
+    } else {
+      const isoStr = punchTimeStr.replace(" ", "T") + "+05:30";
+      punchTime = new Date(isoStr);
+    }
+
+    const workDate = getKolkataStartOfDay(punchTime);
 
     let attendance = await prisma.attendance.findUnique({
       where: { employeeId_workDate: { employeeId: employee.id, workDate } }
@@ -93,7 +122,7 @@ export const attendanceService = {
           employeeId: employee.id,
           workDate,
           checkInAt: punchTime,
-          isLate: punchTime.getHours() >= lateHour
+          isLate: getKolkataHour(punchTime) >= lateHour
         }
       });
       return { employeeId: employee.id, type: "CHECK_IN", attendanceId: attendance.id };
