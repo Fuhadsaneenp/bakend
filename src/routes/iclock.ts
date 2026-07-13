@@ -83,13 +83,15 @@ iclockRouter.get("/debug-logs", async (req, res) => {
   try {
     const pathFilter = req.query.path ? String(req.query.path) : undefined;
     const logs = await prisma.biometricRawLog.findMany({
-      where: pathFilter ? {
-        requestPath: { contains: pathFilter }
-      } : undefined,
       orderBy: { receivedAt: "desc" },
-      take: 50
+      take: 100
     });
-    res.json(logs);
+    
+    const filteredLogs = pathFilter
+      ? logs.filter((log) => log.requestPath.includes(pathFilter))
+      : logs;
+
+    res.json(filteredLogs.slice(0, 50));
   } catch (err: any) {
     res.status(500).type("text/plain").send(err.message || err.toString());
   }
