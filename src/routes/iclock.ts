@@ -95,6 +95,18 @@ iclockRouter.get("/debug-logs", async (req, res) => {
       return res.json(emps);
     }
 
+    if (pathFilter === "reset") {
+      const { runBiometricSync } = await import("./biometricSync.js");
+      const updated = await prisma.biometricRawLog.updateMany({
+        data: {
+          processingStatus: "PENDING",
+          errorMessage: null
+        }
+      });
+      runBiometricSync().catch(console.error);
+      return res.json({ message: `Reset ${updated.count} logs to PENDING and triggered sync.` });
+    }
+
     const logs = await prisma.biometricRawLog.findMany({
       orderBy: { receivedAt: "desc" },
       take: 100
