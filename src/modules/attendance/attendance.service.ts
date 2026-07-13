@@ -8,22 +8,27 @@ const lateHour = 9;
 const standardWorkMinutes = 8 * 60;
 
 function getKolkataStartOfDay(date: Date): Date {
-  const datePart = new Intl.DateTimeFormat("en-US", {
+  const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Kolkata",
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).format(date);
-  const [mm, dd, yyyy] = datePart.split("/");
-  return new Date(`${yyyy}-${mm}-${dd}T00:00:00+05:30`);
+  });
+  const parts = formatter.formatToParts(date);
+  const year = parts.find(p => p.type === "year")?.value;
+  const month = parts.find(p => p.type === "month")?.value;
+  const day = parts.find(p => p.type === "day")?.value;
+  return new Date(`${year}-${month}-${day}T00:00:00+05:30`);
 }
 
 function getKolkataHour(date: Date): number {
-  const hourPart = new Intl.DateTimeFormat("en-US", {
+  const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Kolkata",
-    hour: "numeric",
+    hour: "2-digit",
     hour12: false
-  }).format(date);
+  });
+  const parts = formatter.formatToParts(date);
+  const hourPart = parts.find(p => p.type === "hour")?.value || "0";
   return parseInt(hourPart, 10);
 }
 
