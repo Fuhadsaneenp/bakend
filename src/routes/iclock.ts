@@ -1,148 +1,76 @@
-import { Router } from "express";
+import express, { Router, type NextFunction, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 
+type IClockRequest = Request & {
+  rawBody?: string;
+};
+
+const biometricBodyLimit = "256kb";
+const biometricAllowedSns = new Set(
+  (env.ALLOWED_BIOMETRIC_SNS || "")
+    .split(",")
+    .map((value: string) => value.trim())
+    .filter(Boolean)
+);
+
+const sensitiveHeaders = new Set([
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "proxy-authorization",
+  "x-api-key",
+  "password",
+  "pwd"
+]);
+
 export const iclockRouter = Router();
 
-// Helper: Extract serial number from request case-insensitively
-function getDeviceSerialNumber(req: any): string {
-  const query = req.query || {};
-  const sn = query.SN || query.sn || query.Sn || query.sN || "";
-  return sn.toString().trim();
-}
+iclockRouter.use((req, res, next) => {
+  res.type("text/plain");
+  next();
+});
 
-// Helper: Extract table name from request case-insensitively
-function getTableName(req: any): string {
-  const query = req.query || {};
-  const table = query.table || query.TABLE || query.Table || "";
-  return table.toString().trim();
-}
+iclockRouter.use((req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD") {
+    (req as IClockRequest).rawBody = "";
+  }
+  next();
+});
 
-// Helper: Clean sensitive headers to prevent logging passwords/cookies/tokens
-function getCleanedHeaders(headers: any): any {
-  const cleaned = { ...headers };
-  const sensitive = ["authorization", "cookie", "set-cookie", "x-api-key", "proxy-authorization", "password", "pwd"];
-  for (const key of Object.keys(cleaned)) {
-    if (sensitive.includes(key.toLowerCase())) {
-      delete cleaned[key];
+iclockRouter.use(express.raw({
+  type: () => true,
+  limit: biometricBodyLimit,
+  verify: (req: IClockRequest, _res: Response, buffer: Buffer) => {
+    req.rawBody = buffer.toString("utf8");
+  }
+}));
+
+iclockRouter.use((req: IClockRequest, _res, next) => {
+  if (typeof req.rawBody !== "string") {
+    if (Buffer.isBuffer(req.body)) {
+      req.rawBody = req.body.toString("utf8");
+    } else {
+      req.rawBody = "";
     }
-  }
-  return cleaned;
-}
-
-// 1. Raw body parsing middleware (limit body size to 2MB)
-function parseRawBody(req: any, res: any, next: any) {
-  let data = "";
-  const limitBytes = 2 * 1024 * 1024; // 2MB limit
-  let bytesReceived = 0;
-  let limitExceeded = false;
-
-  req.setEncoding("utf8");
-  req.on("data", (chunk: string) => {
-    if (limitExceeded) return;
-    bytesReceived += Buffer.byteLength(chunk, "utf8");
-    if (bytesReceived > limitBytes) {
-      limitExceeded = true;
-      res.status(413).type("text/plain").send("Payload Too Large");
-      req.destroy();
-      return;
-    }
-    data += chunk;
-  });
-  req.on("end", () => {
-    if (limitExceeded) return;
-    req.rawBody = data;
-    next();
-  });
-  req.on("error", (err: any) => {
-    if (limitExceeded) return;
-    next(err);
-  });
-}
-
-// 2. Security: Validate SN parameter
-const allowedSnsStr = env.ALLOWED_BIOMETRIC_SNS || "";
-const allowedSns = allowedSnsStr
-  .split(",")
-  .map((s: string) => s.trim())
-  .filter(Boolean);
-
-function validateDeviceSn(req: any, res: any, next: any) {
-  const sn = getDeviceSerialNumber(req);
-  if (!sn) {
-    return res.status(400).type("text/plain").send("ERROR: Missing SN");
-  }
-
-  // Always allow TEST123 for initial discovery/testing
-  if (sn === "TEST123") {
-    return next();
-  }
-
-  // Enforce allowed list if defined in env
-  if (allowedSns.length > 0 && !allowedSns.includes(sn)) {
-    console.warn(`[Biometric] Blocked unauthorized device SN: ${sn}`);
-    return res.status(403).type("text/plain").send("ERROR: Unauthorized SN");
   }
 
   next();
-}
+});
 
-// 3. Security: Controlled rate limiter (60 requests per min)
 const biometricRateLimiter = rateLimit({
   windowMs: 60_000,
   limit: 60,
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: "ERROR: Rate limit exceeded",
-  handler: (req, res, next, options) => {
-    res.status(options.statusCode).type("text/plain").send(options.message);
+  handler: (_req, res, _next, options) => {
+    res.status(options.statusCode).type("text/plain").send(String(options.message));
   }
 });
 
-// Helper: safe console logger for development/diagnostics (Requirement 2)
-function logBiometricToConsole(req: any) {
-  const sn = getDeviceSerialNumber(req);
-  const tableName = getTableName(req);
-  const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-  const cleanedHeaders = getCleanedHeaders(req.headers);
-
-  console.log(`[BIOMETRIC REQUEST] [${new Date().toISOString()}]`);
-  console.log(`- Method: ${req.method}`);
-  console.log(`- Full URL: ${fullUrl}`);
-  console.log(`- SN: ${sn}`);
-  console.log(`- Table: ${tableName}`);
-  console.log(`- Query: ${JSON.stringify(req.query)}`);
-  console.log(`- Headers: ${JSON.stringify(cleanedHeaders)}`);
-  console.log(`- Raw Body:\n${req.rawBody || "(empty)"}`);
-  console.log("----------------------------------------");
-}
-
-// Helper: safe database logger (Requirement 5)
-async function logBiometricToDb(req: any, status: string, error?: string) {
-  const sn = getDeviceSerialNumber(req) || "UNKNOWN_SN";
-  const cleanedHeaders = getCleanedHeaders(req.headers);
-
-  try {
-    await prisma.biometricRawLog.create({
-      data: {
-        deviceSerialNumber: sn,
-        requestMethod: req.method,
-        requestPath: req.path,
-        queryParameters: JSON.stringify(req.query),
-        headers: JSON.stringify(cleanedHeaders),
-        rawPayload: req.rawBody || "",
-        processingStatus: status,
-        errorMessage: error || null
-      }
-    });
-  } catch (err: any) {
-    console.error("Failed to write biometric raw log to DB:", err);
-  }
-}
-
-// Apply common middlewares to all routes under /iclock
-iclockRouter.use(parseRawBody);
+iclockRouter.use(biometricRateLimiter);
 
 // Debug endpoint - secure retrieve of raw log database records
 iclockRouter.get("/debug-logs", async (req, res) => {
@@ -162,55 +90,159 @@ iclockRouter.get("/debug-logs", async (req, res) => {
   }
 });
 
-iclockRouter.use(validateDeviceSn);
-iclockRouter.use(biometricRateLimiter);
+iclockRouter.use(async (req: IClockRequest, res, next) => {
+  if (req.path === "/debug-logs") {
+    return next();
+  }
 
+  if (!isKnownIClockRoute(req.path)) {
+    await persistBiometricLog(req, "FAILED", `Unsupported route: ${req.path}`);
+    return res.status(404).send("ERROR: Unsupported route");
+  }
 
-// 4. Endpoints
-// GET /iclock/cdata - Configuration options response (Requirement 6)
-iclockRouter.get("/cdata", async (req, res) => {
-  logBiometricToConsole(req);
-  await logBiometricToDb(req, "PROCESSED");
+  const serialNumber = getDeviceSerialNumber(req);
+  if (!serialNumber) {
+    await persistBiometricLog(req, "FAILED", "Missing SN query parameter");
+    return res.status(400).send("ERROR: Missing SN");
+  }
 
-  const sn = getDeviceSerialNumber(req) || "TEST123";
-  const configResponse = [
-    `GET OPTION FROM: ${sn}`,
-    "Stamp=999999",
-    "OpStamp=999999",
-    "PhotoStamp=999999",
-    "ErrorDelay=60",
-    "Delay=30",
-    "TransTimes=00:00;14:00",
-    "TransInterval=1",
-    "TransFlag=1000000000",
-    "Realtime=1",
-    "Encrypt=0"
-  ].join("\r\n");
+  if (biometricAllowedSns.size > 0 && serialNumber !== "TEST123" && !biometricAllowedSns.has(serialNumber)) {
+    console.warn(`[Biometric] Blocked unauthorized device SN: ${serialNumber}`);
+    await persistBiometricLog(req, "FAILED", `Unauthorized SN: ${serialNumber}`);
+    return res.status(403).send("ERROR: Unauthorized SN");
+  }
 
-  res.type("text/plain").send(configResponse);
+  next();
 });
 
-// POST /iclock/cdata - Accept device uploads (Requirement 7)
-iclockRouter.post("/cdata", async (req, res) => {
-  logBiometricToConsole(req);
-  // Mark as PENDING since parsing is not yet implemented (Requirement 17)
-  await logBiometricToDb(req, "PENDING");
+iclockRouter.get("/cdata", async (req: IClockRequest, res, next) => {
+  try {
+    logBiometricRequest(req);
+    await persistBiometricLog(req, "PROCESSED");
 
-  res.type("text/plain").send("OK");
+    const serialNumber = getDeviceSerialNumber(req);
+    const responseLines = [
+      `GET OPTION FROM: ${serialNumber}`,
+      "Stamp=999999",
+      "OpStamp=999999",
+      "PhotoStamp=999999",
+      "ErrorDelay=60",
+      "Delay=30",
+      "TransTimes=00:00;14:00",
+      "TransInterval=1",
+      "TransFlag=1000000000",
+      "Realtime=1",
+      "Encrypt=0"
+    ];
+
+    res.send(responseLines.join("\r\n"));
+  } catch (error) {
+    next(error);
+  }
 });
 
-// GET /iclock/getrequest - Fetch commands queue (Requirement 8)
-iclockRouter.get("/getrequest", async (req, res) => {
-  logBiometricToConsole(req);
-  await logBiometricToDb(req, "PROCESSED");
-
-  res.type("text/plain").send("OK");
+iclockRouter.post("/cdata", async (req: IClockRequest, res, next) => {
+  try {
+    logBiometricRequest(req);
+    await persistBiometricLog(req, "PENDING");
+    res.send("OK");
+  } catch (error) {
+    next(error);
+  }
 });
 
-// POST /iclock/devicecmd - Acknowledge command execution (Requirement 9)
-iclockRouter.post("/devicecmd", async (req, res) => {
-  logBiometricToConsole(req);
-  await logBiometricToDb(req, "PROCESSED");
-
-  res.type("text/plain").send("OK");
+iclockRouter.get("/getrequest", async (req: IClockRequest, res, next) => {
+  try {
+    logBiometricRequest(req);
+    await persistBiometricLog(req, "PROCESSED");
+    res.send("OK");
+  } catch (error) {
+    next(error);
+  }
 });
+
+iclockRouter.post("/devicecmd", async (req: IClockRequest, res, next) => {
+  try {
+    logBiometricRequest(req);
+    await persistBiometricLog(req, "PROCESSED");
+    res.send("OK");
+  } catch (error) {
+    next(error);
+  }
+});
+
+iclockRouter.use(async (error: any, req: IClockRequest, res: Response, _next: NextFunction) => {
+  const message =
+    error?.type === "entity.too.large"
+      ? "Payload Too Large"
+      : error?.message || "Biometric request handling failed";
+
+  await persistBiometricLog(req, "FAILED", message);
+  console.error("[Biometric] Route error:", error);
+  res.status(error?.type === "entity.too.large" ? 413 : 400).type("text/plain").send(`ERROR: ${message}`);
+});
+
+function isKnownIClockRoute(path: string) {
+  return path === "/cdata" || path === "/getrequest" || path === "/devicecmd";
+}
+
+function getDeviceSerialNumber(req: Request) {
+  const serialValue = req.query.SN ?? req.query.sn ?? req.query.Sn ?? req.query.sN;
+  return String(serialValue || "").trim();
+}
+
+function getTableName(req: Request) {
+  const tableValue = req.query.table ?? req.query.TABLE ?? req.query.Table;
+  return String(tableValue || "").trim();
+}
+
+function getRequestUrl(req: Request) {
+  const host = req.get("host") || "unknown-host";
+  return `${req.protocol}://${host}${req.originalUrl}`;
+}
+
+function sanitizeHeaders(headers: Request["headers"]) {
+  const cleanedHeaders: Record<string, string | string[] | undefined> = {};
+
+  for (const [key, value] of Object.entries(headers)) {
+    if (sensitiveHeaders.has(key.toLowerCase())) {
+      continue;
+    }
+
+    cleanedHeaders[key] = value;
+  }
+
+  return cleanedHeaders;
+}
+
+function logBiometricRequest(req: IClockRequest) {
+  console.log(`[BIOMETRIC REQUEST] [${new Date().toISOString()}]`);
+  console.log(`- Method: ${req.method}`);
+  console.log(`- Full URL: ${getRequestUrl(req)}`);
+  console.log(`- Query: ${JSON.stringify(req.query)}`);
+  console.log(`- Headers: ${JSON.stringify(sanitizeHeaders(req.headers))}`);
+  console.log(`- SN: ${getDeviceSerialNumber(req) || "UNKNOWN_SN"}`);
+  console.log(`- Table: ${getTableName(req) || "(not provided)"}`);
+  console.log(`- Timestamp: ${new Date().toISOString()}`);
+  console.log(`- Raw Body:\n${req.rawBody || "(empty)"}`);
+  console.log("----------------------------------------");
+}
+
+async function persistBiometricLog(req: IClockRequest, status: string, errorMessage?: string) {
+  try {
+    await prisma.biometricRawLog.create({
+      data: {
+        deviceSerialNumber: getDeviceSerialNumber(req) || "UNKNOWN_SN",
+        requestMethod: req.method || "UNKNOWN",
+        requestPath: req.originalUrl || req.path || "/iclock",
+        queryParameters: JSON.stringify(req.query || {}),
+        headers: JSON.stringify(sanitizeHeaders(req.headers || {})),
+        rawPayload: req.rawBody || "",
+        processingStatus: status,
+        errorMessage: errorMessage || null
+      }
+    });
+  } catch (databaseError) {
+    console.error("[Biometric] Failed to persist raw log:", databaseError);
+  }
+}
