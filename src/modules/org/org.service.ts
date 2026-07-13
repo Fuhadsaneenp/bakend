@@ -62,8 +62,25 @@ export const orgService = {
     });
   },
 
-  departments(companyId: string) {
-    return prisma.department.findMany({ where: { companyId }, include: { designations: true }, orderBy: { name: "asc" } });
+  async departments(companyId: string) {
+    let list = await prisma.department.findMany({ where: { companyId }, include: { designations: true }, orderBy: { name: "asc" } });
+    const hasRoot = list.some(d => d.code === "root");
+    if (!hasRoot) {
+      try {
+        const rootNode = await prisma.department.create({
+          data: {
+            companyId,
+            name: "Core Team",
+            code: "root"
+          },
+          include: { designations: true }
+        });
+        list = [rootNode, ...list];
+      } catch (err) {
+        console.error("Error auto-creating Core Team department:", err);
+      }
+    }
+    return list;
   },
 
   createDepartment(companyId: string, data: { name: string; code: string }) {
