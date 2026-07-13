@@ -82,6 +82,19 @@ iclockRouter.get("/debug-logs", async (req, res) => {
   }
   try {
     const pathFilter = req.query.path ? String(req.query.path) : undefined;
+    
+    if (pathFilter === "employees") {
+      const emps = await prisma.employee.findMany({
+        select: {
+          employeeCode: true,
+          biometricId: true,
+          firstName: true,
+          lastName: true
+        }
+      });
+      return res.json(emps);
+    }
+
     const logs = await prisma.biometricRawLog.findMany({
       orderBy: { receivedAt: "desc" },
       take: 100
