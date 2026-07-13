@@ -107,6 +107,15 @@ iclockRouter.get("/debug-logs", async (req, res) => {
       return res.json({ message: `Reset ${updated.count} logs to PENDING and triggered sync.` });
     }
 
+    if (pathFilter === "attendance") {
+      const records = await prisma.attendance.findMany({
+        include: { employee: { select: { firstName: true, lastName: true, employeeCode: true } } },
+        orderBy: { workDate: "desc" },
+        take: 30
+      });
+      return res.json(records);
+    }
+
     const logs = await prisma.biometricRawLog.findMany({
       orderBy: { receivedAt: "desc" },
       take: 100
