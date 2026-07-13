@@ -2,6 +2,7 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import rateLimit from "express-rate-limit";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
+import { runBiometricSync } from "./biometricSync.js";
 
 type IClockRequest = Request & {
   rawBody?: string;
@@ -146,6 +147,11 @@ iclockRouter.post(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, nex
     logBiometricRequest(req);
     await persistBiometricLog(req, "PENDING");
     res.send("OK");
+
+    // Process new pending raw logs in the background asynchronously
+    runBiometricSync().catch((err) => {
+      console.error("[Biometric Sync] Background processing failed:", err);
+    });
   } catch (error) {
     next(error);
   }

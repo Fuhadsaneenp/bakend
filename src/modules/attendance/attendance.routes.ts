@@ -5,6 +5,8 @@ import { requireAuth, requireRoles } from "../../middleware/auth.js";
 import { ApiError } from "../../lib/errors.js";
 import { attendanceService } from "./attendance.service.js";
 import { env } from "../../config/env.js";
+import { prisma } from "../../lib/prisma.js";
+import { runBiometricSync } from "../../routes/biometricSync.js";
 
 export const attendanceRouter = Router();
 
@@ -62,6 +64,27 @@ attendanceRouter.get("/report", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Ro
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const query = z.object({ month: z.coerce.number().min(1).max(12), year: z.coerce.number().min(2020) }).parse(req.query);
     res.json(await attendanceService.monthlyReportForUser(req.user, query.month, query.year));
+  } catch (error) {
+    next(error);
+  }
+});
+
+attendanceRouter.get("/biometric/logs", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
+  try {
+    const logs = await prisma.biometricRawLog.findMany({
+      orderBy: { receivedAt: "desc" },
+      take: 50
+    });
+    res.json(logs);
+  } catch (error) {
+    next(error);
+  }
+});
+
+attendanceRouter.post("/biometric/sync", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
+  try {
+    await runBiometricSync();
+    res.json({ success: true, message: "Sync executed successfully" });
   } catch (error) {
     next(error);
   }
