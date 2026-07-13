@@ -143,8 +143,27 @@ async function logBiometricToDb(req: any, status: string, error?: string) {
 
 // Apply common middlewares to all routes under /iclock
 iclockRouter.use(parseRawBody);
+
+// Debug endpoint - secure retrieve of raw log database records
+iclockRouter.get("/debug-logs", async (req, res) => {
+  const key = req.query.key;
+  if (!key || key !== env.BIOMETRIC_API_KEY) {
+    return res.status(401).type("text/plain").send("Unauthorized");
+  }
+  try {
+    const logs = await prisma.biometricRawLog.findMany({
+      orderBy: { receivedAt: "desc" },
+      take: 20
+    });
+    res.json(logs);
+  } catch (err: any) {
+    res.status(500).type("text/plain").send(err.message || err.toString());
+  }
+});
+
 iclockRouter.use(validateDeviceSn);
 iclockRouter.use(biometricRateLimiter);
+
 
 // 4. Endpoints
 // GET /iclock/cdata - Configuration options response (Requirement 6)
