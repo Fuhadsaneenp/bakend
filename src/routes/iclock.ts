@@ -115,7 +115,7 @@ iclockRouter.use(async (req: IClockRequest, res, next) => {
   next();
 });
 
-iclockRouter.get("/cdata", async (req: IClockRequest, res, next) => {
+iclockRouter.get(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, next) => {
   try {
     logBiometricRequest(req);
     await persistBiometricLog(req, "PROCESSED");
@@ -141,7 +141,7 @@ iclockRouter.get("/cdata", async (req: IClockRequest, res, next) => {
   }
 });
 
-iclockRouter.post("/cdata", async (req: IClockRequest, res, next) => {
+iclockRouter.post(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, next) => {
   try {
     logBiometricRequest(req);
     await persistBiometricLog(req, "PENDING");
@@ -151,7 +151,7 @@ iclockRouter.post("/cdata", async (req: IClockRequest, res, next) => {
   }
 });
 
-iclockRouter.get("/getrequest", async (req: IClockRequest, res, next) => {
+iclockRouter.get(["/getrequest", "/getrequest.aspx"], async (req: IClockRequest, res, next) => {
   try {
     logBiometricRequest(req);
     await persistBiometricLog(req, "PROCESSED");
@@ -161,7 +161,7 @@ iclockRouter.get("/getrequest", async (req: IClockRequest, res, next) => {
   }
 });
 
-iclockRouter.post("/devicecmd", async (req: IClockRequest, res, next) => {
+iclockRouter.post(["/devicecmd", "/devicecmd.aspx"], async (req: IClockRequest, res, next) => {
   try {
     logBiometricRequest(req);
     await persistBiometricLog(req, "PROCESSED");
@@ -183,7 +183,8 @@ iclockRouter.use(async (error: any, req: IClockRequest, res: Response, _next: Ne
 });
 
 function isKnownIClockRoute(path: string) {
-  return path === "/cdata" || path === "/getrequest" || path === "/devicecmd";
+  const normalizedPath = path.endsWith(".aspx") ? path.slice(0, -5) : path;
+  return normalizedPath === "/cdata" || normalizedPath === "/getrequest" || normalizedPath === "/devicecmd";
 }
 
 function getDeviceSerialNumber(req: Request) {
