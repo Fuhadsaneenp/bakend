@@ -81,9 +81,13 @@ iclockRouter.get("/debug-logs", async (req, res) => {
     return res.status(401).type("text/plain").send("Unauthorized");
   }
   try {
+    const pathFilter = req.query.path ? String(req.query.path) : undefined;
     const logs = await prisma.biometricRawLog.findMany({
+      where: pathFilter ? {
+        requestPath: { contains: pathFilter }
+      } : undefined,
       orderBy: { receivedAt: "desc" },
-      take: 20
+      take: 50
     });
     res.json(logs);
   } catch (err: any) {
