@@ -17,6 +17,7 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL: z.string().default("15m"),
   REFRESH_TOKEN_TTL: z.string().default("30d"),
   BIOMETRIC_API_KEY: z.string().optional(),
+  ALLOWED_BIOMETRIC_SNS: z.string().optional(),
   LOCAL_STORAGE_PATH: z.string().default("./storage"),
   S3_ENDPOINT: z.string().optional(),
   S3_REGION: z.string().default("us-east-1"),

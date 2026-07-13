@@ -444,3 +444,17 @@ model WorkTrackSetting {
   reworkReasons  String @db.Text // JSON string
   promotionRules String @db.Text // JSON string
 }
+
+model BiometricRawLog {
+  id                 String   @id @default(cuid())
+  deviceSerialNumber String
+  requestMethod      String
+  requestPath        String
+  queryParameters    String   @db.Text
+  headers            String   @db.Text
+  rawPayload         String   @db.Text
+  receivedAt         DateTime @default(now())
+  processingStatus   String   @default("PENDING") // PENDING, PROCESSED, FAILED
+  errorMessage       String?  @db.Text
+}
+

@@ -8,6 +8,7 @@ import { env } from "./config/env.js";
 import { apiRouter } from "./routes/index.js";
 import { errorHandler } from "./middleware/error.js";
 import { prisma } from "./lib/prisma.js";
+import { iclockRouter } from "./routes/iclock.js";
 
 const productionOrigins = [
   "https://ptimeworks.com",
@@ -74,6 +75,7 @@ export const createApp = () => {
     credentials: true,
     maxAge: 600
   }));
+  app.use("/iclock", iclockRouter);
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: false, limit: "100kb" }));
   app.use(morgan("combined"));
