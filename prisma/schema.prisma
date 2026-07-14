@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
 }
 
 enum Role {
@@ -477,11 +477,15 @@ model Shift {
   gracePeriod         Int        @default(15) // minutes
   earlyPunchTolerance Int        @default(15) // minutes
   workMinutesFix      Int        @default(480) // minutes
+  workingDays         String     @db.Text // JSON array of active weekday names
+  effectiveFrom       DateTime   @default(now())
+  scheduleType        String     @default("Clock-based")
+  isDefault           Boolean    @default(false)
+  isActive            Boolean    @default(true)
   employees           Employee[]
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
   @@unique([companyId, name])
 }
-
 
