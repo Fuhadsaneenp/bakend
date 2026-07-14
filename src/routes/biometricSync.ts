@@ -39,13 +39,13 @@ export async function runBiometricSync() {
       let successCount = 0;
       let failCount = 0;
 
-      if (table === "OPERLOG") {
+      if (table === "OPERLOG" || table === "USERINFO") {
         // Parse User Directory logs
         // Line format: USER PIN=ST001\tName=Fuhad Saneen P K\t...
         for (const line of rawLines) {
           if (!line.trim()) continue;
 
-          const matchPin = line.match(/USER PIN=([^\t\r\n]+)/);
+          const matchPin = line.match(/(?:USER\s+)?PIN=([^\t\r\n]+)/i);
           if (matchPin) {
             const pin = matchPin[1].trim();
             const matchName = line.match(/Name=([^\t\r\n]+)/);

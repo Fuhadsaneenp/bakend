@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { LetterType, Prisma, Role } from "@prisma/client";
+import { queueEmployeeDeviceSync, queueEmployeeTemplateSync } from "../../lib/biometricDeviceSync.js";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
 import { storageService } from "../../storage/storage.service.js";
@@ -141,7 +142,7 @@ export const employeeService = {
     taxId?: string;
     salary?: { basic: number; allowances: number; deductions: number; effectiveFrom: string };
   }) {
-    return prisma.$transaction(async (tx) => {
+    const createdEmployee = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           companyId,
@@ -198,6 +199,10 @@ export const employeeService = {
 
       return tx.employee.findUniqueOrThrow({ where: { id: employee.id }, include: employeeProfileFields });
     });
+
+    await queueEmployeeDeviceSync(createdEmployee, "UPSERT_USER");
+    await queueEmployeeTemplateSync(createdEmployee);
+    return createdEmployee;
   },
 
   async updateStatus(user: AuthUser, employeeId: string, status: "ACTIVE" | "INACTIVE" | "TERMINATED") {
@@ -205,7 +210,9 @@ export const employeeService = {
       where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
     });
     if (!employee) throw notFound("Employee");
-    return prisma.employee.update({ where: { id: employeeId }, data: { status } });
+    const updatedEmployee = await prisma.employee.update({ where: { id: employeeId }, data: { status } });
+    await queueEmployeeDeviceSync(updatedEmployee, "UPSERT_USER");
+    return updatedEmployee;
   },
 
    async update(user: AuthUser, id: string, data: {
@@ -245,7 +252,7 @@ export const employeeService = {
     });
     if (!employee) throw notFound("Employee not found");
 
-    return prisma.$transaction(async (tx) => {
+    const updatedEmployee = await prisma.$transaction(async (tx) => {
       const userUpdateData: any = {};
       if (data.role) userUpdateData.role = data.role;
       if (data.email) userUpdateData.email = data.email;
@@ -315,6 +322,10 @@ export const employeeService = {
 
       return updatedEmp;
     });
+
+    await queueEmployeeDeviceSync(updatedEmployee, "UPSERT_USER");
+    await queueEmployeeTemplateSync(updatedEmployee);
+    return updatedEmployee;
   },
 
   async assertSelfOrHr(user: AuthUser, employeeId: string) {
@@ -415,7 +426,7 @@ export const employeeService = {
     });
     if (!employee) throw notFound("Employee");
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await tx.employee.updateMany({ where: { managerId: employeeId }, data: { managerId: null } });
       await tx.client.updateMany({ where: { accountManagerId: employeeId }, data: { accountManagerId: null } });
       await tx.workCard.updateMany({ where: { assignedToId: employeeId }, data: { assignedToId: null } });
@@ -438,6 +449,16 @@ export const employeeService = {
       await tx.user.delete({ where: { id: employee.userId } });
       return { ok: true };
     });
+
+    await queueEmployeeDeviceSync({
+      id: employee.id,
+      employeeCode: employee.employeeCode,
+      biometricId: employee.biometricId,
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      status: employee.status
+    }, "DELETE_USER");
+    return result;
   },
 
   async listLettersForUser(user: AuthUser, employeeId: string) {

@@ -2,6 +2,7 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import rateLimit from "express-rate-limit";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
+import { acknowledgeDeviceCommand, archiveTemplatePayload, getNextQueuedDeviceCommand } from "../lib/biometricDeviceSync.js";
 import { runBiometricSync } from "./biometricSync.js";
 
 type IClockRequest = Request & {
@@ -127,6 +128,24 @@ iclockRouter.get("/debug-logs", async (req, res) => {
       return res.json(records);
     }
 
+    if (pathFilter === "commands") {
+      const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+        isPostgresDatabase()
+          ? `SELECT * FROM "BiometricDeviceCommand" ORDER BY "id" DESC LIMIT 100`
+          : "SELECT * FROM `BiometricDeviceCommand` ORDER BY `id` DESC LIMIT 100"
+      );
+      return res.json(rows);
+    }
+
+    if (pathFilter === "templates") {
+      const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+        isPostgresDatabase()
+          ? `SELECT * FROM "BiometricTemplateArchive" ORDER BY "id" DESC LIMIT 100`
+          : "SELECT * FROM `BiometricTemplateArchive` ORDER BY `id` DESC LIMIT 100"
+      );
+      return res.json(rows);
+    }
+
     const logs = await prisma.biometricRawLog.findMany({
       orderBy: { receivedAt: "desc" },
       take: 100
@@ -197,6 +216,11 @@ iclockRouter.post(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, nex
   try {
     logBiometricRequest(req);
     await persistBiometricLog(req, "PENDING");
+    await archiveTemplatePayload({
+      deviceSerialNumber: getDeviceSerialNumber(req) || "UNKNOWN_SN",
+      tableName: getTableName(req) || "",
+      rawPayload: req.rawBody || ""
+    });
     res.send("OK");
 
     // Process new pending raw logs in the background asynchronously
@@ -212,7 +236,9 @@ iclockRouter.get(["/getrequest", "/getrequest.aspx"], async (req: IClockRequest,
   try {
     logBiometricRequest(req);
     await persistBiometricLog(req, "PROCESSED");
-    res.send("OK");
+    const serialNumber = getDeviceSerialNumber(req) || "";
+    const queuedCommand = await getNextQueuedDeviceCommand(serialNumber);
+    res.send(queuedCommand || "OK");
   } catch (error) {
     next(error);
   }
@@ -222,6 +248,7 @@ iclockRouter.post(["/devicecmd", "/devicecmd.aspx"], async (req: IClockRequest, 
   try {
     logBiometricRequest(req);
     await persistBiometricLog(req, "PROCESSED");
+    await acknowledgeDeviceCommand(getDeviceSerialNumber(req) || "UNKNOWN_SN", req.rawBody || "");
     res.send("OK");
   } catch (error) {
     next(error);
@@ -257,6 +284,11 @@ function getTableName(req: Request) {
 function getRequestUrl(req: Request) {
   const host = req.get("host") || "unknown-host";
   return `${req.protocol}://${host}${req.originalUrl}`;
+}
+
+function isPostgresDatabase() {
+  const databaseUrl = process.env.DATABASE_URL ?? "";
+  return databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres://");
 }
 
 function sanitizeHeaders(headers: Request["headers"]) {
