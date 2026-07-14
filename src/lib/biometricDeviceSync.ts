@@ -38,7 +38,7 @@ function sanitizeEmployeeName(value: string) {
   return value.replace(/[\r\n\t]+/g, " ").trim().slice(0, 24);
 }
 
-function resolveTargetSerialNumber() {
+async function resolveTargetSerialNumber() {
   const configured = (process.env.ALLOWED_BIOMETRIC_SNS || "")
     .split(",")
     .map((value) => value.trim())
@@ -48,7 +48,32 @@ function resolveTargetSerialNumber() {
     return configured[0];
   }
 
-  return null;
+  try {
+    const rows = isPostgres()
+      ? await prisma.$queryRawUnsafe<Array<{ deviceSerialNumber: string }>>(
+          `SELECT "deviceSerialNumber"
+           FROM "BiometricRawLog"
+           WHERE "deviceSerialNumber" IS NOT NULL
+             AND "deviceSerialNumber" <> ''
+             AND "deviceSerialNumber" <> 'TEST123'
+           ORDER BY "receivedAt" DESC
+           LIMIT 1`
+        )
+      : await prisma.$queryRawUnsafe<Array<{ deviceSerialNumber: string }>>(
+          `SELECT \`deviceSerialNumber\`
+           FROM \`BiometricRawLog\`
+           WHERE \`deviceSerialNumber\` IS NOT NULL
+             AND \`deviceSerialNumber\` <> ''
+             AND \`deviceSerialNumber\` <> 'TEST123'
+           ORDER BY \`receivedAt\` DESC
+           LIMIT 1`
+        );
+
+    return rows[0]?.deviceSerialNumber?.trim() || null;
+  } catch (error) {
+    console.error("[Biometric Sync] Failed to resolve target device serial number:", error);
+    return null;
+  }
 }
 
 function extractBiometricKey(employee: SyncEmployee) {
@@ -187,7 +212,7 @@ export async function ensureBiometricSyncSchema() {
 export async function queueEmployeeDeviceSync(employee: SyncEmployee, commandType: "UPSERT_USER" | "DELETE_USER") {
   try {
     const pin = extractBiometricKey(employee);
-    const serialNumber = resolveTargetSerialNumber();
+    const serialNumber = await resolveTargetSerialNumber();
     if (!pin || !serialNumber) {
       return;
     }
@@ -224,7 +249,7 @@ export async function queueEmployeeDeviceSync(employee: SyncEmployee, commandTyp
 export async function queueEmployeeTemplateSync(employee: SyncEmployee) {
   try {
     const pin = extractBiometricKey(employee);
-    const serialNumber = resolveTargetSerialNumber();
+    const serialNumber = await resolveTargetSerialNumber();
     if (!pin || !serialNumber) return;
 
     const templates = isPostgres()
