@@ -42,7 +42,7 @@ export const wfhService = {
     if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
       return prisma.wFHRequest.findMany({
         where: { employee: { companyId: user.companyId } },
-        include: { employee: true },
+        include: { employee: { include: { documents: true } } },
         orderBy: { createdAt: "desc" }
       });
     }
@@ -53,14 +53,14 @@ export const wfhService = {
     if (user.role === Role.MANAGER) {
       return prisma.wFHRequest.findMany({
         where: { employee: { managerId: employee.id } },
-        include: { employee: true },
+        include: { employee: { include: { documents: true } } },
         orderBy: { createdAt: "desc" }
       });
     }
 
     return prisma.wFHRequest.findMany({
       where: { employeeId: employee.id },
-      include: { employee: true },
+      include: { employee: { include: { documents: true } } },
       orderBy: { createdAt: "desc" }
     });
   }

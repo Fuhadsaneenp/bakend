@@ -13,17 +13,6 @@ import { exec } from "child_process";
 
 export const apiRouter = Router();
 
-apiRouter.use("/auth", authRouter);
-apiRouter.use("/employees", employeeRouter);
-apiRouter.use("/payroll", payrollRouter);
-apiRouter.use("/attendance", attendanceRouter);
-apiRouter.use("/wfh", wfhRouter);
-apiRouter.use("/expenses", expenseRouter);
-apiRouter.use("/notifications", notificationRouter);
-apiRouter.use("/dashboard", dashboardRouter);
-apiRouter.use("/work-track", workTrackRouter);
-apiRouter.use("/", orgRouter);
-
 // Temporary endpoints for production database migrations/seeding
 apiRouter.get("/db-push", (req, res) => {
   if (req.query.secret !== "fuhad-deploy-secret-2026") {
@@ -50,3 +39,15 @@ apiRouter.get("/db-seed", (req, res) => {
     });
   });
 });
+
+apiRouter.use("/auth", authRouter);
+apiRouter.use("/employees", employeeRouter);
+apiRouter.use("/payroll", payrollRouter);
+apiRouter.use("/attendance", attendanceRouter);
+apiRouter.use("/wfh", wfhRouter);
+apiRouter.use("/expenses", expenseRouter);
+apiRouter.use("/notifications", notificationRouter);
+apiRouter.use("/dashboard", dashboardRouter);
+apiRouter.use("/work-track", workTrackRouter);
+apiRouter.use("/", orgRouter);
+

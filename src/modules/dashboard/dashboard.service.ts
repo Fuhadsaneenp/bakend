@@ -27,6 +27,74 @@ export const dashboardService = {
 
     const activeCount = employees || 121; // Fallback to 121 if empty to match Figma base scale
 
+    // Find the latest workDate in the Attendance table for this company
+    const latestAttendance = await prisma.attendance.findFirst({
+      where: { employee: { companyId } },
+      orderBy: { workDate: "desc" }
+    });
+
+    let presentCount = 0;
+    let lateCount = 0;
+    let avgCheckInTime = "-";
+    let avgCheckOutTime = "-";
+    let avgWorkingHours = "-";
+    let leaveCount = 0;
+    let absentCount = 0;
+    let targetDateStr = "";
+
+    if (latestAttendance) {
+      const targetDate = latestAttendance.workDate;
+      targetDateStr = targetDate.toISOString().split("T")[0];
+      const records = await prisma.attendance.findMany({
+        where: { 
+          employee: { companyId, status: "ACTIVE" },
+          workDate: targetDate
+        }
+      });
+
+      presentCount = records.filter(r => r.checkInAt !== null).length;
+      lateCount = records.filter(r => r.isLate).length;
+
+      const checkInTimes = records.filter(r => r.checkInAt !== null).map(r => {
+        const d = new Date(r.checkInAt!);
+        return d.getHours() * 60 + d.getMinutes();
+      });
+      const avgCheckInMinutes = checkInTimes.length > 0 ? Math.round(checkInTimes.reduce((a, b) => a + b, 0) / checkInTimes.length) : null;
+      
+      const formatMinutes = (totalMins: number | null) => {
+        if (totalMins === null) return "-";
+        const h = Math.floor(totalMins / 60);
+        const m = totalMins % 60;
+        const ampm = h >= 12 ? "PM" : "AM";
+        const displayH = h % 12 || 12;
+        return `${String(displayH).padStart(2, "0")}:${String(m).padStart(2, "0")} ${ampm}`;
+      };
+      
+      avgCheckInTime = formatMinutes(avgCheckInMinutes);
+
+      const checkOutTimes = records.filter(r => r.checkOutAt !== null).map(r => {
+        const d = new Date(r.checkOutAt!);
+        return d.getHours() * 60 + d.getMinutes();
+      });
+      const avgCheckOutMinutes = checkOutTimes.length > 0 ? Math.round(checkOutTimes.reduce((a, b) => a + b, 0) / checkOutTimes.length) : null;
+      avgCheckOutTime = formatMinutes(avgCheckOutMinutes);
+
+      const workingMins = records.filter(r => r.workMinutes > 0).map(r => r.workMinutes);
+      const avgWorkingMins = workingMins.length > 0 ? workingMins.reduce((a, b) => a + b, 0) / workingMins.length : 0;
+      avgWorkingHours = avgWorkingMins > 0 ? `${(avgWorkingMins / 60).toFixed(1)} hrs` : "-";
+
+      leaveCount = await prisma.wFHRequest.count({
+        where: {
+          employee: { companyId },
+          status: "APPROVED",
+          startDate: { lte: targetDate },
+          endDate: { gte: targetDate }
+        }
+      });
+
+      absentCount = Math.max(0, employees - presentCount - leaveCount);
+    }
+
     return {
       employees: activeCount,
       permanentEmployees: activeCount,
@@ -39,7 +107,18 @@ export const dashboardService = {
       pendingApprovals: pendingWfh + pendingExpenses,
       payrollRuns,
       attendancePunchesThisMonth: attendanceToday,
-      recentEmployees
+      recentEmployees,
+      attendanceStats: {
+        targetDate: targetDateStr,
+        presentCount,
+        absentCount,
+        lateCount,
+        leaveCount,
+        avgCheckInTime,
+        avgCheckOutTime,
+        avgWorkingHours,
+        totalEmployees: employees
+      }
     };
   },
 
@@ -105,6 +184,74 @@ export const dashboardService = {
 
       const reportsCount = reports || 12;
 
+      // Find latest attendance for direct reports
+      const latestAttendance = await prisma.attendance.findFirst({
+        where: { employee: { managerId: employee.id } },
+        orderBy: { workDate: "desc" }
+      });
+
+      let presentCount = 0;
+      let lateCount = 0;
+      let avgCheckInTime = "-";
+      let avgCheckOutTime = "-";
+      let avgWorkingHours = "-";
+      let leaveCount = 0;
+      let absentCount = 0;
+      let targetDateStr = "";
+
+      if (latestAttendance) {
+        const targetDate = latestAttendance.workDate;
+        targetDateStr = targetDate.toISOString().split("T")[0];
+        const records = await prisma.attendance.findMany({
+          where: { 
+            employee: { managerId: employee.id, status: "ACTIVE" },
+            workDate: targetDate
+          }
+        });
+
+        presentCount = records.filter(r => r.checkInAt !== null).length;
+        lateCount = records.filter(r => r.isLate).length;
+
+        const checkInTimes = records.filter(r => r.checkInAt !== null).map(r => {
+          const d = new Date(r.checkInAt!);
+          return d.getHours() * 60 + d.getMinutes();
+        });
+        const avgCheckInMinutes = checkInTimes.length > 0 ? Math.round(checkInTimes.reduce((a, b) => a + b, 0) / checkInTimes.length) : null;
+        
+        const formatMinutes = (totalMins: number | null) => {
+          if (totalMins === null) return "-";
+          const h = Math.floor(totalMins / 60);
+          const m = totalMins % 60;
+          const ampm = h >= 12 ? "PM" : "AM";
+          const displayH = h % 12 || 12;
+          return `${String(displayH).padStart(2, "0")}:${String(m).padStart(2, "0")} ${ampm}`;
+        };
+        
+        avgCheckInTime = formatMinutes(avgCheckInMinutes);
+
+        const checkOutTimes = records.filter(r => r.checkOutAt !== null).map(r => {
+          const d = new Date(r.checkOutAt!);
+          return d.getHours() * 60 + d.getMinutes();
+        });
+        const avgCheckOutMinutes = checkOutTimes.length > 0 ? Math.round(checkOutTimes.reduce((a, b) => a + b, 0) / checkOutTimes.length) : null;
+        avgCheckOutTime = formatMinutes(avgCheckOutMinutes);
+
+        const workingMins = records.filter(r => r.workMinutes > 0).map(r => r.workMinutes);
+        const avgWorkingMins = workingMins.length > 0 ? workingMins.reduce((a, b) => a + b, 0) / workingMins.length : 0;
+        avgWorkingHours = avgWorkingMins > 0 ? `${(avgWorkingMins / 60).toFixed(1)} hrs` : "-";
+
+        leaveCount = await prisma.wFHRequest.count({
+          where: {
+            employee: { managerId: employee.id },
+            status: "APPROVED",
+            startDate: { lte: targetDate },
+            endDate: { gte: targetDate }
+          }
+        });
+
+        absentCount = Math.max(0, reports - presentCount - leaveCount);
+      }
+
       return {
         employees: reportsCount,
         permanentEmployees: reportsCount,
@@ -117,7 +264,18 @@ export const dashboardService = {
         pendingApprovals: pendingWfh + pendingExpenses,
         payrollRuns: [],
         attendancePunchesThisMonth: attendancePunches,
-        recentEmployees
+        recentEmployees,
+        attendanceStats: {
+          targetDate: targetDateStr,
+          presentCount,
+          absentCount,
+          lateCount,
+          leaveCount,
+          avgCheckInTime,
+          avgCheckOutTime,
+          avgWorkingHours,
+          totalEmployees: reports
+        }
       };
     }
 
