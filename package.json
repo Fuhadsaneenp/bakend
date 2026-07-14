@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "cross-env TZ=Asia/Kolkata tsx watch src/server.ts",
-    "build": "cross-env DATABASE_URL=\"postgresql://dummy\" prisma generate && (cross-env DATABASE_URL=\"postgresql://dummy\" prisma db push --accept-data-loss || true) && tsc -p tsconfig.json",
+    "build": "cross-env DATABASE_URL=\"postgresql://dummy\" prisma generate && tsc -p tsconfig.json",
     "start": "cross-env TZ=Asia/Kolkata node dist/src/server.js",
     "lint": "eslint src --ext .ts",
     "prisma:generate": "prisma generate",
