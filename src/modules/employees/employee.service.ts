@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { LetterType, Prisma, Role } from "@prisma/client";
-import { queueEmployeeDeviceSync, queueEmployeeTemplateSync } from "../../lib/biometricDeviceSync.js";
+import { queueEmployeeDeviceSync, queueEmployeeTemplateDownload, queueEmployeeTemplateSync } from "../../lib/biometricDeviceSync.js";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
 import { storageService } from "../../storage/storage.service.js";
@@ -485,6 +485,24 @@ export const employeeService = {
     });
 
     return { ok: true, message: "Employee queued for machine sync" };
+  },
+
+  async queueDeviceTemplateDownload(user: AuthUser, employeeId: string) {
+    const employee = await prisma.employee.findFirst({
+      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
+    });
+    if (!employee) throw notFound("Employee");
+
+    await queueEmployeeTemplateDownload({
+      id: employee.id,
+      employeeCode: employee.employeeCode,
+      biometricId: employee.biometricId,
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      status: employee.status
+    });
+
+    return { ok: true, message: "Fingerprint download request queued for machine sync" };
   },
 
   async listLettersForUser(user: AuthUser, employeeId: string) {

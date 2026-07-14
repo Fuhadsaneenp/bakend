@@ -92,6 +92,16 @@ function buildDeleteUserCommand(employee: SyncEmployee, sequenceNumber: number) 
   return `C:${sequenceNumber}:DATA DELETE USERINFO PIN=${pin}`;
 }
 
+function buildQueryUserInfoCommand(employee: SyncEmployee, sequenceNumber: number) {
+  const pin = extractBiometricKey(employee);
+  return `C:${sequenceNumber}:DATA QUERY USERINFO PIN=${pin}`;
+}
+
+function buildQueryFingerprintTemplateCommand(employee: SyncEmployee, sequenceNumber: number) {
+  const pin = extractBiometricKey(employee);
+  return `C:${sequenceNumber}:DATA QUERY FINGERTMP PIN=${pin}`;
+}
+
 function normalizeTemplateType(tableName: string) {
   return String(tableName || "").trim().toUpperCase();
 }
@@ -296,6 +306,70 @@ export async function queueEmployeeTemplateSync(employee: SyncEmployee) {
   }
 }
 
+async function getNextCommandSequenceNumber() {
+  const nextIdRows = isPostgres()
+    ? await prisma.$queryRawUnsafe<Array<{ next_id: number }>>(`SELECT COALESCE(MAX("id"), 0) + 1 AS next_id FROM "BiometricDeviceCommand"`)
+    : await prisma.$queryRawUnsafe<Array<{ next_id: number }>>("SELECT COALESCE(MAX(`id`), 0) + 1 AS next_id FROM `BiometricDeviceCommand`");
+  return Number(nextIdRows[0]?.next_id || 1);
+}
+
+async function insertDeviceCommand(command: {
+  id: number;
+  deviceSerialNumber: string;
+  employeeId: string;
+  commandType: string;
+  commandPayload: string;
+}) {
+  if (isPostgres()) {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO "BiometricDeviceCommand"
+        ("id", "deviceSerialNumber", "employeeId", "commandType", "commandPayload", "processingStatus", "createdAt", "updatedAt")
+      VALUES
+        (${command.id}, '${escapeSqlString(command.deviceSerialNumber)}', '${escapeSqlString(command.employeeId)}', '${escapeSqlString(command.commandType)}', '${escapeSqlString(command.commandPayload)}', 'QUEUED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `);
+    return;
+  }
+
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO \`BiometricDeviceCommand\`
+      (\`id\`, \`deviceSerialNumber\`, \`employeeId\`, \`commandType\`, \`commandPayload\`, \`processingStatus\`, \`createdAt\`, \`updatedAt\`)
+    VALUES
+      (${command.id}, '${escapeSqlString(command.deviceSerialNumber)}', '${escapeSqlString(command.employeeId)}', '${escapeSqlString(command.commandType)}', '${escapeSqlString(command.commandPayload)}', 'QUEUED', CURRENT_TIMESTAMP(3), CURRENT_TIMESTAMP(3))
+  `);
+}
+
+export async function queueEmployeeTemplateDownload(employee: SyncEmployee) {
+  try {
+    const pin = extractBiometricKey(employee);
+    const serialNumber = await resolveTargetSerialNumber();
+    if (!pin || !serialNumber) return;
+
+    const commands = [
+      {
+        commandType: "QUERY_USERINFO",
+        buildPayload: buildQueryUserInfoCommand
+      },
+      {
+        commandType: "QUERY_FINGERTMP",
+        buildPayload: buildQueryFingerprintTemplateCommand
+      }
+    ];
+
+    for (const command of commands) {
+      const sequenceNumber = await getNextCommandSequenceNumber();
+      await insertDeviceCommand({
+        id: sequenceNumber,
+        deviceSerialNumber: serialNumber,
+        employeeId: employee.id,
+        commandType: command.commandType,
+        commandPayload: command.buildPayload(employee, sequenceNumber)
+      });
+    }
+  } catch (error) {
+    console.error("[Biometric Sync] Failed to queue template download commands:", error);
+  }
+}
+
 export async function getNextQueuedDeviceCommand(deviceSerialNumber: string) {
   try {
     const rows = isPostgres()
@@ -437,6 +511,32 @@ export async function archiveTemplatePayload(request: TemplateArchiveRequest) {
       const fingerIndex = extractFingerIndex(line);
       const templateData = extractTemplateBlob(line);
       const templateType = normalizeTemplateType(request.tableName);
+
+      const duplicateRows = isPostgres()
+        ? await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+            `SELECT "id"
+             FROM "BiometricTemplateArchive"
+             WHERE "deviceSerialNumber" = '${escapeSqlString(request.deviceSerialNumber)}'
+               AND COALESCE("biometricId", '') = '${escapeSqlString(biometricId || "")}'
+               AND COALESCE("fingerIndex", -1) = ${fingerIndex ?? -1}
+               AND "templateType" = '${escapeSqlString(templateType)}'
+               AND "templateData" = '${escapeSqlString(templateData)}'
+             LIMIT 1`
+          )
+        : await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+            `SELECT \`id\`
+             FROM \`BiometricTemplateArchive\`
+             WHERE \`deviceSerialNumber\` = '${escapeSqlString(request.deviceSerialNumber)}'
+               AND COALESCE(\`biometricId\`, '') = '${escapeSqlString(biometricId || "")}'
+               AND COALESCE(\`fingerIndex\`, -1) = ${fingerIndex ?? -1}
+               AND \`templateType\` = '${escapeSqlString(templateType)}'
+               AND \`templateData\` = '${escapeSqlString(templateData)}'
+             LIMIT 1`
+          );
+
+      if (duplicateRows[0]?.id) {
+        continue;
+      }
 
       if (isPostgres()) {
         await prisma.$executeRawUnsafe(`
