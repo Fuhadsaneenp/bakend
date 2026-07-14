@@ -137,13 +137,22 @@ export const attendanceService = {
     let checkOutAt = attendance.checkOutAt;
 
     if (!checkInAt || punchTime < checkInAt) {
-      if (checkInAt && (!checkOutAt || checkInAt > checkOutAt)) {
-        checkOutAt = checkInAt;
-      }
+      const oldCheckIn = checkInAt;
       checkInAt = punchTime;
+      if (oldCheckIn) {
+        const diff = differenceInMinutes(oldCheckIn, checkInAt);
+        if (diff >= 5) {
+          if (!checkOutAt || oldCheckIn > checkOutAt) {
+            checkOutAt = oldCheckIn;
+          }
+        }
+      }
     } else {
-      if (!checkOutAt || punchTime > checkOutAt) {
-        checkOutAt = punchTime;
+      const diff = differenceInMinutes(punchTime, checkInAt);
+      if (diff >= 5) {
+        if (!checkOutAt || punchTime > checkOutAt) {
+          checkOutAt = punchTime;
+        }
       }
     }
 
