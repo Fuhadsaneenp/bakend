@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
 }
 
 enum Role {
@@ -488,4 +488,3 @@ model Shift {
 
   @@unique([companyId, name])
 }
-
