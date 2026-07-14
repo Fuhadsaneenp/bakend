@@ -461,6 +461,32 @@ export const employeeService = {
     return result;
   },
 
+  async queueDeviceSync(user: AuthUser, employeeId: string) {
+    const employee = await prisma.employee.findFirst({
+      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
+    });
+    if (!employee) throw notFound("Employee");
+
+    await queueEmployeeDeviceSync({
+      id: employee.id,
+      employeeCode: employee.employeeCode,
+      biometricId: employee.biometricId,
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      status: employee.status
+    }, "UPSERT_USER");
+    await queueEmployeeTemplateSync({
+      id: employee.id,
+      employeeCode: employee.employeeCode,
+      biometricId: employee.biometricId,
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      status: employee.status
+    });
+
+    return { ok: true, message: "Employee queued for machine sync" };
+  },
+
   async listLettersForUser(user: AuthUser, employeeId: string) {
     await this.assertSelfOrHr(user, employeeId);
     const letters = await prisma.employeeLetter.findMany({

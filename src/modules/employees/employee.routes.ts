@@ -233,6 +233,19 @@ employeeRouter.delete("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asy
   }
 });
 
+employeeRouter.post("/:id/push-to-device", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
+      throw new ApiError(400, "Company context required");
+    }
+    const result = await employeeService.queueDeviceSync(req.user!, req.params.id);
+    await audit.record({ actorUserId: req.user!.id, action: "EMPLOYEE_PUSHED_TO_DEVICE", entity: "Employee", entityId: req.params.id, ipAddress: req.ip });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
 employeeRouter.get("/:id/documents", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE), async (req, res, next) => {
   try {
     res.json(await employeeService.listDocumentsForUser(req.user!, req.params.id));
