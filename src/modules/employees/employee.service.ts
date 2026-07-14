@@ -27,7 +27,7 @@ const employeeProfileFields = {
   company: true,
   department: true,
   designation: true,
-  manager: true,
+  manager: { include: { documents: true } },
   salary: true,
   shift: true,
   documents: { orderBy: { uploadedAt: "desc" as const } },
@@ -39,7 +39,7 @@ const employeeOperationalFields = {
   company: true,
   department: true,
   designation: true,
-  manager: true
+  manager: { include: { documents: true } }
 };
 
 const defaultLetterTitle = (type: LetterType) => {
@@ -433,6 +433,8 @@ export const employeeService = {
       await tx.employee.delete({ where: { id: employeeId } });
       await tx.auditLog.updateMany({ where: { actorUserId: employee.userId }, data: { actorUserId: null } });
       await tx.notification.updateMany({ where: { userId: employee.userId }, data: { userId: null } });
+      await tx.statusHistory.deleteMany({ where: { userId: employee.userId } });
+      await tx.comment.deleteMany({ where: { userId: employee.userId } });
       await tx.user.delete({ where: { id: employee.userId } });
       return { ok: true };
     });
