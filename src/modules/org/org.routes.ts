@@ -18,12 +18,16 @@ orgRouter.get("/companies", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async
   }
 });
 
-orgRouter.post("/companies", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
+orgRouter.post("/companies", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const body = z.object({
       name: z.string(),
       legalName: z.string().optional(),
-      logoUrl: z.string().optional()
+      logoUrl: z.string().optional(),
+      phoneCode: z.string().optional(),
+      phone: z.string().optional(),
+      email: z.string().optional(),
+      overview: z.string().optional()
     }).parse(req.body);
     res.status(201).json(await orgService.createCompany(body));
   } catch (error) {
@@ -31,12 +35,16 @@ orgRouter.post("/companies", requireRoles(Role.SUPER_ADMIN), async (req, res, ne
   }
 });
 
-orgRouter.patch("/companies/:id", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
+orgRouter.patch("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const body = z.object({
       name: z.string().optional(),
       legalName: z.string().optional().nullable(),
-      logoUrl: z.string().optional().nullable()
+      logoUrl: z.string().optional().nullable(),
+      phoneCode: z.string().optional().nullable(),
+      phone: z.string().optional().nullable(),
+      email: z.string().optional().nullable(),
+      overview: z.string().optional().nullable()
     }).parse(req.body);
     res.json(await orgService.updateCompany(req.params.id, body));
   } catch (error) {
@@ -44,7 +52,7 @@ orgRouter.patch("/companies/:id", requireRoles(Role.SUPER_ADMIN), async (req, re
   }
 });
 
-orgRouter.delete("/companies/:id", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
+orgRouter.delete("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     res.json(await orgService.deleteCompany(req.params.id));
   } catch (error) {
@@ -56,7 +64,7 @@ orgRouter.delete("/companies/:id", requireRoles(Role.SUPER_ADMIN), async (req, r
 orgRouter.get("/companies/:companyId/departments", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
   try {
     const { companyId } = req.params;
-    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.companyId !== companyId) {
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && req.user!.companyId !== companyId) {
       throw new ApiError(403, "Insufficient permissions for this company context");
     }
     res.json(await orgService.departments(companyId));
@@ -68,7 +76,7 @@ orgRouter.get("/companies/:companyId/departments", requireRoles(Role.SUPER_ADMIN
 orgRouter.post("/companies/:companyId/departments", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const { companyId } = req.params;
-    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.companyId !== companyId) {
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && req.user!.companyId !== companyId) {
       throw new ApiError(403, "Insufficient permissions for this company context");
     }
     const body = z.object({ name: z.string(), code: z.string() }).parse(req.body);
@@ -81,8 +89,12 @@ orgRouter.post("/companies/:companyId/departments", requireRoles(Role.SUPER_ADMI
 // Original legacy routes for compatibility
 orgRouter.get("/departments", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    res.json(await orgService.departments(req.user.companyId));
+    if (req.user?.role === Role.SUPER_ADMIN || req.user?.role === Role.HR_ADMIN) {
+      res.json(await orgService.listAllDepartments());
+    } else {
+      if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+      res.json(await orgService.departments(req.user.companyId));
+    }
   } catch (error) {
     next(error);
   }
@@ -103,7 +115,7 @@ orgRouter.patch("/departments/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN
   try {
     const dept = await prisma.department.findUnique({ where: { id: req.params.id } });
     if (!dept) throw new ApiError(404, "Department not found");
-    if (req.user!.role !== Role.SUPER_ADMIN && dept.companyId !== req.user!.companyId) {
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && dept.companyId !== req.user!.companyId) {
       throw new ApiError(403, "Insufficient permissions");
     }
     const body = z.object({ name: z.string().optional(), code: z.string().optional() }).parse(req.body);
@@ -117,7 +129,7 @@ orgRouter.delete("/departments/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMI
   try {
     const dept = await prisma.department.findUnique({ where: { id: req.params.id } });
     if (!dept) throw new ApiError(404, "Department not found");
-    if (req.user!.role !== Role.SUPER_ADMIN && dept.companyId !== req.user!.companyId) {
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && dept.companyId !== req.user!.companyId) {
       throw new ApiError(403, "Insufficient permissions");
     }
     res.json(await orgService.deleteDepartment(req.params.id));
@@ -131,7 +143,7 @@ orgRouter.post("/departments/:id/designations", requireRoles(Role.SUPER_ADMIN, R
   try {
     const dept = await prisma.department.findUnique({ where: { id: req.params.id } });
     if (!dept) throw new ApiError(404, "Department not found");
-    if (req.user!.role !== Role.SUPER_ADMIN && dept.companyId !== req.user!.companyId) {
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && dept.companyId !== req.user!.companyId) {
       throw new ApiError(403, "Insufficient permissions");
     }
     const body = z.object({ title: z.string() }).parse(req.body);
@@ -145,7 +157,7 @@ orgRouter.patch("/designations/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMI
   try {
     const desg = await prisma.designation.findUnique({ where: { id: req.params.id }, include: { department: true } });
     if (!desg) throw new ApiError(404, "Designation not found");
-    if (req.user!.role !== Role.SUPER_ADMIN && desg.department.companyId !== req.user!.companyId) {
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && desg.department.companyId !== req.user!.companyId) {
       throw new ApiError(403, "Insufficient permissions");
     }
     const body = z.object({
@@ -162,7 +174,7 @@ orgRouter.delete("/designations/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADM
   try {
     const desg = await prisma.designation.findUnique({ where: { id: req.params.id }, include: { department: true } });
     if (!desg) throw new ApiError(404, "Designation not found");
-    if (req.user!.role !== Role.SUPER_ADMIN && desg.department.companyId !== req.user!.companyId) {
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && desg.department.companyId !== req.user!.companyId) {
       throw new ApiError(403, "Insufficient permissions");
     }
     res.json(await orgService.deleteDesignation(req.params.id));

@@ -27,7 +27,9 @@ const employeeProfileFields = {
   company: true,
   department: true,
   designation: true,
+  manager: true,
   salary: true,
+  shift: true,
   documents: { orderBy: { uploadedAt: "desc" as const } },
   letters: { orderBy: { issuedAt: "desc" as const } }
 };
@@ -36,7 +38,8 @@ const employeeOperationalFields = {
   user: true,
   company: true,
   department: true,
-  designation: true
+  designation: true,
+  manager: true
 };
 
 const defaultLetterTitle = (type: LetterType) => {
@@ -120,6 +123,8 @@ export const employeeService = {
     role?: Role;
     biometricId?: string;
     employeeCode?: string;
+    shiftId?: string;
+    officeId?: string;
     dateOfBirth?: string;
     gender?: string;
     addressLine1?: string;
@@ -173,7 +178,9 @@ export const employeeService = {
           taxId: data.taxId,
           departmentId: data.departmentId,
           designationId: data.designationId,
-          managerId: data.managerId
+          managerId: data.managerId,
+          shiftId: data.shiftId || null,
+          officeId: data.officeId || null
         }
       });
 
@@ -215,6 +222,8 @@ export const employeeService = {
     role?: Role;
     biometricId?: string | null;
     employeeCode?: string;
+    shiftId?: string | null;
+    officeId?: string | null;
     dateOfBirth?: string | null;
     gender?: string | null;
     addressLine1?: string | null;
@@ -241,6 +250,9 @@ export const employeeService = {
       if (data.role) userUpdateData.role = data.role;
       if (data.email) userUpdateData.email = data.email;
       if (data.password) userUpdateData.passwordHash = await bcrypt.hash(data.password, 12);
+      if (data.companyId) {
+        userUpdateData.companyId = data.companyId;
+      }
 
       if (Object.keys(userUpdateData).length > 0) {
         await tx.user.update({
@@ -256,12 +268,14 @@ export const employeeService = {
           lastName: data.lastName,
           phone: data.phone,
           personalEmail: data.personalEmail,
-          companyId: data.companyId !== undefined ? (data.companyId || undefined) : undefined,
+          companyId: data.companyId ? data.companyId : undefined,
           departmentId: data.departmentId,
           designationId: data.designationId,
           managerId: data.managerId,
           biometricId: data.biometricId,
           employeeCode: data.employeeCode,
+          shiftId: data.shiftId,
+          officeId: data.officeId,
           dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : data.dateOfBirth,
           gender: data.gender,
           addressLine1: data.addressLine1,
@@ -403,6 +417,8 @@ export const employeeService = {
 
     return prisma.$transaction(async (tx) => {
       await tx.employee.updateMany({ where: { managerId: employeeId }, data: { managerId: null } });
+      await tx.reworkLog.updateMany({ where: { chargedToId: employeeId }, data: { chargedToId: null } });
+      await tx.pointsLedger.deleteMany({ where: { employeeId } });
       await tx.employeeDocument.deleteMany({ where: { employeeId } });
       await tx.employeeLetter.deleteMany({ where: { employeeId } });
       await tx.salary.deleteMany({ where: { employeeId } });

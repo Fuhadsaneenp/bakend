@@ -147,6 +147,8 @@ employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (r
       role: z.nativeEnum(Role).optional(),
       biometricId: z.string().optional(),
       employeeCode: z.string().min(2).optional(),
+      shiftId: z.string().optional(),
+      officeId: z.string().optional(),
       ...profileFieldsSchema,
       salary: z.object({
         basic: z.number().nonnegative(),
@@ -186,6 +188,8 @@ employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
       role: z.nativeEnum(Role).optional(),
       biometricId: z.string().optional().nullable(),
       employeeCode: z.string().min(2).optional(),
+      shiftId: z.string().optional().nullable(),
+      officeId: z.string().optional().nullable(),
       ...nullableProfileFieldsSchema,
       salary: z.object({
         basic: z.number().nonnegative(),

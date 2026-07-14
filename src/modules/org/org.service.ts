@@ -5,17 +5,21 @@ export const orgService = {
     return prisma.company.findMany({ orderBy: { name: "asc" } });
   },
 
-  createCompany(data: { name: string; legalName?: string; logoUrl?: string }) {
+  createCompany(data: { name: string; legalName?: string; logoUrl?: string; phoneCode?: string; phone?: string; email?: string; overview?: string }) {
     return prisma.company.create({
       data: {
         name: data.name,
         legalName: data.legalName || null,
-        logoUrl: data.logoUrl || null
+        logoUrl: data.logoUrl || null,
+        phoneCode: data.phoneCode || null,
+        phone: data.phone || null,
+        email: data.email || null,
+        overview: data.overview || null
       }
     });
   },
 
-  updateCompany(id: string, data: { name?: string; legalName?: string | null; logoUrl?: string | null }) {
+  updateCompany(id: string, data: { name?: string; legalName?: string | null; logoUrl?: string | null; phoneCode?: string | null; phone?: string | null; email?: string | null; overview?: string | null }) {
     return prisma.company.update({
       where: { id },
       data
@@ -57,6 +61,7 @@ export const orgService = {
       await tx.department.deleteMany({ where: { companyId: id } });
       await tx.payrollRun.deleteMany({ where: { companyId: id } });
       await tx.workTrackSetting.deleteMany({ where: { companyId: id } });
+      await tx.shift.deleteMany({ where: { companyId: id } });
 
       return tx.company.delete({ where: { id } });
     });
@@ -81,6 +86,16 @@ export const orgService = {
       }
     }
     return list;
+  },
+
+  async listAllDepartments() {
+    return prisma.department.findMany({
+      include: {
+        company: true,
+        designations: true
+      },
+      orderBy: { name: "asc" }
+    });
   },
 
   createDepartment(companyId: string, data: { name: string; code: string }) {
