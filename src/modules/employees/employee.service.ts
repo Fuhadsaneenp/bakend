@@ -417,7 +417,11 @@ export const employeeService = {
 
     return prisma.$transaction(async (tx) => {
       await tx.employee.updateMany({ where: { managerId: employeeId }, data: { managerId: null } });
+      await tx.client.updateMany({ where: { accountManagerId: employeeId }, data: { accountManagerId: null } });
+      await tx.workCard.updateMany({ where: { assignedToId: employeeId }, data: { assignedToId: null } });
+      await tx.workCard.updateMany({ where: { assignedById: employeeId }, data: { assignedById: null } });
       await tx.reworkLog.updateMany({ where: { chargedToId: employeeId }, data: { chargedToId: null } });
+      await tx.rating.updateMany({ where: { ratedById: employeeId }, data: { ratedById: null } });
       await tx.pointsLedger.deleteMany({ where: { employeeId } });
       await tx.employeeDocument.deleteMany({ where: { employeeId } });
       await tx.employeeLetter.deleteMany({ where: { employeeId } });
