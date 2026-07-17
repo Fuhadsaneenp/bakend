@@ -18,6 +18,21 @@ orgRouter.get("/companies", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async
   }
 });
 
+orgRouter.get("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
+  try {
+    const company = await orgService.company(req.params.id);
+    if (!company) {
+      throw new ApiError(404, "Company not found");
+    }
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.companyId !== company.id) {
+      throw new ApiError(403, "Insufficient permissions");
+    }
+    res.json(company);
+  } catch (error) {
+    next(error);
+  }
+});
+
 orgRouter.post("/companies", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const body = z.object({
@@ -61,7 +76,7 @@ orgRouter.delete("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN)
 });
 
 // Company-Scoped Departments
-orgRouter.get("/companies/:companyId/departments", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
+orgRouter.get("/companies/:companyId/departments", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
     const { companyId } = req.params;
     if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && req.user!.companyId !== companyId) {
@@ -87,7 +102,7 @@ orgRouter.post("/companies/:companyId/departments", requireRoles(Role.SUPER_ADMI
 });
 
 // Original legacy routes for compatibility
-orgRouter.get("/departments", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
+orgRouter.get("/departments", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
     if (req.user?.role === Role.SUPER_ADMIN || req.user?.role === Role.HR_ADMIN) {
       res.json(await orgService.listAllDepartments());

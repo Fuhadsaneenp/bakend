@@ -95,19 +95,14 @@ export const employeeService = {
     const currentEmployee = await prisma.employee.findUnique({ where: { userId: user.id } });
     if (!currentEmployee) return [];
 
-    if (user.role === Role.MANAGER) {
+    if (user.role === Role.MANAGER || user.role === Role.EMPLOYEE) {
       return prisma.employee.findMany({
-        where: { companyId: user.companyId, managerId: currentEmployee.id },
+        where: { companyId: user.companyId },
         include: employeeOperationalFields,
         orderBy: { createdAt: "desc" }
       });
     }
-
-    return prisma.employee.findMany({
-      where: { companyId: user.companyId, userId: user.id },
-      include: { ...employeeOperationalFields, documents: { orderBy: { uploadedAt: "desc" } }, letters: { orderBy: { issuedAt: "desc" } } },
-      orderBy: { createdAt: "desc" }
-    });
+    return [];
   },
 
   async onboard(companyId: string, data: {
@@ -122,6 +117,7 @@ export const employeeService = {
     designationId?: string;
     managerId?: string;
     role?: Role;
+    isHrHead?: boolean;
     biometricId?: string;
     employeeCode?: string;
     shiftId?: string;
@@ -146,7 +142,7 @@ export const employeeService = {
       const user = await tx.user.create({
         data: {
           companyId,
-          email: data.email,
+          email: data.email.toLowerCase(),
           passwordHash: await bcrypt.hash(data.password, 12),
           role: data.role ?? Role.EMPLOYEE
         }
@@ -180,9 +176,10 @@ export const employeeService = {
           departmentId: data.departmentId,
           designationId: data.designationId,
           managerId: data.managerId,
+          isHrHead: Boolean(data.isHrHead),
           shiftId: data.shiftId || null,
           officeId: data.officeId || null
-        }
+        } as any
       });
 
       if (data.salary) {
@@ -227,6 +224,8 @@ export const employeeService = {
     designationId?: string | null;
     managerId?: string | null;
     role?: Role;
+    isHrHead?: boolean;
+    dateOfJoining?: string;
     biometricId?: string | null;
     employeeCode?: string;
     shiftId?: string | null;
@@ -255,7 +254,7 @@ export const employeeService = {
     const updatedEmployee = await prisma.$transaction(async (tx) => {
       const userUpdateData: any = {};
       if (data.role) userUpdateData.role = data.role;
-      if (data.email) userUpdateData.email = data.email;
+      if (data.email) userUpdateData.email = data.email.toLowerCase();
       if (data.password) userUpdateData.passwordHash = await bcrypt.hash(data.password, 12);
       if (data.companyId) {
         userUpdateData.companyId = data.companyId;
@@ -279,6 +278,8 @@ export const employeeService = {
           departmentId: data.departmentId,
           designationId: data.designationId,
           managerId: data.managerId,
+          isHrHead: typeof data.isHrHead === "boolean" ? data.isHrHead : undefined,
+          dateOfJoining: data.dateOfJoining ? new Date(data.dateOfJoining) : undefined,
           biometricId: data.biometricId,
           employeeCode: data.employeeCode,
           shiftId: data.shiftId,
@@ -297,7 +298,7 @@ export const employeeService = {
           bankAccountNumber: data.bankAccountNumber,
           bankIfsc: data.bankIfsc,
           taxId: data.taxId
-        },
+        } as any,
         include: employeeProfileFields
       });
 

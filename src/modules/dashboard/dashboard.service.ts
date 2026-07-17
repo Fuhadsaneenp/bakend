@@ -1,12 +1,157 @@
 import { Role } from "@prisma/client";
-import { startOfMonth } from "date-fns";
+import { startOfMonth, differenceInMinutes } from "date-fns";
 import { prisma } from "../../lib/prisma.js";
 import type { AuthUser } from "../../middleware/auth.js";
+import { getKolkataStartOfDay } from "../attendance/attendance.service.js";
+
+async function getAttendanceStats(employeeWhere: any, companyId: string) {
+  const today = getKolkataStartOfDay(new Date());
+  const totalEmployees = await prisma.employee.count({
+    where: { ...employeeWhere, companyId, status: "ACTIVE" }
+  });
+
+  const attendancesToday = await prisma.attendance.findMany({
+    where: {
+      employee: { ...employeeWhere, companyId, status: "ACTIVE" },
+      workDate: today
+    }
+  });
+
+  const presentCount = attendancesToday.filter(a => a.checkInAt).length;
+  const lateCount = attendancesToday.filter(a => a.isLate).length;
+  const leaveCount = 0;
+  const absentCount = Math.max(0, totalEmployees - presentCount - leaveCount);
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  const parts = formatter.formatToParts(today);
+  const year = parts.find(p => p.type === "year")?.value;
+  const month = parts.find(p => p.type === "month")?.value;
+  const day = parts.find(p => p.type === "day")?.value;
+  const targetDate = `${year}-${month}-${day}`;
+
+  let avgCheckInTime = "-";
+  let avgCheckOutTime = "-";
+  let avgWorkingHours = "-";
+
+  const checkIns = attendancesToday.filter(a => a.checkInAt);
+  if (checkIns.length > 0) {
+    const avgCheckInMinutes = checkIns.reduce((sum, item) => sum + differenceInMinutes(item.checkInAt!, today), 0) / checkIns.length;
+    const avgCheckInDate = new Date(today.getTime() + avgCheckInMinutes * 60 * 1000);
+    avgCheckInTime = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true
+    }).format(avgCheckInDate);
+  }
+
+  const checkOuts = attendancesToday.filter(a => a.checkOutAt);
+  if (checkOuts.length > 0) {
+    const avgCheckOutMinutes = checkOuts.reduce((sum, item) => sum + differenceInMinutes(item.checkOutAt!, today), 0) / checkOuts.length;
+    const avgCheckOutDate = new Date(today.getTime() + avgCheckOutMinutes * 60 * 1000);
+    avgCheckOutTime = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true
+    }).format(avgCheckOutDate);
+  }
+
+  const workedAttendances = attendancesToday.filter(a => a.workMinutes > 0);
+  if (workedAttendances.length > 0) {
+    const avgMinutes = workedAttendances.reduce((sum, a) => sum + a.workMinutes, 0) / workedAttendances.length;
+    avgWorkingHours = `${(avgMinutes / 60).toFixed(1)} hrs`;
+  }
+
+  return {
+    targetDate,
+    presentCount,
+    absentCount,
+    lateCount,
+    leaveCount,
+    avgCheckInTime,
+    avgCheckOutTime,
+    avgWorkingHours,
+    totalEmployees
+  };
+}
+
+async function getWorkTrackStats(employeeIds: string[], attendanceStats?: { presentCount: number; totalEmployees: number }) {
+  if (employeeIds.length === 0) {
+    return {
+      assignedCount: 0,
+      pendingCount: 0,
+      inProgressCount: 0,
+      approvedThisMonth: 0,
+      workPointsThisMonth: 0,
+      attendanceRateThisMonth: 0,
+      performancePointsThisMonth: 0
+    };
+  }
+
+  const monthStart = startOfMonth(new Date());
+  const activeStatuses = ["PENDING", "IN_PROGRESS", "FINISHED", "OUT_TO_DELIVER", "REWORK"];
+
+  const [assignedCount, pendingCount, inProgressCount, approvedThisMonth, pointsRows] = await Promise.all([
+    prisma.workCard.count({
+      where: {
+        assignedToId: { in: employeeIds }
+      }
+    }),
+    prisma.workCard.count({
+      where: {
+        assignedToId: { in: employeeIds },
+        status: { in: ["PENDING", "REWORK"] }
+      }
+    }),
+    prisma.workCard.count({
+      where: {
+        assignedToId: { in: employeeIds },
+        status: { in: ["IN_PROGRESS", "FINISHED", "OUT_TO_DELIVER"] }
+      }
+    }),
+    prisma.workCard.count({
+      where: {
+        assignedToId: { in: employeeIds },
+        status: "APPROVED",
+        updatedAt: { gte: monthStart }
+      }
+    }),
+    prisma.pointsLedger.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        createdAt: { gte: monthStart }
+      },
+      select: { points: true }
+    })
+  ]);
+
+  const workPointsThisMonth = pointsRows.reduce((sum, row) => sum + row.points, 0);
+  const attendanceRateThisMonth = attendanceStats?.totalEmployees
+    ? Math.round((attendanceStats.presentCount / Math.max(attendanceStats.totalEmployees, 1)) * 100)
+    : 0;
+  const performancePointsThisMonth = Number((workPointsThisMonth + (attendanceRateThisMonth * 0.25)).toFixed(1));
+
+  return {
+    assignedCount,
+    pendingCount,
+    inProgressCount,
+    approvedThisMonth,
+    workPointsThisMonth: Number(workPointsThisMonth.toFixed(1)),
+    attendanceRateThisMonth,
+    performancePointsThisMonth
+  };
+}
 
 export const dashboardService = {
   async company(companyId: string) {
     const monthStart = startOfMonth(new Date());
-    const [employees, pendingWfh, pendingExpenses, payrollRuns, attendanceToday, recentEmployees, terminatedCount] = await Promise.all([
+    const [employees, pendingWfh, pendingExpenses, payrollRuns, attendanceToday, recentEmployees, terminatedCount, attendanceStats] = await Promise.all([
       prisma.employee.count({ where: { companyId, status: "ACTIVE" } }),
       prisma.wFHRequest.count({ where: { employee: { companyId }, status: "PENDING" } }),
       prisma.expenseClaim.count({ where: { employee: { companyId }, OR: [{ managerStatus: "PENDING" }, { hrStatus: "PENDING" }] } }),
@@ -22,8 +167,14 @@ export const dashboardService = {
         },
         orderBy: { createdAt: "desc" }
       }),
-      prisma.employee.count({ where: { companyId, status: "TERMINATED" } })
+      prisma.employee.count({ where: { companyId, status: "TERMINATED" } }),
+      getAttendanceStats({}, companyId)
     ]);
+    const employeeIds = await prisma.employee.findMany({
+      where: { companyId, status: "ACTIVE" },
+      select: { id: true }
+    });
+    const workTrackStats = await getWorkTrackStats(employeeIds.map((employee) => employee.id), attendanceStats);
 
     const activeCount = employees || 121; // Fallback to 121 if empty to match Figma base scale
 
@@ -39,7 +190,9 @@ export const dashboardService = {
       pendingApprovals: pendingWfh + pendingExpenses,
       payrollRuns,
       attendancePunchesThisMonth: attendanceToday,
-      recentEmployees
+      recentEmployees,
+      attendanceStats,
+      workTrackStats
     };
   },
 
@@ -57,7 +210,32 @@ export const dashboardService = {
         pendingApprovals: 0,
         payrollRuns: [],
         attendancePunchesThisMonth: 0,
-        recentEmployees: []
+        recentEmployees: [],
+        attendanceStats: {
+          targetDate: new Intl.DateTimeFormat("en-US", {
+            timeZone: "Asia/Kolkata",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit"
+          }).format(new Date()),
+          presentCount: 0,
+          absentCount: 0,
+          lateCount: 0,
+          leaveCount: 0,
+          avgCheckInTime: "-",
+          avgCheckOutTime: "-",
+          avgWorkingHours: "-",
+          totalEmployees: 0
+        },
+        workTrackStats: {
+          assignedCount: 0,
+          pendingCount: 0,
+          inProgressCount: 0,
+          approvedThisMonth: 0,
+          workPointsThisMonth: 0,
+          attendanceRateThisMonth: 0,
+          performancePointsThisMonth: 0
+        }
       };
     }
 
@@ -80,12 +258,37 @@ export const dashboardService = {
         pendingApprovals: 0,
         payrollRuns: [],
         attendancePunchesThisMonth: 0,
-        recentEmployees: []
+        recentEmployees: [],
+        attendanceStats: {
+          targetDate: new Intl.DateTimeFormat("en-US", {
+            timeZone: "Asia/Kolkata",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit"
+          }).format(new Date()),
+          presentCount: 0,
+          absentCount: 0,
+          lateCount: 0,
+          leaveCount: 0,
+          avgCheckInTime: "-",
+          avgCheckOutTime: "-",
+          avgWorkingHours: "-",
+          totalEmployees: 0
+        },
+        workTrackStats: {
+          assignedCount: 0,
+          pendingCount: 0,
+          inProgressCount: 0,
+          approvedThisMonth: 0,
+          workPointsThisMonth: 0,
+          attendanceRateThisMonth: 0,
+          performancePointsThisMonth: 0
+        }
       };
     }
 
     if (user.role === Role.MANAGER) {
-      const [reports, pendingWfh, pendingExpenses, attendancePunches, recentEmployees, terminatedCount] = await Promise.all([
+      const [reports, pendingWfh, pendingExpenses, attendancePunches, recentEmployees, terminatedCount, attendanceStats] = await Promise.all([
         prisma.employee.count({ where: { companyId: user.companyId, managerId: employee.id, status: "ACTIVE" } }),
         prisma.wFHRequest.count({ where: { employee: { managerId: employee.id }, status: "PENDING" } }),
         prisma.expenseClaim.count({ where: { employee: { managerId: employee.id }, managerStatus: "PENDING" } }),
@@ -100,8 +303,14 @@ export const dashboardService = {
           },
           orderBy: { createdAt: "desc" }
         }),
-        prisma.employee.count({ where: { companyId: user.companyId, managerId: employee.id, status: "TERMINATED" } })
+        prisma.employee.count({ where: { companyId: user.companyId, managerId: employee.id, status: "TERMINATED" } }),
+        getAttendanceStats({ managerId: employee.id }, user.companyId)
       ]);
+      const reportIds = await prisma.employee.findMany({
+        where: { companyId: user.companyId, managerId: employee.id, status: "ACTIVE" },
+        select: { id: true }
+      });
+      const workTrackStats = await getWorkTrackStats(reportIds.map((report) => report.id), attendanceStats);
 
       const reportsCount = reports || 12;
 
@@ -117,19 +326,95 @@ export const dashboardService = {
         pendingApprovals: pendingWfh + pendingExpenses,
         payrollRuns: [],
         attendancePunchesThisMonth: attendancePunches,
-        recentEmployees
+        recentEmployees,
+        attendanceStats,
+        workTrackStats
       };
     }
 
-    const [pendingWfh, pendingExpenses, attendancePunches, selfEmployee] = await Promise.all([
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const startOfCurrentMonth = new Date(currentYear, currentMonth, 1);
+    const endOfCurrentMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999);
+
+    const [pendingWfh, pendingExpenses, attendancePunches, selfEmployee, attendanceStats, attendanceToday, attendancesThisMonth, requestsThisMonth] = await Promise.all([
       prisma.wFHRequest.count({ where: { employeeId: employee.id, status: "PENDING" } }),
       prisma.expenseClaim.count({ where: { employeeId: employee.id, OR: [{ managerStatus: "PENDING" }, { hrStatus: "PENDING" }] } }),
       prisma.attendance.count({ where: { employeeId: employee.id, workDate: { gte: monthStart } } }),
       prisma.employee.findUnique({
         where: { id: employee.id },
         include: { designation: true, department: true, manager: true }
+      }),
+      getAttendanceStats({ id: employee.id }, user.companyId),
+      prisma.attendance.findFirst({ where: { employeeId: employee.id, workDate: getKolkataStartOfDay(new Date()) } }),
+      prisma.attendance.findMany({ where: { employeeId: employee.id, workDate: { gte: startOfCurrentMonth, lte: endOfCurrentMonth } } }),
+      prisma.wFHRequest.findMany({
+        where: {
+          employeeId: employee.id,
+          status: "APPROVED",
+          OR: [
+            { startDate: { gte: startOfCurrentMonth, lte: endOfCurrentMonth } },
+            { endDate: { gte: startOfCurrentMonth, lte: endOfCurrentMonth } },
+            {
+              AND: [
+                { startDate: { lte: startOfCurrentMonth } },
+                { endDate: { gte: endOfCurrentMonth } }
+              ]
+            }
+          ]
+        }
       })
     ]);
+    const workTrackStats = await getWorkTrackStats([employee.id], attendanceStats);
+
+    const isPresentToday = !!(attendanceToday && attendanceToday.checkInAt);
+    let checkInTimeToday: string | null = null;
+    if (attendanceToday?.checkInAt) {
+      checkInTimeToday = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Kolkata",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true
+      }).format(attendanceToday.checkInAt);
+    }
+
+    const totalOvertimeMinutes = attendancesThisMonth.reduce((sum, a) => sum + (a.overtimeMinutes || 0), 0);
+    const overtimeHours = (totalOvertimeMinutes / 60).toFixed(1) + " hrs";
+
+    let leaveDays = 0;
+    let wfhDays = 0;
+
+    const countOverlapDays = (startDate: Date, endDate: Date, startOfLimit: Date, endOfLimit: Date) => {
+      let count = 0;
+      let curr = new Date(startDate);
+      curr.setHours(0,0,0,0);
+      const end = new Date(endDate);
+      end.setHours(0,0,0,0);
+      
+      const limitStart = new Date(startOfLimit);
+      limitStart.setHours(0,0,0,0);
+      const limitEnd = new Date(endOfLimit);
+      limitEnd.setHours(0,0,0,0);
+
+      while (curr <= end) {
+        if (curr >= limitStart && curr <= limitEnd) {
+          count++;
+        }
+        curr.setDate(curr.getDate() + 1);
+      }
+      return count;
+    };
+
+    for (const req of requestsThisMonth) {
+      const overlap = countOverlapDays(req.startDate, req.endDate, startOfCurrentMonth, endOfCurrentMonth);
+      const isWfh = req.reason.startsWith("[Work From Home");
+      if (isWfh) {
+        wfhDays += overlap;
+      } else {
+        leaveDays += overlap;
+      }
+    }
 
     return {
       employees: 1,
@@ -143,7 +428,16 @@ export const dashboardService = {
       pendingApprovals: pendingWfh + pendingExpenses,
       payrollRuns: [],
       attendancePunchesThisMonth: attendancePunches,
-      recentEmployees: selfEmployee ? [selfEmployee] : []
+      recentEmployees: selfEmployee ? [selfEmployee] : [],
+      attendanceStats,
+      workTrackStats,
+      employeeStats: {
+        isPresentToday,
+        checkInTimeToday,
+        overtimeThisMonth: overtimeHours,
+        leavesTakenThisMonth: leaveDays,
+        wfhDaysTakenThisMonth: wfhDays
+      }
     };
   }
 };

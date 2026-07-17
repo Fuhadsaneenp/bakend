@@ -5,6 +5,10 @@ export const orgService = {
     return prisma.company.findMany({ orderBy: { name: "asc" } });
   },
 
+  company(id: string) {
+    return prisma.company.findUnique({ where: { id } });
+  },
+
   createCompany(data: { name: string; legalName?: string; logoUrl?: string; phoneCode?: string; phone?: string; email?: string; overview?: string }) {
     return prisma.company.create({
       data: {

@@ -125,7 +125,7 @@ attendanceRouter.post("/biometric/sync", requireRoles(Role.SUPER_ADMIN, Role.HR_
 });
 
 // Shifts CRUD endpoints
-attendanceRouter.get("/shifts", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+attendanceRouter.get("/shifts", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const shifts = await prisma.shift.findMany({

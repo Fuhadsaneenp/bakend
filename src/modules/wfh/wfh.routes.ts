@@ -26,7 +26,7 @@ wfhRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, R
   }
 });
 
-wfhRouter.patch("/:id/review", requireRoles(Role.HR_ADMIN, Role.MANAGER, Role.SUPER_ADMIN), async (req, res, next) => {
+wfhRouter.patch("/:id/review", requireRoles(Role.HR_ADMIN, Role.MANAGER, Role.SUPER_ADMIN, Role.EMPLOYEE), async (req, res, next) => {
   try {
     const body = z.object({ status: z.enum([ApprovalStatus.APPROVED, ApprovalStatus.REJECTED]) }).parse(req.body);
     res.json(await wfhService.review(req.params.id, req.user!, body.status));

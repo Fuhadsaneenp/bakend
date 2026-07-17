@@ -4,35 +4,322 @@ import { ApiError, notFound } from "../../lib/errors.js";
 import { notificationService } from "../notifications/notification.service.js";
 import type { AuthUser } from "../../middleware/auth.js";
 
+const db = prisma as any;
+
+const requestInclude = {
+  employee: {
+    include: {
+      user: true,
+      documents: true,
+      manager: {
+        include: {
+          user: true,
+          manager: {
+            include: {
+              user: true
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
+async function getEmployeeByUserId(userId: string) {
+  return db.employee.findUnique({
+    where: { userId },
+    include: {
+      user: true,
+      manager: {
+        include: {
+          user: true,
+          manager: {
+            include: {
+              user: true
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+async function getHrHeads(companyId: string, excludeUserIds: string[] = []) {
+  let users: any[] = [];
+  try {
+    users = await db.user.findMany({
+      where: {
+        companyId,
+        OR: [
+          { role: Role.SUPER_ADMIN },
+          { role: Role.HR_ADMIN },
+          { employee: { isHrHead: true } }
+        ]
+      },
+      include: {
+        employee: true
+      }
+    });
+  } catch {
+    users = await db.user.findMany({
+      where: {
+        companyId,
+        OR: [
+          { role: Role.SUPER_ADMIN },
+          { role: Role.HR_ADMIN }
+        ]
+      },
+      include: {
+        employee: true
+      }
+    });
+  }
+
+  const seen = new Set<string>();
+  return users.filter((user: any) => {
+    if (excludeUserIds.includes(user.id)) return false;
+    if (seen.has(user.id)) return false;
+    seen.add(user.id);
+    return true;
+  });
+}
+
+function buildFinalState(input: {
+  status: ApprovalStatus;
+  immediateManagerStatus: ApprovalStatus;
+  higherManagerStatus: ApprovalStatus;
+  hrHeadStatus: ApprovalStatus;
+  hasHigherManager: boolean;
+}) {
+  const rejectionStatuses = [
+    input.immediateManagerStatus,
+    input.higherManagerStatus,
+    input.hrHeadStatus
+  ];
+
+  if (rejectionStatuses.includes(ApprovalStatus.REJECTED)) {
+    return ApprovalStatus.REJECTED;
+  }
+
+  if (
+    input.higherManagerStatus === ApprovalStatus.APPROVED ||
+    input.hrHeadStatus === ApprovalStatus.APPROVED
+  ) {
+    return ApprovalStatus.APPROVED;
+  }
+
+  return ApprovalStatus.PENDING;
+}
+
 export const wfhService = {
   async request(userId: string, data: { startDate: string; endDate: string; reason: string }) {
-    const employee = await prisma.employee.findUnique({ where: { userId } });
+    const employee = await getEmployeeByUserId(userId);
     if (!employee) throw notFound("Employee");
-    return prisma.wFHRequest.create({
-      data: { employeeId: employee.id, startDate: new Date(data.startDate), endDate: new Date(data.endDate), reason: data.reason }
+
+    const immediateManagerId = employee.managerId || null;
+    const higherManagerId = employee.manager?.managerId || null;
+
+    let request: any;
+    try {
+      request = await db.wFHRequest.create({
+        data: {
+          employeeId: employee.id,
+          startDate: new Date(data.startDate),
+          endDate: new Date(data.endDate),
+          reason: data.reason,
+          immediateManagerId,
+          higherManagerId
+        },
+        include: requestInclude
+      });
+    } catch {
+      request = await db.wFHRequest.create({
+        data: {
+          employeeId: employee.id,
+          startDate: new Date(data.startDate),
+          endDate: new Date(data.endDate),
+          reason: data.reason
+        },
+        include: requestInclude
+      });
+    }
+
+    const notifyUserIds = new Set<string>();
+
+    if (employee.manager?.userId) {
+      notifyUserIds.add(employee.manager.userId);
+    }
+    if (employee.manager?.manager?.userId) {
+      notifyUserIds.add(employee.manager.manager.userId);
+    }
+
+    const hrHeads = await getHrHeads(employee.companyId, [employee.userId]);
+    hrHeads.forEach((hrHead: any) => {
+      notifyUserIds.add(hrHead.id);
     });
+
+    await Promise.all(
+      Array.from(notifyUserIds).map((reviewerUserId) =>
+        notificationService.inApp(
+          reviewerUserId,
+          "New leave request submitted",
+          `${employee.firstName} ${employee.lastName} submitted a leave/WFH request for review.`,
+          { requestId: request.id, employeeId: employee.id }
+        )
+      )
+    );
+
+    return request;
   },
 
   async review(requestId: string, reviewer: AuthUser, status: ApprovalStatus) {
-    const existing = await prisma.wFHRequest.findUnique({
+    const existing = await db.wFHRequest.findUnique({
       where: { id: requestId },
-      include: { employee: { include: { user: true } } }
+      include: {
+        employee: {
+          include: {
+            user: true,
+            manager: {
+              include: {
+                user: true,
+                manager: {
+                  include: {
+                    user: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     });
     if (!existing) throw notFound("WFH request");
 
-    if (reviewer.role === Role.MANAGER) {
-      const manager = await prisma.employee.findUnique({ where: { userId: reviewer.id } });
-      if (!manager || existing.employee.managerId !== manager.id) {
-        throw new ApiError(403, "Managers can only review direct-report requests");
-      }
+    const reviewerEmployee = await db.employee.findUnique({
+      where: { userId: reviewer.id },
+      include: { user: true }
+    });
+
+    const reviewerIsHrHead =
+      reviewer.role === Role.SUPER_ADMIN ||
+      reviewer.role === Role.HR_ADMIN ||
+      Boolean(reviewerEmployee?.isHrHead);
+
+    const reviewerName = reviewerEmployee 
+      ? `${reviewerEmployee.firstName} ${reviewerEmployee.lastName === "-" ? "" : reviewerEmployee.lastName}`.trim()
+      : reviewer.email || "System/HR";
+
+    const resolvedImmediateManagerId =
+      existing.immediateManagerId || existing.employee.managerId || existing.employee.manager?.id || null;
+    const resolvedHigherManagerId =
+      existing.higherManagerId || existing.employee.manager?.manager?.id || null;
+
+    const isImmediateManager = Boolean(reviewerEmployee && resolvedImmediateManagerId === reviewerEmployee.id);
+    const isHigherManager = Boolean(reviewerEmployee && resolvedHigherManagerId === reviewerEmployee.id);
+
+    if (!reviewerIsHrHead && !isImmediateManager && !isHigherManager) {
+      throw new ApiError(403, "You are not allowed to review this request");
     }
 
-    const request = await prisma.wFHRequest.update({
-      where: { id: requestId },
-      data: { status, reviewedBy: reviewer.id, reviewedAt: new Date() },
-      include: { employee: { include: { user: true } } }
-    });
-    await notificationService.inApp(request.employee.userId, `WFH ${status.toLowerCase()}`, `Your WFH request was ${status.toLowerCase()}.`);
+    let request: any;
+    const now = new Date();
+
+    try {
+      const updateData: Record<string, unknown> = {};
+
+      if (reviewerIsHrHead) {
+        updateData.hrHeadStatus = status;
+        updateData.hrHeadReviewedBy = reviewer.id;
+        updateData.hrHeadReviewedAt = now;
+      } else if (isHigherManager) {
+        updateData.higherManagerStatus = status;
+        updateData.higherManagerReviewedBy = reviewer.id;
+        updateData.higherManagerReviewedAt = now;
+      } else if (isImmediateManager) {
+        updateData.immediateManagerStatus = status;
+        updateData.immediateManagerReviewedBy = reviewer.id;
+        updateData.immediateManagerReviewedAt = now;
+      }
+
+      const nextState = {
+        status: existing.status,
+        immediateManagerStatus: (updateData.immediateManagerStatus as ApprovalStatus | undefined) ?? existing.immediateManagerStatus,
+        higherManagerStatus: (updateData.higherManagerStatus as ApprovalStatus | undefined) ?? existing.higherManagerStatus,
+        hrHeadStatus: (updateData.hrHeadStatus as ApprovalStatus | undefined) ?? existing.hrHeadStatus,
+        hasHigherManager: Boolean(resolvedHigherManagerId)
+      };
+
+      updateData.status = buildFinalState(nextState);
+      updateData.reviewedBy = updateData.status !== ApprovalStatus.PENDING ? reviewerName : existing.reviewedBy;
+      updateData.reviewedAt = updateData.status !== ApprovalStatus.PENDING ? now : existing.reviewedAt;
+
+      request = await db.wFHRequest.update({
+        where: { id: requestId },
+        data: updateData,
+        include: requestInclude
+      });
+    } catch (err) {
+      console.error("DEBUG: WFH review try block failed! Error details:", err);
+      const fallbackImmediateManagerId =
+        existing.immediateManagerId || existing.employee.managerId || existing.employee.manager?.id || null;
+      const fallbackHigherManagerId =
+        existing.higherManagerId || existing.employee.manager?.manager?.id || null;
+      const fallbackIsImmediateManager = Boolean(reviewerEmployee && fallbackImmediateManagerId === reviewerEmployee.id);
+      const fallbackIsHigherManager = Boolean(reviewerEmployee && fallbackHigherManagerId === reviewerEmployee.id);
+
+      if (!reviewerIsHrHead && !fallbackIsImmediateManager && !fallbackIsHigherManager) {
+        throw new ApiError(403, "You are not allowed to review this request");
+      }
+
+      let fallbackStatus = status;
+
+      if (status === ApprovalStatus.APPROVED) {
+        if (reviewerIsHrHead || fallbackIsHigherManager) {
+          fallbackStatus = ApprovalStatus.APPROVED;
+        } else if (fallbackIsImmediateManager) {
+          fallbackStatus = ApprovalStatus.PENDING;
+        } else {
+          fallbackStatus = ApprovalStatus.APPROVED;
+        }
+      }
+
+      request = await db.wFHRequest.update({
+        where: { id: requestId },
+        data: {
+          status: fallbackStatus,
+          hrHeadStatus: reviewerIsHrHead ? status : existing.hrHeadStatus,
+          immediateManagerStatus: fallbackIsImmediateManager ? status : existing.immediateManagerStatus,
+          higherManagerStatus: fallbackIsHigherManager ? status : existing.higherManagerStatus,
+          hrHeadReviewedBy: reviewerIsHrHead ? reviewer.id : existing.hrHeadReviewedBy,
+          hrHeadReviewedAt: reviewerIsHrHead ? now : existing.hrHeadReviewedAt,
+          immediateManagerReviewedBy: fallbackIsImmediateManager ? reviewer.id : existing.immediateManagerReviewedBy,
+          immediateManagerReviewedAt: fallbackIsImmediateManager ? now : existing.immediateManagerReviewedAt,
+          higherManagerReviewedBy: fallbackIsHigherManager ? reviewer.id : existing.higherManagerReviewedBy,
+          higherManagerReviewedAt: fallbackIsHigherManager ? now : existing.higherManagerReviewedAt,
+          reviewedBy:
+            fallbackStatus === ApprovalStatus.PENDING && status === ApprovalStatus.APPROVED
+              ? reviewerName
+              : fallbackStatus !== ApprovalStatus.PENDING
+                ? reviewerName
+                : existing.reviewedBy,
+          reviewedAt:
+            fallbackStatus === ApprovalStatus.PENDING && status === ApprovalStatus.APPROVED
+              ? now
+              : fallbackStatus !== ApprovalStatus.PENDING
+                ? now
+                : existing.reviewedAt
+        },
+        include: requestInclude
+      });
+    }
+
+    await notificationService.inApp(
+      request.employee.userId,
+      `Leave/WFH ${String(request.status).toLowerCase()}`,
+      `Your leave/WFH request is now ${String(request.status).toLowerCase()}.`,
+      { requestId: request.id, status: request.status }
+    );
+
     return request;
   },
 
@@ -40,27 +327,59 @@ export const wfhService = {
     if (!user.companyId) return [];
 
     if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
-      return prisma.wFHRequest.findMany({
+      return db.wFHRequest.findMany({
         where: { employee: { companyId: user.companyId } },
-        include: { employee: true },
+        include: requestInclude,
         orderBy: { createdAt: "desc" }
       });
     }
 
-    const employee = await prisma.employee.findUnique({ where: { userId: user.id } });
+    const employee = await db.employee.findUnique({ where: { userId: user.id } });
     if (!employee) return [];
 
-    if (user.role === Role.MANAGER) {
-      return prisma.wFHRequest.findMany({
-        where: { employee: { managerId: employee.id } },
-        include: { employee: true },
+    if (employee.isHrHead) {
+      return db.wFHRequest.findMany({
+        where: { employee: { companyId: user.companyId } },
+        include: requestInclude,
         orderBy: { createdAt: "desc" }
       });
     }
 
-    return prisma.wFHRequest.findMany({
+    if (user.role === Role.MANAGER) {
+      try {
+        return await db.wFHRequest.findMany({
+          where: {
+            OR: [
+              { employeeId: employee.id },
+              { immediateManagerId: employee.id },
+              { higherManagerId: employee.id },
+              { employee: { managerId: employee.id } },
+              { employee: { manager: { managerId: employee.id } } }
+            ]
+          },
+          include: {
+            employee: requestInclude.employee
+          },
+          orderBy: { createdAt: "desc" }
+        });
+      } catch {
+        return db.wFHRequest.findMany({
+          where: {
+            OR: [
+              { employeeId: employee.id },
+              { employee: { managerId: employee.id } },
+              { employee: { manager: { managerId: employee.id } } }
+            ]
+          },
+          include: requestInclude,
+          orderBy: { createdAt: "desc" }
+        });
+      }
+    }
+
+    return db.wFHRequest.findMany({
       where: { employeeId: employee.id },
-      include: { employee: true },
+      include: requestInclude,
       orderBy: { createdAt: "desc" }
     });
   }

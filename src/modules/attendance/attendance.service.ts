@@ -7,7 +7,7 @@ import type { AuthUser } from "../../middleware/auth.js";
 const lateHour = 9;
 const standardWorkMinutes = 8 * 60;
 
-function getKolkataStartOfDay(date: Date): Date {
+export function getKolkataStartOfDay(date: Date): Date {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Kolkata",
     year: "numeric",

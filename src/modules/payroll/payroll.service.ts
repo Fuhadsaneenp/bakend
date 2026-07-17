@@ -8,6 +8,55 @@ import { renderPayslipPdf } from "./payslip.pdf.js";
 
 const decimalToNumber = (value: Prisma.Decimal | number) => Number(value);
 
+function formatDayKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function parseRequestType(reason: string) {
+  const match = reason.match(/^\[([^\]]+)\]\s*(.*)$/);
+  if (match) {
+    return match[1].trim();
+  }
+  return "Work From Home (WFH)";
+}
+
+function isPayrollCreditedRequest(reason: string) {
+  const normalizedType = parseRequestType(reason).trim().toUpperCase();
+  return normalizedType === "PAID LEAVE" || normalizedType === "WORK FROM HOME (WFH)" || normalizedType === "WFH";
+}
+
+function buildPayableDaySet(input: {
+  attendance: Array<{ checkInAt?: Date | null; workDate: Date }>;
+  wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string }>;
+  periodStart: Date;
+  periodEnd: Date;
+}) {
+  const payableDays = new Set<string>();
+
+  for (const row of input.attendance) {
+    if (row.checkInAt) {
+      payableDays.add(formatDayKey(row.workDate));
+    }
+  }
+
+  for (const request of input.wfhRequests) {
+    if (!isPayrollCreditedRequest(request.reason)) continue;
+
+    const effectiveStart = new Date(Math.max(request.startDate.getTime(), input.periodStart.getTime()));
+    const effectiveEnd = new Date(Math.min(request.endDate.getTime(), input.periodEnd.getTime()));
+
+    if (effectiveStart > effectiveEnd) continue;
+
+    const cursor = new Date(effectiveStart);
+    while (cursor <= effectiveEnd) {
+      payableDays.add(formatDayKey(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+
+  return payableDays;
+}
+
 async function deliverPayslipById(payslipId: string) {
   const payslip = await prisma.payslip.findUnique({
     where: { id: payslipId },
@@ -63,6 +112,13 @@ export const payrollService = {
               lte: endOfDay(endOfMonthDate)
             }
           }
+        },
+        wfhRequests: {
+          where: {
+            status: "APPROVED",
+            startDate: { lte: endOfDay(endOfMonthDate) },
+            endDate: { gte: startOfDay(startOfMonthDate) }
+          }
         }
       }
     });
@@ -96,9 +152,20 @@ export const payrollService = {
           attendanceDays = totalDaysInMonth - employee.dateOfJoining.getDate() + 1;
         }
 
-        const checkInCount = employee.attendance.filter((a) => a.checkInAt).length;
-        const payableDays = checkInCount > 0 ? Math.min(attendanceDays, checkInCount) : attendanceDays;
-        
+        const employeePeriodStart = employee.dateOfJoining > startOfMonthDate ? startOfDay(employee.dateOfJoining) : startOfDay(startOfMonthDate);
+        const employeePeriodEnd =
+          type === "FINAL" && employee.dateOfExit
+            ? endOfDay(employee.dateOfExit)
+            : endOfDay(endOfMonthDate);
+
+        const payableDaySet = buildPayableDaySet({
+          attendance: employee.attendance,
+          wfhRequests: employee.wfhRequests,
+          periodStart: employeePeriodStart,
+          periodEnd: employeePeriodEnd
+        });
+        const payableDays = Math.min(attendanceDays, payableDaySet.size);
+
         const proration = payableDays / totalDaysInMonth;
         const basic = decimalToNumber(salary.basic) * proration;
         const allowances = decimalToNumber(salary.allowances) * proration;
