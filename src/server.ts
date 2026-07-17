@@ -4,12 +4,22 @@ import { ensureBiometricSyncSchema } from "./lib/biometricDeviceSync.js";
 import { ensureShiftSchema } from "./lib/ensureShiftSchema.js";
 
 async function start() {
-  await ensureBiometricSyncSchema();
-  await ensureShiftSchema();
   const app = createApp();
 
   app.listen(env.PORT, () => {
     console.log(`HR SaaS API listening on http://localhost:${env.PORT}`);
+  });
+
+  void Promise.allSettled([
+    ensureBiometricSyncSchema(),
+    ensureShiftSchema()
+  ]).then((results) => {
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        const taskName = index === 0 ? "ensureBiometricSyncSchema" : "ensureShiftSchema";
+        console.error(`${taskName} failed after startup:`, result.reason);
+      }
+    });
   });
 }
 
