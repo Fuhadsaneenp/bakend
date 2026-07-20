@@ -71,7 +71,9 @@ function buildPayableDayTotal(input: {
 
     const cursor = new Date(effectiveStart);
     while (cursor <= effectiveEnd) {
-      payableDays.set(formatDayKey(cursor), isHalfDayLeave ? 0.5 : 1);
+      const dayKey = formatDayKey(cursor);
+      const attendanceValue = payableDays.get(dayKey) || 0;
+      payableDays.set(dayKey, Math.max(attendanceValue, isHalfDayLeave ? 0.5 : 1));
       cursor.setDate(cursor.getDate() + 1);
     }
   }

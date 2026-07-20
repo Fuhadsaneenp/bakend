@@ -180,6 +180,26 @@ export const wfhService = {
     const employee = await getEmployeeByUserId(userId);
     if (!employee) throw notFound("Employee");
 
+    if (!data.reason.startsWith("[Missed Punch]")) {
+      const startKey = data.startDate.slice(0, 10);
+      const endKey = data.endDate.slice(0, 10);
+      const completedAttendance = await db.attendance.findFirst({
+        where: {
+          employeeId: employee.id,
+          workDate: {
+            gte: new Date(`${startKey}T00:00:00+05:30`),
+            lte: new Date(`${endKey}T23:59:59+05:30`)
+          },
+          checkInAt: { not: null },
+          checkOutAt: { not: null }
+        }
+      });
+
+      if (completedAttendance) {
+        throw new ApiError(400, "Leave or WFH cannot be requested for a date with completed check-in and check-out punches");
+      }
+    }
+
     const immediateManagerId = employee.managerId || null;
     const higherManagerId = employee.manager?.managerId || null;
 
