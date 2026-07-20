@@ -2,7 +2,7 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import rateLimit from "express-rate-limit";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
-import { acknowledgeDeviceCommand, archiveTemplatePayload, getNextQueuedDeviceCommand } from "../lib/biometricDeviceSync.js";
+import { acknowledgeDeviceCommand, archiveTemplatePayload, getNextQueuedDeviceCommand, queueDeviceAttendanceUpload } from "../lib/biometricDeviceSync.js";
 import { runBiometricSync } from "./biometricSync.js";
 
 type IClockRequest = Request & {
@@ -26,6 +26,9 @@ const sensitiveHeaders = new Set([
   "password",
   "pwd"
 ]);
+
+const attendanceAutoQueryCooldownMs = 5 * 60 * 1000;
+const lastAttendanceAutoQueryBySn = new Map<string, number>();
 
 export const iclockRouter = Router();
 
@@ -242,7 +245,17 @@ iclockRouter.get(["/getrequest", "/getrequest.aspx"], async (req: IClockRequest,
     logBiometricRequest(req);
     await persistBiometricLog(req, "PROCESSED");
     const serialNumber = getDeviceSerialNumber(req) || "";
-    const queuedCommand = await getNextQueuedDeviceCommand(serialNumber);
+    let queuedCommand = await getNextQueuedDeviceCommand(serialNumber);
+
+    if (!queuedCommand && shouldAutoQueryAttendance(serialNumber)) {
+      await queueDeviceAttendanceUpload(serialNumber);
+      queuedCommand = await getNextQueuedDeviceCommand(serialNumber);
+      if (queuedCommand) {
+        lastAttendanceAutoQueryBySn.set(serialNumber, Date.now());
+        console.log(`[Biometric] Auto-queued ATTLOG query for ${serialNumber}`);
+      }
+    }
+
     res.send(queuedCommand || "OK");
   } catch (error) {
     next(error);
@@ -341,6 +354,12 @@ function getRawBodyContent(req: IClockRequest): string {
     }
   }
   return "";
+}
+
+function shouldAutoQueryAttendance(serialNumber: string) {
+  if (!serialNumber) return false;
+  const lastQueuedAt = lastAttendanceAutoQueryBySn.get(serialNumber) || 0;
+  return Date.now() - lastQueuedAt >= attendanceAutoQueryCooldownMs;
 }
 
 async function persistBiometricLog(req: IClockRequest, status: string, errorMessage?: string) {
