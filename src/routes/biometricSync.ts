@@ -59,7 +59,8 @@ export async function runBiometricSync() {
           if (matchPin) {
             const pin = matchPin[1].trim();
             const matchName = line.match(/Name=([^\t\r\n]+)/);
-            const name = matchName ? matchName[1].trim() : `Employee ${pin}`;
+            const importedName = matchName?.[1]?.trim() || "";
+            const name = importedName || `Employee ${pin}`;
 
             // Parse first & last name
             const nameParts = name.split(/\s+/);
@@ -85,6 +86,14 @@ export async function runBiometricSync() {
               });
               successCount++;
             } else {
+              // A device may retain bare PIN slots without a person name. Those
+              // are not employees and must not be materialized as placeholders.
+              if (!importedName) {
+                console.warn(`[Biometric Sync] Skipped nameless device PIN ${pin}.`);
+                failCount++;
+                continue;
+              }
+
               // 2. Automatically create User and Employee if not found
               const email = `${pin.toLowerCase()}@stems.secondtales.com`;
 

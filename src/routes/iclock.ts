@@ -29,6 +29,7 @@ const sensitiveHeaders = new Set([
 
 const attendanceAutoQueryCooldownMs = 5 * 60 * 1000;
 const lastAttendanceAutoQueryBySn = new Map<string, number>();
+const directoryRecoveryEnabled = process.env.ENABLE_BIOMETRIC_DIRECTORY_RECOVERY === "true";
 
 export const iclockRouter = Router();
 
@@ -247,7 +248,7 @@ iclockRouter.get(["/getrequest", "/getrequest.aspx"], async (req: IClockRequest,
     const serialNumber = getDeviceSerialNumber(req) || "";
     let queuedCommand = await getNextQueuedDeviceCommand(serialNumber);
 
-    if (!queuedCommand) {
+    if (!queuedCommand && directoryRecoveryEnabled) {
       await queueDeviceUserDirectoryUpload(serialNumber);
       queuedCommand = await getNextQueuedDeviceCommand(serialNumber);
       if (queuedCommand) {
