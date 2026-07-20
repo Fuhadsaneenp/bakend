@@ -4,7 +4,9 @@ import { attendanceService } from "../modules/attendance/attendance.service.js";
 // A pre-hashed bcrypt hash for the password "TempPassword123!"
 const DUMMY_PASSWORD_HASH = "$2a$10$Ex7a3m9zH8G5tP2rK4yU1u1j6W3e8r9t0y1u2i3o4p5a6s7d8f9g0";
 
-export async function runBiometricSync() {
+let activeBiometricSync: Promise<void> | null = null;
+
+async function performBiometricSync() {
   const pendingLogs = await prisma.biometricRawLog.findMany({
     where: { processingStatus: "PENDING" },
     orderBy: { receivedAt: "asc" }
@@ -224,4 +226,18 @@ export async function runBiometricSync() {
   }
 
   console.log("[Biometric Sync] Background sync cycle completed.");
+}
+
+/**
+ * Device uploads can arrive only seconds apart. Reuse the active sync instead
+ * of starting overlapping database-heavy imports that exhaust the SQL pool.
+ */
+export function runBiometricSync() {
+  if (!activeBiometricSync) {
+    activeBiometricSync = performBiometricSync().finally(() => {
+      activeBiometricSync = null;
+    });
+  }
+
+  return activeBiometricSync;
 }
