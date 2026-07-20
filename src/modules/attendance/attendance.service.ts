@@ -159,7 +159,7 @@ export const attendanceService = {
   },
 
   async biometricPunch(biometricId: string, punchTimeStr: string, direction?: "IN" | "OUT") {
-    let employee = await prisma.employee.findFirst({
+    const employee = await prisma.employee.findFirst({
       where: {
         OR: [
           { biometricId },
@@ -169,40 +169,10 @@ export const attendanceService = {
       include: { shift: true }
     });
 
-    if (!employee) {
-      const company = await prisma.company.findFirst();
-      if (!company) throw notFound("Company context required for biometric punch");
-
-      const DUMMY_PASSWORD_HASH = "$2a$10$Ex7a3m9zH8G5tP2rK4yU1u1j6W3e8r9t0y1u2i3o4p5a6s7d8f9g0";
-      const email = `${biometricId.toLowerCase()}@stems.secondtales.com`;
-
-      let user = await prisma.user.findUnique({ where: { email } });
-      if (!user) {
-        user = await prisma.user.create({
-          data: {
-            companyId: company.id,
-            email,
-            passwordHash: DUMMY_PASSWORD_HASH,
-            role: "EMPLOYEE",
-            isActive: true
-          }
-        });
-      }
-
-      employee = await prisma.employee.create({
-        data: {
-          companyId: company.id,
-          userId: user.id,
-          employeeCode: biometricId,
-          biometricId: biometricId,
-          firstName: "Employee",
-          lastName: biometricId,
-          dateOfJoining: new Date(),
-          status: "ACTIVE"
-        },
-        include: { shift: true }
-      });
-    }
+    // Attendance data must never create people. Device PIN slots can remain on
+    // the machine after an employee is deleted, and their later punches would
+    // otherwise recreate placeholder accounts such as "Employee ST011".
+    if (!employee) throw notFound(`Employee for biometric ID ${biometricId}`);
 
     let punchTime: Date;
     if (punchTimeStr.includes("Z") || punchTimeStr.includes("+")) {
