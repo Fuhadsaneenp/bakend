@@ -21,9 +21,14 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
     user: decodeURIComponent(connectionUrl.username),
     password: decodeURIComponent(connectionUrl.password),
     database: decodeURIComponent(connectionUrl.pathname.replace(/^\//, "")),
-    connectionLimit: 10,
+    // Hostinger shared MySQL has a small per-user connection allowance. The
+    // MariaDB driver otherwise pre-opens `connectionLimit` idle connections,
+    // which can lock this app out of its own database after a redeploy.
+    connectionLimit: 3,
+    minimumIdle: 1,
+    idleTimeout: 60,
     connectTimeout: 10_000,
-    acquireTimeout: 10_000
+    acquireTimeout: 15_000
   }, {
     onConnectionError: (error: { code?: string; errno?: number; sqlState?: string }) => {
       // Never log the connection URL or credentials.
