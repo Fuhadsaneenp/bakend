@@ -177,7 +177,7 @@ iclockRouter.use(async (req: IClockRequest, res, next) => {
     return res.status(400).send("ERROR: Missing SN");
   }
 
-  if (biometricAllowedSns.size > 0 && serialNumber !== "TEST123" && !biometricAllowedSns.has(serialNumber)) {
+  if (biometricAllowedSns.size > 0 && !biometricAllowedSns.has("*") && serialNumber !== "TEST123" && !biometricAllowedSns.has(serialNumber)) {
     console.warn(`[Biometric] Blocked unauthorized device SN: ${serialNumber}`);
     await persistBiometricLog(req, "FAILED", `Unauthorized SN: ${serialNumber}`);
     return res.status(403).send("ERROR: Unauthorized SN");
@@ -201,7 +201,7 @@ iclockRouter.get(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, next
       "Delay=30",
       "TransTimes=00:00;14:00",
       "TransInterval=1",
-      "TransFlag=1000000000",
+      "TransFlag=1111111111",
       "Realtime=1",
       "Encrypt=0"
     ];

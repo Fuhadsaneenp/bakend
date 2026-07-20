@@ -159,8 +159,50 @@ export const attendanceService = {
   },
 
   async biometricPunch(biometricId: string, punchTimeStr: string, direction?: "IN" | "OUT") {
-    const employee = await prisma.employee.findUnique({ where: { biometricId }, include: { shift: true } });
-    if (!employee) throw notFound("Employee with biometric ID " + biometricId);
+    let employee = await prisma.employee.findFirst({
+      where: {
+        OR: [
+          { biometricId },
+          { employeeCode: biometricId }
+        ]
+      },
+      include: { shift: true }
+    });
+
+    if (!employee) {
+      const company = await prisma.company.findFirst();
+      if (!company) throw notFound("Company context required for biometric punch");
+
+      const DUMMY_PASSWORD_HASH = "$2a$10$Ex7a3m9zH8G5tP2rK4yU1u1j6W3e8r9t0y1u2i3o4p5a6s7d8f9g0";
+      const email = `${biometricId.toLowerCase()}@stems.secondtales.com`;
+
+      let user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            companyId: company.id,
+            email,
+            passwordHash: DUMMY_PASSWORD_HASH,
+            role: "EMPLOYEE",
+            isActive: true
+          }
+        });
+      }
+
+      employee = await prisma.employee.create({
+        data: {
+          companyId: company.id,
+          userId: user.id,
+          employeeCode: biometricId,
+          biometricId: biometricId,
+          firstName: "Employee",
+          lastName: biometricId,
+          dateOfJoining: new Date(),
+          status: "ACTIVE"
+        },
+        include: { shift: true }
+      });
+    }
 
     let punchTime: Date;
     if (punchTimeStr.includes("Z") || punchTimeStr.includes("+")) {

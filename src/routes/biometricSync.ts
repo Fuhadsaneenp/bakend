@@ -33,7 +33,15 @@ export async function runBiometricSync() {
       }
 
       const tableValue = query.table ?? query.TABLE ?? query.Table ?? "";
-      const table = String(tableValue).toUpperCase().trim();
+      let table = String(tableValue).toUpperCase().trim();
+
+      if (!table && log.rawPayload) {
+        if (log.rawPayload.includes("PIN=") || log.rawPayload.includes("USER ")) {
+          table = "USERINFO";
+        } else if (/\d{4}-\d{2}-\d{2}/.test(log.rawPayload)) {
+          table = "ATTLOG";
+        }
+      }
 
       const rawLines = log.rawPayload ? log.rawPayload.split("\n") : [];
       let successCount = 0;
@@ -125,27 +133,37 @@ export async function runBiometricSync() {
         const punchesToProcess: { biometricId: string; punchTimeStr: string; timestamp: number }[] = [];
         
         for (const line of rawLines) {
-          if (!line.trim()) continue;
+          const trimmed = line.trim();
+          if (!trimmed) continue;
 
-          const parts = line.split("\t");
-          if (parts.length >= 2) {
-            const biometricId = parts[0].trim();
-            const punchTimeStr = parts[1].trim();
+          const match = trimmed.match(/^([^\t\s]+)[\t\s]+(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+\d{2}:?\d{2})?)/);
+          let biometricId = "";
+          let punchTimeStr = "";
 
-            if (biometricId && punchTimeStr) {
-              let punchTime: Date;
-              if (punchTimeStr.includes("Z") || punchTimeStr.includes("+")) {
-                punchTime = new Date(punchTimeStr);
-              } else {
-                const isoStr = punchTimeStr.replace(" ", "T") + "+05:30";
-                punchTime = new Date(isoStr);
-              }
-              punchesToProcess.push({
-                biometricId,
-                punchTimeStr,
-                timestamp: punchTime.getTime()
-              });
+          if (match) {
+            biometricId = match[1].trim();
+            punchTimeStr = match[2].trim();
+          } else {
+            const parts = trimmed.split("\t");
+            if (parts.length >= 2) {
+              biometricId = parts[0].trim();
+              punchTimeStr = parts[1].trim();
             }
+          }
+
+          if (biometricId && punchTimeStr && /\d{4}-\d{2}-\d{2}/.test(punchTimeStr)) {
+            let punchTime: Date;
+            if (punchTimeStr.includes("Z") || punchTimeStr.includes("+")) {
+              punchTime = new Date(punchTimeStr);
+            } else {
+              const isoStr = punchTimeStr.replace(" ", "T") + "+05:30";
+              punchTime = new Date(isoStr);
+            }
+            punchesToProcess.push({
+              biometricId,
+              punchTimeStr,
+              timestamp: punchTime.getTime()
+            });
           }
         }
 
