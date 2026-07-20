@@ -63,7 +63,7 @@ iclockRouter.use((req: IClockRequest, _res, next) => {
 
 const biometricRateLimiter = rateLimit({
   windowMs: 60_000,
-  limit: 60,
+  limit: 300,
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: "ERROR: Rate limit exceeded",
@@ -197,9 +197,9 @@ iclockRouter.get(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, next
       "Stamp=0",
       "OpStamp=0",
       "PhotoStamp=0",
-      "ErrorDelay=60",
-      "Delay=30",
-      "TransTimes=00:00;14:00",
+      "ErrorDelay=10",
+      "Delay=5",
+      "TransTimes=00:00;23:59",
       "TransInterval=1",
       "TransFlag=1111111111",
       "Realtime=1",
