@@ -194,9 +194,9 @@ iclockRouter.get(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, next
     const serialNumber = getDeviceSerialNumber(req);
     const responseLines = [
       `GET OPTION FROM: ${serialNumber}`,
-      "Stamp=999999",
-      "OpStamp=999999",
-      "PhotoStamp=999999",
+      "Stamp=0",
+      "OpStamp=0",
+      "PhotoStamp=0",
       "ErrorDelay=60",
       "Delay=30",
       "TransTimes=00:00;14:00",
