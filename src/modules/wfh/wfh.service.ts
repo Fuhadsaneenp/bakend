@@ -1,10 +1,74 @@
 import { ApprovalStatus, Role } from "@prisma/client";
+import { differenceInMinutes } from "date-fns";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
 import { notificationService } from "../notifications/notification.service.js";
 import type { AuthUser } from "../../middleware/auth.js";
 
 const db = prisma as any;
+
+function parseMissedPunchTimes(reason: string) {
+  if (!reason.startsWith("[Missed Punch]")) return null;
+  const checkIn = reason.match(/\[IN=(\d{2}:\d{2})\]/)?.[1];
+  const checkOut = reason.match(/\[OUT=(\d{2}:\d{2})\]/)?.[1];
+  return checkIn && checkOut ? { checkIn, checkOut } : null;
+}
+
+async function applyApprovedMissedPunch(request: any) {
+  const times = parseMissedPunchTimes(request.reason || "");
+  if (!times) return;
+
+  const employee = await db.employee.findUnique({
+    where: { id: request.employeeId },
+    include: { shift: true }
+  });
+  if (!employee) throw notFound("Employee");
+
+  const dateKey = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(request.startDate));
+  const workDate = new Date(`${dateKey}T00:00:00+05:30`);
+  const checkInAt = new Date(`${dateKey}T${times.checkIn}:00+05:30`);
+  const checkOutAt = new Date(`${dateKey}T${times.checkOut}:00+05:30`);
+
+  if (checkOutAt <= checkInAt) {
+    throw new ApiError(400, "Corrected check-out time must be later than check-in time");
+  }
+
+  const shiftStartTime = employee.shift?.startTime || "09:00";
+  const shiftEndTime = employee.shift?.endTime || "18:00";
+  const gracePeriod = employee.shift?.gracePeriod || 0;
+  const earlyPunchTolerance = employee.shift?.earlyPunchTolerance || 0;
+  const workMinutesFix = employee.shift?.workMinutesFix || 8 * 60;
+  const shiftStart = new Date(`${dateKey}T${shiftStartTime}:00+05:30`);
+  const shiftEnd = new Date(`${dateKey}T${shiftEndTime}:00+05:30`);
+  const worked = Math.max(0, differenceInMinutes(checkOutAt, checkInAt));
+
+  await db.attendance.upsert({
+    where: { employeeId_workDate: { employeeId: request.employeeId, workDate } },
+    create: {
+      employeeId: request.employeeId,
+      workDate,
+      checkInAt,
+      checkOutAt,
+      workMinutes: worked,
+      overtimeMinutes: Math.max(0, worked - workMinutesFix),
+      isLate: checkInAt.getTime() > shiftStart.getTime() + gracePeriod * 60_000,
+      isEarlyLeave: checkOutAt.getTime() < shiftEnd.getTime() - earlyPunchTolerance * 60_000
+    },
+    update: {
+      checkInAt,
+      checkOutAt,
+      workMinutes: worked,
+      overtimeMinutes: Math.max(0, worked - workMinutesFix),
+      isLate: checkInAt.getTime() > shiftStart.getTime() + gracePeriod * 60_000,
+      isEarlyLeave: checkOutAt.getTime() < shiftEnd.getTime() - earlyPunchTolerance * 60_000
+    }
+  });
+}
 
 const requestInclude = {
   employee: {
@@ -311,6 +375,10 @@ export const wfhService = {
         },
         include: requestInclude
       });
+    }
+
+    if (request.status === ApprovalStatus.APPROVED) {
+      await applyApprovedMissedPunch(request);
     }
 
     await notificationService.inApp(

@@ -257,8 +257,8 @@ model Payslip {
   gratuity       Decimal    @default(0.00) @db.Decimal(12, 2)
   leaveEncashment Decimal   @default(0.00) @db.Decimal(12, 2)
   noticePay      Decimal    @default(0.00) @db.Decimal(12, 2)
-  attendanceDays Int
-  payableDays    Int
+  attendanceDays Decimal    @db.Decimal(5, 2)
+  payableDays    Decimal    @db.Decimal(5, 2)
   grossPay       Decimal    @db.Decimal(12, 2)
   netPay         Decimal    @db.Decimal(12, 2)
   pdfKey         String?

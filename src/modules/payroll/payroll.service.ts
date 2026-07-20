@@ -9,7 +9,12 @@ import { renderPayslipPdf } from "./payslip.pdf.js";
 const decimalToNumber = (value: Prisma.Decimal | number) => Number(value);
 
 function formatDayKey(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
 }
 
 function parseRequestType(reason: string) {
@@ -20,27 +25,44 @@ function parseRequestType(reason: string) {
   return "Work From Home (WFH)";
 }
 
-function isPayrollCreditedRequest(reason: string) {
-  const normalizedType = parseRequestType(reason).trim().toUpperCase();
-  return normalizedType === "PAID LEAVE" || normalizedType === "WORK FROM HOME (WFH)" || normalizedType === "WFH";
+function getKolkataMinutes(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+  return hour * 60 + minute;
 }
 
-function buildPayableDaySet(input: {
-  attendance: Array<{ checkInAt?: Date | null; workDate: Date }>;
+function attendanceCredit(row: { checkInAt?: Date | null; checkOutAt?: Date | null }) {
+  if (!row.checkInAt) return 0;
+  if (!row.checkOutAt) return 0.5;
+  if (getKolkataMinutes(row.checkInAt) > 13 * 60) return 0.5;
+  if (getKolkataMinutes(row.checkOutAt) < 15 * 60) return 0.5;
+  return 1;
+}
+
+function buildPayableDayTotal(input: {
+  attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
   wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string }>;
   periodStart: Date;
   periodEnd: Date;
 }) {
-  const payableDays = new Set<string>();
+  const payableDays = new Map<string, number>();
 
   for (const row of input.attendance) {
-    if (row.checkInAt) {
-      payableDays.add(formatDayKey(row.workDate));
-    }
+    const credit = attendanceCredit(row);
+    if (credit > 0) payableDays.set(formatDayKey(row.workDate), credit);
   }
 
   for (const request of input.wfhRequests) {
-    if (!isPayrollCreditedRequest(request.reason)) continue;
+    const requestType = parseRequestType(request.reason).trim().toUpperCase();
+    const isFullDayCredit = requestType === "PAID LEAVE" || requestType === "WORK FROM HOME (WFH)" || requestType === "WFH";
+    const isHalfDayLeave = requestType.startsWith("HALF DAY");
+    if (!isFullDayCredit && !isHalfDayLeave) continue;
 
     const effectiveStart = new Date(Math.max(request.startDate.getTime(), input.periodStart.getTime()));
     const effectiveEnd = new Date(Math.min(request.endDate.getTime(), input.periodEnd.getTime()));
@@ -49,12 +71,12 @@ function buildPayableDaySet(input: {
 
     const cursor = new Date(effectiveStart);
     while (cursor <= effectiveEnd) {
-      payableDays.add(formatDayKey(cursor));
+      payableDays.set(formatDayKey(cursor), isHalfDayLeave ? 0.5 : 1);
       cursor.setDate(cursor.getDate() + 1);
     }
   }
 
-  return payableDays;
+  return Array.from(payableDays.values()).reduce((total, days) => total + days, 0);
 }
 
 async function deliverPayslipById(payslipId: string) {
@@ -158,13 +180,13 @@ export const payrollService = {
             ? endOfDay(employee.dateOfExit)
             : endOfDay(endOfMonthDate);
 
-        const payableDaySet = buildPayableDaySet({
+        const payableDayTotal = buildPayableDayTotal({
           attendance: employee.attendance,
           wfhRequests: employee.wfhRequests,
           periodStart: employeePeriodStart,
           periodEnd: employeePeriodEnd
         });
-        const payableDays = Math.min(attendanceDays, payableDaySet.size);
+        const payableDays = Math.min(attendanceDays, payableDayTotal);
 
         const proration = payableDays / totalDaysInMonth;
         const basic = decimalToNumber(salary.basic) * proration;
@@ -295,7 +317,7 @@ export const payrollService = {
       deductions: pdfDeductions,
       grossPay,
       netPay,
-      attendanceDays: payslip.attendanceDays,
+      attendanceDays: Number(payslip.attendanceDays),
       payableDays: data.payableDays
     });
     const pdfKey = payslip.pdfKey || `companies/${companyId}/payslips/${payslip.year}-${payslip.month}/${payslip.employeeId}.pdf`;
