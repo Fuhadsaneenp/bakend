@@ -60,7 +60,11 @@ function buildPayableDayTotal(input: {
 
   for (const request of input.wfhRequests) {
     const requestType = parseRequestType(request.reason).trim().toUpperCase();
-    const isFullDayCredit = requestType === "PAID LEAVE" || requestType === "WORK FROM HOME (WFH)" || requestType === "WFH";
+    const isFullDayCredit = requestType === "PAID LEAVE"
+      || requestType === "WORK FROM HOME (WFH)"
+      || requestType === "WFH"
+      || requestType === "SHOOTING"
+      || requestType === "MISSED PUNCH";
     const isHalfDayLeave = requestType.startsWith("HALF DAY");
     if (!isFullDayCredit && !isHalfDayLeave) continue;
 
