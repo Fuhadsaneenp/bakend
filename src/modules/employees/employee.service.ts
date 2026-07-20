@@ -139,12 +139,21 @@ export const employeeService = {
     salary?: { basic: number; allowances: number; deductions: number; effectiveFrom: string };
   }) {
     const createdEmployee = await prisma.$transaction(async (tx) => {
+      const superAdminCount = await tx.user.count({
+        where: { role: Role.SUPER_ADMIN }
+      });
+
+      let finalRole = data.role ?? Role.EMPLOYEE;
+      if (superAdminCount === 0 && (finalRole === Role.HR_ADMIN || finalRole === Role.SUPER_ADMIN)) {
+        finalRole = Role.SUPER_ADMIN;
+      }
+
       const user = await tx.user.create({
         data: {
           companyId,
           email: data.email.toLowerCase(),
           passwordHash: await bcrypt.hash(data.password, 12),
-          role: data.role ?? Role.EMPLOYEE
+          role: finalRole
         }
       });
 

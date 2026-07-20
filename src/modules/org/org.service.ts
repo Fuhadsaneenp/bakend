@@ -9,7 +9,7 @@ export const orgService = {
     return prisma.company.findUnique({ where: { id } });
   },
 
-  createCompany(data: { name: string; legalName?: string; logoUrl?: string; phoneCode?: string; phone?: string; email?: string; overview?: string }) {
+  createCompany(data: { name: string; legalName?: string; logoUrl?: string; phoneCode?: string; phone?: string; email?: string; overview?: string; worksSevenDays?: boolean }) {
     return prisma.company.create({
       data: {
         name: data.name,
@@ -18,12 +18,13 @@ export const orgService = {
         phoneCode: data.phoneCode || null,
         phone: data.phone || null,
         email: data.email || null,
-        overview: data.overview || null
+        overview: data.overview || null,
+        worksSevenDays: data.worksSevenDays ?? false
       }
     });
   },
 
-  updateCompany(id: string, data: { name?: string; legalName?: string | null; logoUrl?: string | null; phoneCode?: string | null; phone?: string | null; email?: string | null; overview?: string | null }) {
+  updateCompany(id: string, data: { name?: string; legalName?: string | null; logoUrl?: string | null; phoneCode?: string | null; phone?: string | null; email?: string | null; overview?: string | null; worksSevenDays?: boolean }) {
     return prisma.company.update({
       where: { id },
       data

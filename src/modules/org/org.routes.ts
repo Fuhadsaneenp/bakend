@@ -42,7 +42,8 @@ orgRouter.post("/companies", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
       phoneCode: z.string().optional(),
       phone: z.string().optional(),
       email: z.string().optional(),
-      overview: z.string().optional()
+      overview: z.string().optional(),
+      worksSevenDays: z.boolean().optional()
     }).parse(req.body);
     res.status(201).json(await orgService.createCompany(body));
   } catch (error) {
@@ -59,7 +60,8 @@ orgRouter.patch("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN),
       phoneCode: z.string().optional().nullable(),
       phone: z.string().optional().nullable(),
       email: z.string().optional().nullable(),
-      overview: z.string().optional().nullable()
+      overview: z.string().optional().nullable(),
+      worksSevenDays: z.boolean().optional()
     }).parse(req.body);
     res.json(await orgService.updateCompany(req.params.id, body));
   } catch (error) {

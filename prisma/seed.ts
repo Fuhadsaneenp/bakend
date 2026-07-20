@@ -52,7 +52,7 @@ async function main() {
       firstName: "Fuhad Saneen",
       lastName: "P K",
       email: "hr@example.com", // Default login email
-      role: Role.HR_ADMIN,
+      role: Role.SUPER_ADMIN,
       deptCode: "MGMT",
       deptName: "Management",
       title: "HR Manager",

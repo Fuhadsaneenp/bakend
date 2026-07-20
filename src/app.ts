@@ -11,8 +11,9 @@ import { prisma } from "./lib/prisma.js";
 import { iclockRouter } from "./routes/iclock.js";
 
 const productionOrigins = [
-  "https://ptimeworks.com",
-  "https://www.ptimeworks.com"
+  "https://stems.secondtales.com",
+  "https://www.stems.secondtales.com",
+  "https://secondtales.com"
 ];
 
 const configuredOrigins = () => {

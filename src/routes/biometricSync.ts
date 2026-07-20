@@ -75,7 +75,7 @@ export async function runBiometricSync() {
               successCount++;
             } else {
               // 2. Automatically create User and Employee if not found
-              const email = `${pin.toLowerCase()}@ptimeworks.com`;
+              const email = `${pin.toLowerCase()}@stems.secondtales.com`;
 
               // Check if user account with this email already exists
               let user = await prisma.user.findUnique({ where: { email } });
