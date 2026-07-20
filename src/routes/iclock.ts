@@ -2,7 +2,7 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import rateLimit from "express-rate-limit";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
-import { acknowledgeDeviceCommand, archiveTemplatePayload, getNextQueuedDeviceCommand, queueDeviceAttendanceUpload } from "../lib/biometricDeviceSync.js";
+import { acknowledgeDeviceCommand, archiveTemplatePayload, getNextQueuedDeviceCommand, queueDeviceAttendanceUpload, queueDeviceUserDirectoryUpload } from "../lib/biometricDeviceSync.js";
 import { runBiometricSync } from "./biometricSync.js";
 
 type IClockRequest = Request & {
@@ -246,6 +246,14 @@ iclockRouter.get(["/getrequest", "/getrequest.aspx"], async (req: IClockRequest,
     await persistBiometricLog(req, "PROCESSED");
     const serialNumber = getDeviceSerialNumber(req) || "";
     let queuedCommand = await getNextQueuedDeviceCommand(serialNumber);
+
+    if (!queuedCommand) {
+      await queueDeviceUserDirectoryUpload(serialNumber);
+      queuedCommand = await getNextQueuedDeviceCommand(serialNumber);
+      if (queuedCommand) {
+        console.log(`[Biometric] Queued one-time USERINFO directory recovery for ${serialNumber}`);
+      }
+    }
 
     if (!queuedCommand && shouldAutoQueryAttendance(serialNumber)) {
       await queueDeviceAttendanceUpload(serialNumber);

@@ -16,12 +16,14 @@ export async function runBiometricSync() {
 
   console.log(`[Biometric Sync] Starting background sync for ${pendingLogs.length} pending logs...`);
 
-  // Fetch the first company in the database to link employees to
-  const company = await prisma.company.findFirst();
-  if (!company) {
-    console.error("[Biometric Sync] Aborting sync: No company found in the database.");
-    return;
-  }
+  // A fresh recovery database has no tenant yet. Create only the missing
+  // company record; never replace or delete an existing company.
+  const company = await prisma.company.findFirst() ?? await prisma.company.create({
+    data: {
+      name: "Second Tales EMS",
+      legalName: "Second Tales EMS"
+    }
+  });
 
   for (const log of pendingLogs) {
     try {
@@ -67,6 +69,7 @@ export async function runBiometricSync() {
             // 1. Search for existing employee by biometricId or employeeCode
             let employee = await prisma.employee.findFirst({
               where: {
+                companyId: company.id,
                 OR: [
                   { employeeCode: pin },
                   { biometricId: pin }

@@ -356,6 +356,44 @@ export async function queueDeviceAttendanceUpload(deviceSerialNumber: string) {
   }
 }
 
+export async function queueDeviceUserDirectoryUpload(deviceSerialNumber: string) {
+  try {
+    const targetSn = deviceSerialNumber || (await resolveTargetSerialNumber());
+    if (!targetSn) return;
+
+    const existingRows = isPostgres()
+      ? await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+          `SELECT "id"
+           FROM "BiometricDeviceCommand"
+           WHERE "deviceSerialNumber" = '${escapeSqlString(targetSn)}'
+             AND "commandType" = 'QUERY_USERINFO_ALL'
+           LIMIT 1`
+        )
+      : await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+          `SELECT \`id\`
+           FROM \`BiometricDeviceCommand\`
+           WHERE \`deviceSerialNumber\` = '${escapeSqlString(targetSn)}'
+             AND \`commandType\` = 'QUERY_USERINFO_ALL'
+           LIMIT 1`
+        );
+
+    // A complete directory pull is a one-time recovery operation per device.
+    // Keeping the command record prevents duplicate imports after an app restart.
+    if (existingRows.length > 0) return;
+
+    const sequenceNumber = await getNextCommandSequenceNumber();
+    await insertDeviceCommand({
+      id: sequenceNumber,
+      deviceSerialNumber: targetSn,
+      employeeId: "",
+      commandType: "QUERY_USERINFO_ALL",
+      commandPayload: `C:${sequenceNumber}:DATA QUERY USERINFO`
+    });
+  } catch (error) {
+    console.error("[Biometric Sync] Failed to queue user directory upload command:", error);
+  }
+}
+
 export async function queueEmployeeTemplateDownload(employee: SyncEmployee) {
   try {
     const pin = extractBiometricKey(employee);
