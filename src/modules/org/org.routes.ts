@@ -77,6 +77,67 @@ orgRouter.delete("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN)
   }
 });
 
+const officeBody = z.object({
+  companyId: z.string().optional(),
+  name: z.string().trim().min(1),
+  placeName: z.string().trim().optional().nullable(),
+  country: z.string().trim().min(1),
+  isHQ: z.boolean().optional(),
+  active: z.boolean().optional(),
+  timezone: z.string().trim().min(1),
+  phone: z.string().trim().optional().nullable(),
+  email: z.string().trim().email().optional().nullable().or(z.literal(""))
+});
+
+orgRouter.get("/offices", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
+  try {
+    const requestedCompanyId = typeof req.query.companyId === "string" ? req.query.companyId : undefined;
+    const companyId = req.user!.role === Role.SUPER_ADMIN ? requestedCompanyId : req.user!.companyId || undefined;
+    res.json(await orgService.offices(companyId));
+  } catch (error) {
+    next(error);
+  }
+});
+
+orgRouter.post("/offices", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const body = officeBody.parse(req.body);
+    const companyId = req.user!.role === Role.SUPER_ADMIN ? body.companyId || req.user!.companyId : req.user!.companyId;
+    if (!companyId) throw new ApiError(400, "Company context required");
+    const { companyId: _companyId, ...data } = body;
+    res.status(201).json(await orgService.createOffice(companyId, data));
+  } catch (error) {
+    next(error);
+  }
+});
+
+orgRouter.patch("/offices/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const office = await prisma.office.findUnique({ where: { id: req.params.id } });
+    if (!office) throw new ApiError(404, "Office not found");
+    if (req.user!.role !== Role.SUPER_ADMIN && office.companyId !== req.user!.companyId) {
+      throw new ApiError(403, "Insufficient permissions");
+    }
+    const data = officeBody.omit({ companyId: true }).partial().parse(req.body);
+    res.json(await orgService.updateOffice(office.id, office.companyId, data));
+  } catch (error) {
+    next(error);
+  }
+});
+
+orgRouter.delete("/offices/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const office = await prisma.office.findUnique({ where: { id: req.params.id } });
+    if (!office) throw new ApiError(404, "Office not found");
+    if (req.user!.role !== Role.SUPER_ADMIN && office.companyId !== req.user!.companyId) {
+      throw new ApiError(403, "Insufficient permissions");
+    }
+    res.json(await orgService.deleteOffice(office.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Company-Scoped Departments
 orgRouter.get("/companies/:companyId/departments", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {

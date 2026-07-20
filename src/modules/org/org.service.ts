@@ -31,6 +31,66 @@ export const orgService = {
     });
   },
 
+  offices(companyId?: string) {
+    return prisma.office.findMany({
+      where: companyId ? { companyId } : undefined,
+      orderBy: [{ isHQ: "desc" }, { name: "asc" }]
+    });
+  },
+
+  async createOffice(companyId: string, data: {
+    name: string;
+    placeName?: string | null;
+    country: string;
+    isHQ?: boolean;
+    active?: boolean;
+    timezone: string;
+    phone?: string | null;
+    email?: string | null;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      if (data.isHQ) {
+        await tx.office.updateMany({ where: { companyId }, data: { isHQ: false } });
+      }
+      return tx.office.create({
+        data: {
+          companyId,
+          name: data.name,
+          placeName: data.placeName || null,
+          country: data.country,
+          isHQ: data.isHQ ?? false,
+          active: data.active ?? true,
+          timezone: data.timezone,
+          phone: data.phone || null,
+          email: data.email || null
+        }
+      });
+    });
+  },
+
+  async updateOffice(id: string, companyId: string, data: {
+    name?: string;
+    placeName?: string | null;
+    country?: string;
+    isHQ?: boolean;
+    active?: boolean;
+    timezone?: string;
+    phone?: string | null;
+    email?: string | null;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      if (data.isHQ) {
+        await tx.office.updateMany({ where: { companyId, id: { not: id } }, data: { isHQ: false } });
+      }
+      return tx.office.update({ where: { id }, data });
+    });
+  },
+
+  async deleteOffice(id: string) {
+    await prisma.employee.updateMany({ where: { officeId: id }, data: { officeId: null } });
+    return prisma.office.delete({ where: { id } });
+  },
+
   async deleteCompany(id: string) {
     // Delete company and all its related entities in a transaction
     return prisma.$transaction(async (tx) => {
@@ -67,6 +127,7 @@ export const orgService = {
       await tx.payrollRun.deleteMany({ where: { companyId: id } });
       await tx.workTrackSetting.deleteMany({ where: { companyId: id } });
       await tx.shift.deleteMany({ where: { companyId: id } });
+      await tx.office.deleteMany({ where: { companyId: id } });
 
       return tx.company.delete({ where: { id } });
     });
