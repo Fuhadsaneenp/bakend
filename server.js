@@ -1,3 +1,7 @@
-// Hostinger starts this repository from the configured root entry file.
-// The TypeScript build emits the actual server under dist/src.
-import "./dist/src/server.js";
+import("./dist/src/server.js").catch(error => {
+  import("fs").then(fs => {
+    fs.writeFileSync("stderr.log", `Import Error: ${error}\n${error?.stack || ""}\n`, { flag: "a" });
+  }).catch(err => {
+    console.error("Failed to write to stderr.log:", err);
+  });
+});
