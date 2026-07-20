@@ -5,11 +5,13 @@ import { authService } from "./auth.service.js";
 
 export const authRouter = Router();
 
-const authLimiter = rateLimit({
+const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 20,
+  limit: 10,
   standardHeaders: "draft-7",
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => String(req.body?.email || "unknown").trim().toLowerCase(),
   message: { message: "Too many authentication attempts. Please try again later." }
 });
 
@@ -28,7 +30,7 @@ const passwordSchema = z.string()
   .regex(/[0-9]/)
   .regex(/[^A-Za-z0-9]/);
 
-authRouter.post("/login", authLimiter, async (req, res, next) => {
+authRouter.post("/login", loginLimiter, async (req, res, next) => {
   try {
     const body = z.object({ email: z.string().email(), password: z.string().min(8) }).parse(req.body);
     res.json(await authService.login(body.email, body.password));
@@ -37,7 +39,7 @@ authRouter.post("/login", authLimiter, async (req, res, next) => {
   }
 });
 
-authRouter.post("/refresh", authLimiter, async (req, res, next) => {
+authRouter.post("/refresh", async (req, res, next) => {
   try {
     const body = z.object({ refreshToken: z.string() }).parse(req.body);
     res.json(await authService.refresh(body.refreshToken));
