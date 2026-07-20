@@ -84,7 +84,20 @@ model Company {
   workCards   WorkCard[]
   shifts      Shift[]
   offices     Office[]
+  settings    CompanySetting[]
   worksSevenDays Boolean      @default(false)
+}
+
+model CompanySetting {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  key       String
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, key])
 }
 
 model Office {

@@ -128,6 +128,7 @@ export const orgService = {
       await tx.workTrackSetting.deleteMany({ where: { companyId: id } });
       await tx.shift.deleteMany({ where: { companyId: id } });
       await tx.office.deleteMany({ where: { companyId: id } });
+      await tx.companySetting.deleteMany({ where: { companyId: id } });
 
       return tx.company.delete({ where: { id } });
     });

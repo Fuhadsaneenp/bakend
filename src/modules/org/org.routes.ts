@@ -138,6 +138,37 @@ orgRouter.delete("/offices/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), 
   }
 });
 
+const allowedCompanySettingKeys = new Set(["timeoff_holidays", "timeoff_types", "timeoff_policies"]);
+
+orgRouter.get("/company-settings/:key", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
+  try {
+    if (!allowedCompanySettingKeys.has(req.params.key)) throw new ApiError(404, "Setting not found");
+    if (!req.user!.companyId) throw new ApiError(400, "Company context required");
+    const setting = await prisma.companySetting.findUnique({
+      where: { companyId_key: { companyId: req.user!.companyId, key: req.params.key } }
+    });
+    res.json({ key: req.params.key, value: setting?.value ?? null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+orgRouter.put("/company-settings/:key", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    if (!allowedCompanySettingKeys.has(req.params.key)) throw new ApiError(404, "Setting not found");
+    if (!req.user!.companyId) throw new ApiError(400, "Company context required");
+    const body = z.object({ value: z.unknown() }).parse(req.body);
+    const setting = await prisma.companySetting.upsert({
+      where: { companyId_key: { companyId: req.user!.companyId, key: req.params.key } },
+      create: { companyId: req.user!.companyId, key: req.params.key, value: body.value as any },
+      update: { value: body.value as any }
+    });
+    res.json({ key: setting.key, value: setting.value });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Company-Scoped Departments
 orgRouter.get("/companies/:companyId/departments", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
