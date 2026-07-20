@@ -338,6 +338,24 @@ async function insertDeviceCommand(command: {
   `);
 }
 
+export async function queueDeviceAttendanceUpload(deviceSerialNumber: string) {
+  try {
+    const targetSn = deviceSerialNumber || (await resolveTargetSerialNumber());
+    if (!targetSn) return;
+
+    const sequenceNumber = await getNextCommandSequenceNumber();
+    await insertDeviceCommand({
+      id: sequenceNumber,
+      deviceSerialNumber: targetSn,
+      employeeId: "",
+      commandType: "QUERY_ATTLOG",
+      commandPayload: `C:${sequenceNumber}:DATA QUERY ATTLOG`
+    });
+  } catch (error) {
+    console.error("[Biometric Sync] Failed to queue attendance upload command:", error);
+  }
+}
+
 export async function queueEmployeeTemplateDownload(employee: SyncEmployee) {
   try {
     const pin = extractBiometricKey(employee);

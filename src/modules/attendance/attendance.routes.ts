@@ -118,7 +118,9 @@ attendanceRouter.get("/biometric/logs", requireRoles(Role.SUPER_ADMIN, Role.HR_A
 attendanceRouter.post("/biometric/sync", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
   try {
     await runBiometricSync();
-    res.json({ success: true, message: "Sync executed successfully" });
+    const { queueDeviceAttendanceUpload } = await import("../../lib/biometricDeviceSync.js");
+    await queueDeviceAttendanceUpload("NFZ8254702089");
+    res.json({ success: true, message: "Sync executed and device log query queued successfully" });
   } catch (error) {
     next(error);
   }
