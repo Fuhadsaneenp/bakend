@@ -194,14 +194,18 @@ iclockRouter.get(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, next
     const serialNumber = getDeviceSerialNumber(req);
     const responseLines = [
       `GET OPTION FROM: ${serialNumber}`,
-      "Stamp=0",
-      "OpStamp=0",
-      "PhotoStamp=0",
-      "ErrorDelay=10",
-      "Delay=5",
+      // Keep the handshake permissive so older iClock firmware continues uploading ATTLOG payloads.
+      "Stamp=999999",
+      "OpStamp=999999",
+      "PhotoStamp=999999",
+      "ErrorDelay=60",
+      "Delay=30",
       "TransTimes=00:00;23:59",
       "TransInterval=1",
-      "TransFlag=1111111111",
+      "TransFlag=1000000000",
+      "ATTLOGStamp=999999",
+      "OPERLOGStamp=999999",
+      "ATTPHOTOStamp=999999",
       "Realtime=1",
       "Encrypt=0"
     ];
