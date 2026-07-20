@@ -214,12 +214,13 @@ iclockRouter.get(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, next
 
 iclockRouter.post(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, next) => {
   try {
+    const payload = getRawBodyContent(req);
     logBiometricRequest(req);
     await persistBiometricLog(req, "PENDING");
     await archiveTemplatePayload({
       deviceSerialNumber: getDeviceSerialNumber(req) || "UNKNOWN_SN",
       tableName: getTableName(req) || "",
-      rawPayload: req.rawBody || ""
+      rawPayload: payload
     });
     res.send("OK");
 
@@ -318,6 +319,26 @@ function logBiometricRequest(req: IClockRequest) {
   console.log("----------------------------------------");
 }
 
+function getRawBodyContent(req: IClockRequest): string {
+  if (typeof req.rawBody === "string" && req.rawBody.length > 0) {
+    return req.rawBody;
+  }
+  if (Buffer.isBuffer(req.body)) {
+    return req.body.toString("utf8");
+  }
+  if (typeof req.body === "string") {
+    return req.body;
+  }
+  if (req.body && typeof req.body === "object") {
+    try {
+      return JSON.stringify(req.body);
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
 async function persistBiometricLog(req: IClockRequest, status: string, errorMessage?: string) {
   try {
     await prisma.biometricRawLog.create({
@@ -327,7 +348,7 @@ async function persistBiometricLog(req: IClockRequest, status: string, errorMess
         requestPath: req.originalUrl || req.path || "/iclock",
         queryParameters: JSON.stringify(req.query || {}),
         headers: JSON.stringify(sanitizeHeaders(req.headers || {})),
-        rawPayload: req.rawBody || "",
+        rawPayload: getRawBodyContent(req),
         processingStatus: status,
         errorMessage: errorMessage || null
       }
