@@ -238,6 +238,8 @@ model EmployeeDocument {
   fileKey     String
   fileName    String
   mimeType    String
+  fileData    Bytes?   @db.LongBlob
+  storedInDatabase Boolean @default(false)
   uploadedBy  String?
   verifiedAt  DateTime?
   verifiedBy  String?
@@ -253,6 +255,8 @@ model EmployeeLetter {
   title       String
   body        String     @db.Text
   fileKey     String?
+  fileData    Bytes?       @db.LongBlob
+  storedInDatabase Boolean @default(false)
   generatedBy String?
   issuedAt    DateTime   @default(now())
   createdAt   DateTime   @default(now())

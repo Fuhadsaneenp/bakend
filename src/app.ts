@@ -3,12 +3,12 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import morgan from "morgan";
-import path from "node:path";
 import { env } from "./config/env.js";
 import { apiRouter } from "./routes/index.js";
 import { errorHandler } from "./middleware/error.js";
 import { prisma } from "./lib/prisma.js";
 import { iclockRouter } from "./routes/iclock.js";
+import { storageService } from "./storage/storage.service.js";
 
 const productionOrigins = [
   "https://stems.secondtales.com",
@@ -86,16 +86,41 @@ export const createApp = () => {
     standardHeaders: "draft-7",
     legacyHeaders: false
   }));
-  app.use("/files", express.static(path.resolve(env.LOCAL_STORAGE_PATH), {
-    dotfiles: "deny",
-    fallthrough: false,
-    immutable: true,
-    maxAge: "1h",
-    setHeaders: (res) => {
+  app.get("/files/*", async (req, res, next) => {
+    const key = (req.params as Record<string, string>)["0"];
+    if (!key || key.includes("..")) return res.status(400).json({ message: "Invalid file key" });
+
+    try {
+      const document = await prisma.employeeDocument.findFirst({
+        where: { fileKey: key },
+        select: { fileData: true, fileName: true, mimeType: true }
+      });
+
+      const letter = document ? null : await prisma.employeeLetter.findFirst({
+        where: { fileKey: key },
+        select: { fileData: true, title: true }
+      });
+
+      const databaseBytes = document?.fileData || letter?.fileData;
+      const bytes = databaseBytes
+        ? Buffer.from(databaseBytes)
+        : await storageService.getObject(key);
+      const mimeType = document?.mimeType || (letter ? "application/pdf" : "application/octet-stream");
+      const fileName = document?.fileName || (letter ? `${letter.title}.pdf` : key.split("/").pop()) || "download";
+
+      res.setHeader("Content-Type", mimeType);
+      res.setHeader("Content-Length", String(bytes.length));
+      res.setHeader("Cache-Control", "private, max-age=3600");
       res.setHeader("X-Content-Type-Options", "nosniff");
-      res.setHeader("Content-Disposition", "attachment");
+      res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+      return res.send(bytes);
+    } catch (error: any) {
+      if (error?.code === "ENOENT" || error?.name === "NoSuchKey" || error?.$metadata?.httpStatusCode === 404) {
+        return res.status(404).json({ message: "File not found" });
+      }
+      return next(error);
     }
-  }));
+  });
 
   app.get("/health", async (_req, res) => {
     try {

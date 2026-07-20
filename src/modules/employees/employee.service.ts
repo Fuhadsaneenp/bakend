@@ -23,16 +23,45 @@ const sanitizeFileName = (fileName: string) => {
     .slice(0, 120) || "document";
 };
 
+const employeeDocumentFields = {
+  id: true,
+  employeeId: true,
+  type: true,
+  status: true,
+  fileKey: true,
+  fileName: true,
+  mimeType: true,
+  storedInDatabase: true,
+  uploadedBy: true,
+  verifiedAt: true,
+  verifiedBy: true,
+  notes: true,
+  uploadedAt: true
+};
+
+const employeeLetterFields = {
+  id: true,
+  employeeId: true,
+  type: true,
+  title: true,
+  body: true,
+  fileKey: true,
+  storedInDatabase: true,
+  generatedBy: true,
+  issuedAt: true,
+  createdAt: true
+};
+
 const employeeProfileFields = {
   user: true,
   company: true,
   department: true,
   designation: true,
-  manager: { include: { documents: true } },
+  manager: { include: { documents: { select: employeeDocumentFields } } },
   salary: true,
   shift: true,
-  documents: { orderBy: { uploadedAt: "desc" as const } },
-  letters: { orderBy: { issuedAt: "desc" as const } }
+  documents: { select: employeeDocumentFields, orderBy: { uploadedAt: "desc" as const } },
+  letters: { select: employeeLetterFields, orderBy: { issuedAt: "desc" as const } }
 };
 
 const employeeOperationalFields = {
@@ -40,7 +69,7 @@ const employeeOperationalFields = {
   company: true,
   department: true,
   designation: true,
-  manager: { include: { documents: true } }
+  manager: { include: { documents: { select: employeeDocumentFields } } }
 };
 
 const defaultLetterTitle = (type: LetterType) => {
@@ -352,7 +381,7 @@ export const employeeService = {
   },
 
   async updateOnboardingStatus(employeeId: string) {
-    const documents = await prisma.employeeDocument.findMany({ where: { employeeId } });
+    const documents = await prisma.employeeDocument.findMany({ where: { employeeId }, select: { status: true } });
     const verifiedCount = documents.filter((document) => document.status === "VERIFIED").length;
     const onboardingStatus = verifiedCount >= 3
       ? "COMPLETED"
@@ -370,7 +399,6 @@ export const employeeService = {
     }
     const safeFileName = sanitizeFileName(file.originalname);
     const key = `companies/${employee.companyId}/employees/${employeeId}/documents/${Date.now()}-${safeFileName}`;
-    await storageService.putObject(key, file.buffer, file.mimetype);
     const document = await prisma.employeeDocument.create({
       data: {
         employeeId,
@@ -378,9 +406,12 @@ export const employeeService = {
         fileKey: key,
         fileName: safeFileName,
         mimeType: file.mimetype,
+        fileData: Uint8Array.from(file.buffer),
+        storedInDatabase: true,
         uploadedBy: user.id,
         notes
-      }
+      },
+      select: employeeDocumentFields
     });
     await this.updateOnboardingStatus(employeeId);
     return { ...document, fileUrl: storageService.publicUrl(document.fileKey) };
@@ -390,6 +421,7 @@ export const employeeService = {
     await this.assertSelfOrHr(user, employeeId);
     const documents = await prisma.employeeDocument.findMany({
       where: { employeeId },
+      select: employeeDocumentFields,
       orderBy: { uploadedAt: "desc" }
     });
     return documents.map((document) => ({ ...document, fileUrl: storageService.publicUrl(document.fileKey) }));
@@ -410,7 +442,8 @@ export const employeeService = {
         notes,
         verifiedBy: status === "VERIFIED" ? user.id : null,
         verifiedAt: status === "VERIFIED" ? new Date() : null
-      }
+      },
+      select: employeeDocumentFields
     });
     await this.updateOnboardingStatus(updated.employeeId);
     return { ...updated, fileUrl: storageService.publicUrl(updated.fileKey) };
@@ -519,6 +552,7 @@ export const employeeService = {
     await this.assertSelfOrHr(user, employeeId);
     const letters = await prisma.employeeLetter.findMany({
       where: { employeeId },
+      select: employeeLetterFields,
       orderBy: { issuedAt: "desc" }
     });
     return letters.map((letter) => ({ ...letter, fileUrl: letter.fileKey ? storageService.publicUrl(letter.fileKey) : null }));
@@ -556,8 +590,11 @@ export const employeeService = {
 
     const targetCompanyId = employee.companyId;
     const key = `companies/${targetCompanyId}/employees/${employeeId}/letters/${letter.id}.pdf`;
-    await storageService.putObject(key, pdf, "application/pdf");
-    const updated = await prisma.employeeLetter.update({ where: { id: letter.id }, data: { fileKey: key } });
+    const updated = await prisma.employeeLetter.update({
+      where: { id: letter.id },
+      data: { fileKey: key, fileData: Uint8Array.from(pdf), storedInDatabase: true },
+      select: employeeLetterFields
+    });
 
     return { ...updated, fileUrl: storageService.publicUrl(key) };
   },
