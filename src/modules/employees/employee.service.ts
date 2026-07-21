@@ -125,10 +125,23 @@ export const employeeService = {
     if (!currentEmployee) return [];
 
     if (user.role === Role.MANAGER || user.role === Role.EMPLOYEE) {
-      return prisma.employee.findMany({
+      const list = await prisma.employee.findMany({
         where: { companyId: user.companyId },
-        include: employeeOperationalFields,
+        include: {
+          ...employeeOperationalFields,
+          salary: true
+        },
         orderBy: { createdAt: "desc" }
+      });
+
+      return list.map((emp) => {
+        if (emp.userId === user.id) {
+          return emp;
+        }
+        return {
+          ...emp,
+          salary: null
+        };
       });
     }
     return [];
