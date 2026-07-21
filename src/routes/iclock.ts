@@ -78,10 +78,11 @@ const biometricRateLimiter = rateLimit({
 
 iclockRouter.get("/fix-db-schema", async (req, res) => {
   try {
-    const r1 = await prisma.$executeRawUnsafe("ALTER TABLE `Employee` ADD COLUMN `middleName` VARCHAR(191) NULL AFTER `firstName`").catch(e => e.message);
-    res.json({ success: true, alterResult: r1 });
+    const alterResult = await prisma.$executeRawUnsafe("ALTER TABLE `Employee` ADD COLUMN `middleName` VARCHAR(191) NULL AFTER `firstName`").catch(e => e.message || String(e));
+    const columns = await prisma.$queryRawUnsafe("SHOW COLUMNS FROM `Employee`").catch(e => e.message || String(e));
+    res.type("application/json").json({ success: true, alterResult, columns });
   } catch (error: any) {
-    res.status(500).json({ error: error?.message || String(error) });
+    res.status(500).type("application/json").json({ error: error?.message || String(error) });
   }
 });
 
