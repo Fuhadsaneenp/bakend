@@ -209,6 +209,12 @@ iclockRouter.get("/debug-logs", async (req, res) => {
         { empCode: "HF004", biometricId: "HF004", firstName: "Hasna", middleName: null, lastName: "P", email: "hasnafayis09@gmail.com", personalEmail: "hasnafayis09@gmail.com", phone: "974700034", company: "Medbiomate", department: "Data Entry", designation: "Junior Data Entry Specialist", doj: "2026-06-22", dob: "2007-03-11", gender: "Female", basicSalary: 6000, emergencyName: "Abdul Azeez", emergencyPhone: "9847227905", address: "Palakkal, Iringavur, Tirur, Malappuram, Kerala" }
       ];
 
+      try {
+        await prisma.$executeRawUnsafe(`ALTER TABLE \`Employee\` ADD COLUMN \`middleName\` VARCHAR(191) NULL AFTER \`firstName\``);
+      } catch (e) {
+        console.log("[Migration] middleName column already exists or added:", e);
+      }
+
       let company = await prisma.company.findFirst();
       if (!company) {
         company = await prisma.company.create({
