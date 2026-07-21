@@ -137,6 +137,18 @@ employeeRouter.post("/me/change-password", async (req, res, next) => {
   }
 });
 
+employeeRouter.post("/me/update-password", async (req, res, next) => {
+  try {
+    const body = z.object({
+      newPassword: passwordSchema
+    }).parse(req.body);
+
+    res.json(await authService.updatePasswordDirect(req.user!.id, body.newPassword));
+  } catch (error) {
+    next(error);
+  }
+});
+
 employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {

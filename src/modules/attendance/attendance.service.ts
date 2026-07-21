@@ -134,21 +134,23 @@ export const attendanceService = {
   },
 
   async monthlyReportForUser(user: AuthUser, month: number, year: number) {
-    if (!user.companyId) return [];
+    const employee = await prisma.employee.findUnique({ where: { userId: user.id } });
+    const companyId = user.companyId || employee?.companyId;
+    if (!companyId) return [];
+
     const from = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`);
     const totalDays = new Date(year, month, 0).getDate();
     const to = new Date(`${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}T23:59:59+05:30`);
 
     if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
-      return this.monthlyReport(user.companyId, month, year);
+      return this.monthlyReport(companyId, month, year);
     }
 
-    const employee = await prisma.employee.findUnique({ where: { userId: user.id } });
     if (!employee) return [];
 
     const employeeWhere =
       user.role === Role.MANAGER
-        ? { managerId: employee.id }
+        ? { OR: [{ id: employee.id }, { managerId: employee.id }] }
         : { id: employee.id };
 
     return prisma.attendance.findMany({

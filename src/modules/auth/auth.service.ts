@@ -47,6 +47,18 @@ export const authService = {
     return { accessToken: signAccessToken(freshPayload) };
   },
 
+  async updatePasswordDirect(userId: string, newPass: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new ApiError(404, "User not found");
+
+    const newHash = await bcrypt.hash(newPass, 12);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: newHash, refreshHash: null }
+    });
+    return { ok: true };
+  },
+
   async changePassword(userId: string, currentPass: string, newPass: string) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new ApiError(404, "User not found");
