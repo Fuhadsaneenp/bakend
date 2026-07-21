@@ -5,6 +5,7 @@ import { ApiError } from "../../lib/errors.js";
 import { storageService } from "../../storage/storage.service.js";
 import { notificationService } from "../notifications/notification.service.js";
 import { renderPayslipPdf } from "./payslip.pdf.js";
+import { formatFullName } from "../../lib/formatName.js";
 
 const decimalToNumber = (value: Prisma.Decimal | number) => Number(value);
 
@@ -88,9 +89,9 @@ function buildPayableDayTotal(input: {
 async function deliverPayslipById(payslipId: string) {
   const payslip = await prisma.payslip.findUnique({
     where: { id: payslipId },
-    include: { employee: { include: { user: true, company: true } } }
+    include: { employee: { include: { user: true } } }
   });
-  if (!payslip?.pdfKey) throw new ApiError(404, "Payslip PDF not found");
+  if (!payslip || !payslip.pdfKey) throw new ApiError(404, "Payslip PDF not found");
 
   const pdfUrl = storageService.publicUrl(payslip.pdfKey);
   const pdf = await storageService.getObject(payslip.pdfKey);
@@ -98,7 +99,7 @@ async function deliverPayslipById(payslipId: string) {
     userId: payslip.employee.userId,
     email: payslip.employee.user.email,
     phone: payslip.employee.phone,
-    employeeName: `${payslip.employee.firstName} ${payslip.employee.lastName}`,
+    employeeName: formatFullName(payslip.employee),
     month: payslip.month,
     year: payslip.year,
     pdf,
@@ -208,7 +209,7 @@ export const payrollService = {
         const payslipNumber = `PS-${year}${String(month).padStart(2, "0")}-${employee.employeeCode}${type === "FINAL" ? "-F" : ""}`;
         const pdf = await renderPayslipPdf({
           companyName: company.name,
-          employeeName: `${employee.firstName} ${employee.lastName}`,
+          employeeName: formatFullName(employee),
           employeeCode: employee.employeeCode,
           payslipNumber,
           month,
@@ -266,7 +267,7 @@ export const payrollService = {
         dispatchSummary.failures.push({
           payslipId: payslip.id,
           employeeId: payslip.employeeId,
-          employeeName: `${payslip.employee.firstName} ${payslip.employee.lastName}`,
+          employeeName: formatFullName(payslip.employee),
           reason: error instanceof Error ? error.message : "Unknown delivery error"
         });
       }
@@ -313,7 +314,7 @@ export const payrollService = {
 
     const pdf = await renderPayslipPdf({
       companyName: payslip.employee.company.name,
-      employeeName: `${payslip.employee.firstName} ${payslip.employee.lastName}`,
+      employeeName: formatFullName(payslip.employee),
       employeeCode: payslip.employee.employeeCode,
       payslipNumber: payslip.payslipNumber,
       month: payslip.month,

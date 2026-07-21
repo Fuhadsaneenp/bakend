@@ -565,7 +565,8 @@ export const employeeService = {
     });
     if (!employee) throw notFound("Employee");
 
-    const employeeName = `${employee.firstName} ${employee.lastName}`;
+    const { formatFullName } = await import("../../lib/formatName.js");
+    const employeeName = formatFullName(employee);
     const title = data.title || defaultLetterTitle(data.type);
     const body = data.body || defaultLetterBody(data.type, employeeName);
 

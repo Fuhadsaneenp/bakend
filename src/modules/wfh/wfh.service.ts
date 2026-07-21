@@ -242,12 +242,13 @@ export const wfhService = {
       notifyUserIds.add(hrHead.id);
     });
 
+    const { formatFullName } = await import("../../lib/formatName.js");
     await Promise.all(
       Array.from(notifyUserIds).map((reviewerUserId) =>
         notificationService.inApp(
           reviewerUserId,
           "New leave request submitted",
-          `${employee.firstName} ${employee.lastName} submitted a leave/WFH request for review.`,
+          `${formatFullName(employee)} submitted a leave/WFH request for review.`,
           { requestId: request.id, employeeId: employee.id }
         )
       )
@@ -289,8 +290,9 @@ export const wfhService = {
       reviewer.role === Role.HR_ADMIN ||
       Boolean(reviewerEmployee?.isHrHead);
 
+    const { formatFullName } = await import("../../lib/formatName.js");
     const reviewerName = reviewerEmployee 
-      ? `${reviewerEmployee.firstName} ${reviewerEmployee.lastName === "-" ? "" : reviewerEmployee.lastName}`.trim()
+      ? formatFullName(reviewerEmployee)
       : reviewer.email || "System/HR";
 
     const resolvedImmediateManagerId =

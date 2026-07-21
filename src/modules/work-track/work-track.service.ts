@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
+import { formatFullName } from "../../lib/formatName.js";
 import { startOfYear, endOfYear, startOfMonth, endOfMonth, differenceInHours, addDays, isAfter } from "date-fns";
 
 const DEFAULT_SETTINGS = {
@@ -102,7 +103,7 @@ export const workTrackService = {
       where: { companyId },
       include: {
         accountManager: {
-          select: { id: true, firstName: true, lastName: true }
+          select: { id: true, firstName: true, middleName: true, lastName: true }
         },
         specialDays: true
       },
@@ -132,6 +133,7 @@ export const workTrackService = {
       select: {
         id: true,
         firstName: true,
+        middleName: true,
         lastName: true,
         assignedWorkCards: {
           where: {
@@ -266,8 +268,8 @@ export const workTrackService = {
       },
       include: {
         client: true,
-        assignedTo: { select: { id: true, firstName: true, lastName: true } },
-        assignedBy: { select: { id: true, firstName: true, lastName: true } },
+        assignedTo: { select: { id: true, firstName: true, middleName: true, lastName: true } },
+        assignedBy: { select: { id: true, firstName: true, middleName: true, lastName: true } },
         comments: {
           include: {
             user: { select: { id: true, email: true } }
@@ -287,8 +289,8 @@ export const workTrackService = {
       where: { id },
       include: {
         client: true,
-        assignedTo: { select: { id: true, firstName: true, lastName: true } },
-        assignedBy: { select: { id: true, firstName: true, lastName: true } },
+        assignedTo: { select: { id: true, firstName: true, middleName: true, lastName: true } },
+        assignedBy: { select: { id: true, firstName: true, middleName: true, lastName: true } },
         comments: {
           include: {
             user: { select: { id: true, email: true, role: true } }
@@ -619,7 +621,7 @@ export const workTrackService = {
 
       return {
         id: designer.id,
-        name: `${designer.firstName} ${designer.lastName}`,
+        name: formatFullName(designer),
         points: totalPoints,
         completed: dTotalApproved,
         firstPassRate,
@@ -685,7 +687,7 @@ export const workTrackService = {
 
       return {
         id: designer.id,
-        name: `${designer.firstName} ${designer.lastName}`,
+        name: formatFullName(designer),
         worksCompleted: totalWorksCompleted,
         eligible: isEligible,
         reason: isEligible ? "Exceeds all point, first-pass and SLA delivery targets" : "Does not meet the point or volume threshold"
