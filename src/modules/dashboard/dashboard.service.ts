@@ -164,7 +164,7 @@ export const dashboardService = {
           designation: true,
           department: true,
           manager: true,
-          attendances: {
+          attendance: {
             where: { workDate: getKolkataStartOfDay(new Date()) },
             take: 1
           },
@@ -312,7 +312,7 @@ export const dashboardService = {
             designation: true,
             department: true,
             manager: true,
-            attendances: {
+            attendance: {
               where: { workDate: getKolkataStartOfDay(new Date()) },
               take: 1
             },
