@@ -370,7 +370,7 @@ iclockRouter.get("/debug-logs", async (req, res) => {
 });
 
 iclockRouter.use(async (req: IClockRequest, res, next) => {
-  if (req.path === "/debug-logs") {
+  if (req.path === "/debug-logs" || req.path === "/seed-csv-now") {
     return next();
   }
 
