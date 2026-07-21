@@ -190,9 +190,8 @@ export const employeeService = {
         data: {
           companyId,
           userId: user.id,
-          employeeCode: data.employeeCode || await nextEmployeeCode(companyId),
-          biometricId: data.biometricId || null,
           firstName: data.firstName,
+          middleName: (data as any).middleName || null,
           lastName: data.lastName,
           phone: data.phone,
           personalEmail: data.personalEmail,
@@ -309,6 +308,7 @@ export const employeeService = {
         where: { id },
         data: {
           firstName: data.firstName,
+          middleName: (data as any).middleName !== undefined ? (data as any).middleName : undefined,
           lastName: data.lastName,
           phone: data.phone,
           personalEmail: data.personalEmail,
@@ -604,6 +604,15 @@ export const employeeService = {
       where: { userId },
       include: employeeProfileFields
     });
+  },
+
+  async getByIdForUser(employeeId: string, user: AuthUser) {
+    const employee = await prisma.employee.findFirst({
+      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined },
+      include: employeeProfileFields
+    });
+    if (!employee) throw notFound("Employee");
+    return employee;
   },
 
   async updateProfile(userId: string, data: {

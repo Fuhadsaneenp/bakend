@@ -171,6 +171,7 @@ model Employee {
   employeeCode   String
   biometricId    String?         @unique
   firstName      String
+  middleName     String?
   lastName       String
   phone          String?
   personalEmail  String?

@@ -39,6 +39,7 @@ const upload = multer({
 employeeRouter.use(requireAuth);
 
 const profileFieldsSchema = {
+  middleName: z.string().optional().nullable(),
   dateOfBirth: z.string().optional(),
   gender: z.string().optional(),
   addressLine1: z.string().optional(),
@@ -56,6 +57,7 @@ const profileFieldsSchema = {
 };
 
 const nullableProfileFieldsSchema = {
+  middleName: z.string().optional().nullable(),
   dateOfBirth: z.string().optional().nullable(),
   gender: z.string().optional().nullable(),
   addressLine1: z.string().optional().nullable(),
@@ -91,6 +93,14 @@ employeeRouter.get("/me", async (req, res, next) => {
       return;
     }
     res.json(employee);
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.get("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
+  try {
+    res.json(await employeeService.getByIdForUser(req.params.id, req.user!));
   } catch (error) {
     next(error);
   }
