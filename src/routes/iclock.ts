@@ -209,10 +209,12 @@ iclockRouter.get("/debug-logs", async (req, res) => {
         { empCode: "HF004", biometricId: "HF004", firstName: "Hasna", middleName: null, lastName: "P", email: "hasnafayis09@gmail.com", personalEmail: "hasnafayis09@gmail.com", phone: "974700034", company: "Medbiomate", department: "Data Entry", designation: "Junior Data Entry Specialist", doj: "2026-06-22", dob: "2007-03-11", gender: "Female", basicSalary: 6000, emergencyName: "Abdul Azeez", emergencyPhone: "9847227905", address: "Palakkal, Iringavur, Tirur, Malappuram, Kerala" }
       ];
 
+      let alterLog = "";
       try {
-        await prisma.$executeRawUnsafe(`ALTER TABLE \`Employee\` ADD COLUMN \`middleName\` VARCHAR(191) NULL AFTER \`firstName\``);
-      } catch (e) {
-        console.log("[Migration] middleName column already exists or added:", e);
+        await prisma.$executeRawUnsafe("ALTER TABLE `Employee` ADD COLUMN `middleName` VARCHAR(191) NULL AFTER `firstName`");
+        alterLog = "Column middleName added successfully";
+      } catch (e: any) {
+        alterLog = e?.message || String(e);
       }
 
       let company = await prisma.company.findFirst();
@@ -249,53 +251,58 @@ iclockRouter.get("/debug-logs", async (req, res) => {
           });
         }
 
-        let existingEmp = await prisma.employee.findFirst({
-          where: { OR: [{ biometricId: rec.biometricId }, { employeeCode: rec.empCode }, { userId: user.id }] }
-        });
+        const existingEmpRows = await prisma.$queryRawUnsafe<any[]>(
+          `SELECT \`id\` FROM \`Employee\` WHERE \`employeeCode\` = '${rec.empCode}' OR \`biometricId\` = '${rec.biometricId}' OR \`userId\` = '${user.id}' LIMIT 1`
+        );
+        const existingEmpId = existingEmpRows.length > 0 ? existingEmpRows[0].id : null;
 
-        const empData: any = {
-          companyId: company.id,
-          userId: user.id,
-          employeeCode: rec.empCode,
-          biometricId: rec.biometricId,
-          firstName: rec.firstName,
-          middleName: rec.middleName,
-          lastName: rec.lastName,
-          phone: rec.phone,
-          personalEmail: rec.personalEmail,
-          dateOfJoining: new Date(rec.doj),
-          dateOfBirth: rec.dob ? new Date(rec.dob) : null,
-          gender: rec.gender,
-          departmentId: dept.id,
-          designationId: desg.id,
-          addressLine1: rec.address,
-          emergencyContactName: rec.emergencyName,
-          emergencyContactPhone: rec.emergencyPhone,
-          status: "ACTIVE"
-        };
+        const doj = rec.doj ? rec.doj : new Date().toISOString().slice(0, 10);
+        const dob = rec.dob ? rec.dob : null;
 
-        let savedEmp;
-        if (existingEmp) {
-          savedEmp = await prisma.employee.update({ where: { id: existingEmp.id }, data: empData });
+        if (existingEmpId) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE \`Employee\` SET 
+               \`firstName\` = '${rec.firstName.replace(/'/g, "''")}',
+               \`middleName\` = ${rec.middleName ? `'${rec.middleName.replace(/'/g, "''")}'` : 'NULL'},
+               \`lastName\` = '${rec.lastName.replace(/'/g, "''")}',
+               \`phone\` = ${rec.phone ? `'${rec.phone}'` : 'NULL'},
+               \`personalEmail\` = ${rec.personalEmail ? `'${rec.personalEmail}'` : 'NULL'},
+               \`departmentId\` = '${dept.id}',
+               \`designationId\` = '${desg.id}',
+               \`addressLine1\` = ${rec.address ? `'${rec.address.replace(/'/g, "''")}'` : 'NULL'},
+               \`emergencyContactName\` = ${rec.emergencyName ? `'${rec.emergencyName.replace(/'/g, "''")}'` : 'NULL'},
+               \`emergencyContactPhone\` = ${rec.emergencyPhone ? `'${rec.emergencyPhone}'` : 'NULL'},
+               \`status\` = 'ACTIVE'
+             WHERE \`id\` = '${existingEmpId}'`
+          );
           results.push(`Updated: ${rec.empCode} - ${rec.firstName} ${rec.middleName || ""} ${rec.lastName}`);
         } else {
-          savedEmp = await prisma.employee.create({ data: empData });
+          const newId = `c${Date.now().toString(36)}${Math.random().toString(36).substring(2, 7)}`;
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO \`Employee\` (
+               \`id\`, \`companyId\`, \`userId\`, \`employeeCode\`, \`biometricId\`, \`firstName\`, \`middleName\`, \`lastName\`, 
+               \`phone\`, \`personalEmail\`, \`dateOfJoining\`, \`dateOfBirth\`, \`gender\`, \`departmentId\`, \`designationId\`, 
+               \`addressLine1\`, \`emergencyContactName\`, \`emergencyContactPhone\`, \`status\`, \`createdAt\`, \`updatedAt\`
+             ) VALUES (
+               '${newId}', '${company.id}', '${user.id}', '${rec.empCode}', '${rec.biometricId}', 
+               '${rec.firstName.replace(/'/g, "''")}', ${rec.middleName ? `'${rec.middleName.replace(/'/g, "''")}'` : 'NULL'}, '${rec.lastName.replace(/'/g, "''")}',
+               ${rec.phone ? `'${rec.phone}'` : 'NULL'}, ${rec.personalEmail ? `'${rec.personalEmail}'` : 'NULL'}, '${doj} 00:00:00', ${dob ? `'${dob} 00:00:00'` : 'NULL'}, 
+               ${rec.gender ? `'${rec.gender}'` : 'NULL'}, '${dept.id}', '${desg.id}', ${rec.address ? `'${rec.address.replace(/'/g, "''")}'` : 'NULL'}, 
+               ${rec.emergencyName ? `'${rec.emergencyName.replace(/'/g, "''")}'` : 'NULL'}, ${rec.emergencyPhone ? `'${rec.emergencyPhone}'` : 'NULL'}, 'ACTIVE', NOW(), NOW()
+             )`
+          );
           results.push(`Created: ${rec.empCode} - ${rec.firstName} ${rec.middleName || ""} ${rec.lastName}`);
         }
 
         if (rec.basicSalary > 0) {
-          const salary = await prisma.salary.findFirst({ where: { employeeId: savedEmp.id } });
+          const salary = await prisma.salary.findFirst({ where: { employeeId: existingEmpId || "new_emp" } });
           if (salary) {
             await prisma.salary.update({ where: { id: salary.id }, data: { basic: rec.basicSalary } });
-          } else {
-            await prisma.salary.create({
-              data: { employeeId: savedEmp.id, basic: rec.basicSalary, allowances: 0, deductions: 0, effectiveFrom: new Date(rec.doj) }
-            });
           }
         }
       }
 
-      return res.json({ success: true, count: results.length, details: results });
+      return res.json({ success: true, alterLog, count: results.length, details: results });
     }
 
     if (pathFilter === "employees") {
