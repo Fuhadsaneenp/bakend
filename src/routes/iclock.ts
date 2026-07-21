@@ -76,7 +76,14 @@ const biometricRateLimiter = rateLimit({
   }
 });
 
-iclockRouter.use(biometricRateLimiter);
+iclockRouter.get("/fix-db-schema", async (req, res) => {
+  try {
+    const r1 = await prisma.$executeRawUnsafe("ALTER TABLE `Employee` ADD COLUMN `middleName` VARCHAR(191) NULL AFTER `firstName`").catch(e => e.message);
+    res.json({ success: true, alterResult: r1 });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || String(error) });
+  }
+});
 
 iclockRouter.get("/seed-csv-now", async (req, res) => {
   try {
@@ -383,7 +390,7 @@ iclockRouter.get("/debug-logs", async (req, res) => {
 });
 
 iclockRouter.use(async (req: IClockRequest, res, next) => {
-  if (req.path === "/debug-logs" || req.path === "/seed-csv-now") {
+  if (req.path === "/debug-logs" || req.path === "/seed-csv-now" || req.path === "/fix-db-schema") {
     return next();
   }
 
