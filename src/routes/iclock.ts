@@ -202,7 +202,7 @@ iclockRouter.get(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, next
       "Stamp=999999",
       "OpStamp=999999",
       "PhotoStamp=999999",
-      "ErrorDelay=60",
+      "ErrorDelay=30",
       "Delay=30",
       "TransTimes=00:00;23:59",
       "TransInterval=1",
