@@ -159,11 +159,23 @@ export const dashboardService = {
       prisma.attendance.count({ where: { employee: { companyId }, workDate: { gte: monthStart } } }),
       prisma.employee.findMany({
         where: { companyId },
-        take: 10,
+        take: 50,
         include: {
           designation: true,
           department: true,
-          manager: true
+          manager: true,
+          attendances: {
+            where: { workDate: getKolkataStartOfDay(new Date()) },
+            take: 1
+          },
+          wfhRequests: {
+            where: {
+              status: "APPROVED",
+              startDate: { lte: new Date() },
+              endDate: { gte: new Date() }
+            },
+            take: 1
+          }
         },
         orderBy: { createdAt: "desc" }
       }),
@@ -295,11 +307,23 @@ export const dashboardService = {
         prisma.attendance.count({ where: { employee: { managerId: employee.id }, workDate: { gte: monthStart } } }),
         prisma.employee.findMany({
           where: { companyId: user.companyId, managerId: employee.id },
-          take: 10,
+          take: 50,
           include: {
             designation: true,
             department: true,
-            manager: true
+            manager: true,
+            attendances: {
+              where: { workDate: getKolkataStartOfDay(new Date()) },
+              take: 1
+            },
+            wfhRequests: {
+              where: {
+                status: "APPROVED",
+                startDate: { lte: new Date() },
+                endDate: { gte: new Date() }
+              },
+              take: 1
+            }
           },
           orderBy: { createdAt: "desc" }
         }),
