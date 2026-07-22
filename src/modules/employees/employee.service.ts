@@ -6,6 +6,7 @@ import { ApiError, notFound } from "../../lib/errors.js";
 import { storageService } from "../../storage/storage.service.js";
 import type { AuthUser } from "../../middleware/auth.js";
 import { renderEmployeeLetterPdf } from "./employee-letter.pdf.js";
+import { getKolkataStartOfDay } from "../attendance/attendance.service.js";
 
 const nextEmployeeCode = async (companyId: string) => {
   const count = await prisma.employee.count({ where: { companyId } });
@@ -100,17 +101,53 @@ const defaultLetterBody = (type: LetterType, employeeName: string) => {
 
 export const employeeService = {
   list(companyId: string) {
+    const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+    const todayUtc = new Date(todayKolkataStr);
+    const todayStart = getKolkataStartOfDay(new Date());
+
     return prisma.employee.findMany({
       where: { companyId },
-      include: employeeProfileFields,
+      include: {
+        ...employeeProfileFields,
+        attendance: {
+          where: { workDate: todayStart },
+          take: 1
+        },
+        wfhRequests: {
+          where: {
+            status: "APPROVED",
+            startDate: { lte: todayUtc },
+            endDate: { gte: todayUtc }
+          },
+          take: 1
+        }
+      },
       orderBy: { createdAt: "desc" }
     });
   },
 
   async listForUser(user: AuthUser) {
     if (user.role === Role.SUPER_ADMIN) {
+      const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+      const todayUtc = new Date(todayKolkataStr);
+      const todayStart = getKolkataStartOfDay(new Date());
+
       return prisma.employee.findMany({
-        include: employeeProfileFields,
+        include: {
+          ...employeeProfileFields,
+          attendance: {
+            where: { workDate: todayStart },
+            take: 1
+          },
+          wfhRequests: {
+            where: {
+              status: "APPROVED",
+              startDate: { lte: todayUtc },
+              endDate: { gte: todayUtc }
+            },
+            take: 1
+          }
+        },
         orderBy: { createdAt: "desc" }
       });
     }
@@ -125,11 +162,27 @@ export const employeeService = {
     if (!currentEmployee) return [];
 
     if (user.role === Role.MANAGER || user.role === Role.EMPLOYEE) {
+      const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+      const todayUtc = new Date(todayKolkataStr);
+      const todayStart = getKolkataStartOfDay(new Date());
+
       const list = await prisma.employee.findMany({
         where: { companyId: user.companyId },
         include: {
           ...employeeOperationalFields,
-          salary: true
+          salary: true,
+          attendance: {
+            where: { workDate: todayStart },
+            take: 1
+          },
+          wfhRequests: {
+            where: {
+              status: "APPROVED",
+              startDate: { lte: todayUtc },
+              endDate: { gte: todayUtc }
+            },
+            take: 1
+          }
         },
         orderBy: { createdAt: "desc" }
       });
@@ -140,7 +193,9 @@ export const employeeService = {
         }
         return {
           ...emp,
-          salary: null
+          salary: null,
+          dateOfBirth: null,
+          taxId: null
         };
       });
     }
@@ -626,6 +681,16 @@ export const employeeService = {
       include: employeeProfileFields
     });
     if (!employee) throw notFound("Employee");
+
+    if (!isHrRole(user.role) && employee.userId !== user.id) {
+      return {
+        ...employee,
+        salary: null,
+        dateOfBirth: null,
+        taxId: null
+      };
+    }
+
     return employee;
   },
 
