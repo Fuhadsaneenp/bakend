@@ -6,6 +6,9 @@ import { getKolkataStartOfDay } from "../attendance/attendance.service.js";
 
 async function getAttendanceStats(employeeWhere: any, companyId: string) {
   const today = getKolkataStartOfDay(new Date());
+  const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const todayUtc = new Date(todayKolkataStr);
+
   const totalEmployees = await prisma.employee.count({
     where: { ...employeeWhere, companyId, status: "ACTIVE" }
   });
@@ -17,9 +20,43 @@ async function getAttendanceStats(employeeWhere: any, companyId: string) {
     }
   });
 
-  const presentCount = attendancesToday.filter(a => a.checkInAt).length;
+  const approvedRequestsToday = await prisma.wFHRequest.findMany({
+    where: {
+      employee: { ...employeeWhere, companyId, status: "ACTIVE" },
+      status: "APPROVED",
+      startDate: { lte: todayUtc },
+      endDate: { gte: todayUtc }
+    }
+  });
+
+  const presentEmployeeIds = new Set(attendancesToday.filter(a => a.checkInAt).map(a => a.employeeId));
+  const wfhOrShootEmployeeIds = new Set<string>();
+  const leaveEmployeeIds = new Set<string>();
+
+  for (const req of approvedRequestsToday) {
+    const reason = req.reason || "";
+    const match = reason.match(/^\[([^\]]+)\]/);
+    const requestType = match ? match[1].trim().toUpperCase() : "";
+    const isWfhOrOutDuty = 
+      requestType === "WORK FROM HOME (WFH)" || 
+      requestType === "WFH" || 
+      requestType === "SHOOTING" || 
+      requestType === "SHOOT" ||
+      requestType === "MISSED PUNCH";
+    
+    if (isWfhOrOutDuty) {
+      wfhOrShootEmployeeIds.add(req.employeeId);
+    } else {
+      leaveEmployeeIds.add(req.employeeId);
+    }
+  }
+
+  const presentCount = attendancesToday.filter(a => a.checkInAt).length + 
+    Array.from(wfhOrShootEmployeeIds).filter(empId => !presentEmployeeIds.has(empId)).length;
+
+  const leaveCount = Array.from(leaveEmployeeIds).filter(empId => !presentEmployeeIds.has(empId)).length;
+
   const lateCount = attendancesToday.filter(a => a.isLate).length;
-  const leaveCount = 0;
   const absentCount = Math.max(0, totalEmployees - presentCount - leaveCount);
 
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -151,6 +188,8 @@ async function getWorkTrackStats(employeeIds: string[], attendanceStats?: { pres
 export const dashboardService = {
   async company(companyId: string) {
     const monthStart = startOfMonth(new Date());
+    const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+    const todayUtc = new Date(todayKolkataStr);
     const [employees, pendingWfh, pendingExpenses, payrollRuns, attendanceToday, recentEmployees, terminatedCount, attendanceStats] = await Promise.all([
       prisma.employee.count({ where: { companyId, status: "ACTIVE" } }),
       prisma.wFHRequest.count({ where: { employee: { companyId }, status: "PENDING" } }),
@@ -171,8 +210,8 @@ export const dashboardService = {
           wfhRequests: {
             where: {
               status: "APPROVED",
-              startDate: { lte: new Date() },
-              endDate: { gte: new Date() }
+              startDate: { lte: todayUtc },
+              endDate: { gte: todayUtc }
             },
             take: 1
           }
@@ -300,6 +339,8 @@ export const dashboardService = {
     }
 
     if (user.role === Role.MANAGER) {
+      const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+      const todayUtc = new Date(todayKolkataStr);
       const [reports, pendingWfh, pendingExpenses, attendancePunches, recentEmployees, terminatedCount, attendanceStats] = await Promise.all([
         prisma.employee.count({ where: { companyId: user.companyId, managerId: employee.id, status: "ACTIVE" } }),
         prisma.wFHRequest.count({ where: { employee: { managerId: employee.id }, status: "PENDING" } }),
@@ -319,8 +360,8 @@ export const dashboardService = {
             wfhRequests: {
               where: {
                 status: "APPROVED",
-                startDate: { lte: new Date() },
-                endDate: { gte: new Date() }
+                startDate: { lte: todayUtc },
+                endDate: { gte: todayUtc }
               },
               take: 1
             }
