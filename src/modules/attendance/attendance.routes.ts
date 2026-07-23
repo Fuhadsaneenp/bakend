@@ -125,6 +125,79 @@ attendanceRouter.post("/biometric/sync", requireRoles(Role.SUPER_ADMIN, Role.HR_
   }
 });
 
+attendanceRouter.post("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
+  try {
+    const companyId = req.user?.companyId;
+    if (!companyId) throw new ApiError(400, "Company context required");
+
+    const body = z.object({
+      employeeCode: z.string().min(1),
+      month: z.number().min(1).max(12),
+      year: z.number().min(2020),
+      dryRun: z.boolean().optional().default(false)
+    }).parse(req.body);
+
+    const employee = await prisma.employee.findFirst({
+      where: {
+        companyId,
+        employeeCode: body.employeeCode
+      },
+      select: { id: true, employeeCode: true, firstName: true, lastName: true }
+    });
+    if (!employee) throw new ApiError(404, "Employee not found");
+
+    const monthStart = new Date(`${body.year}-${String(body.month).padStart(2, "0")}-01T00:00:00+05:30`);
+    const monthEnd = new Date(`${body.year}-${String(body.month).padStart(2, "0")}-${String(new Date(body.year, body.month, 0).getDate()).padStart(2, "0")}T23:59:59+05:30`);
+
+    const attendanceRows = await prisma.attendance.findMany({
+      where: {
+        employeeId: employee.id,
+        workDate: {
+          gte: monthStart,
+          lte: monthEnd
+        }
+      },
+      select: {
+        id: true,
+        workDate: true,
+        checkInAt: true,
+        checkOutAt: true,
+        workMinutes: true
+      }
+    });
+
+    const seededRows = attendanceRows.filter((row) => {
+      if (!row.checkInAt || !row.checkOutAt) return false;
+      return (
+        row.checkInAt.getUTCHours() === 3 &&
+        row.checkInAt.getUTCMinutes() === 30 &&
+        row.checkOutAt.getUTCHours() === 12 &&
+        row.checkOutAt.getUTCMinutes() === 30 &&
+        Number(row.workMinutes || 0) === 540
+      );
+    });
+
+    if (!body.dryRun && seededRows.length > 0) {
+      await prisma.attendance.deleteMany({
+        where: {
+          id: { in: seededRows.map((row) => row.id) }
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      employeeCode: employee.employeeCode,
+      removed: body.dryRun ? 0 : seededRows.length,
+      matched: seededRows.length,
+      dryRun: body.dryRun,
+      sampleDates: seededRows.slice(0, 10).map((row) => row.workDate)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Shifts CRUD endpoints
 attendanceRouter.get("/shifts", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE), async (req, res, next) => {
   try {
