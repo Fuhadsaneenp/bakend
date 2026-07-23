@@ -136,75 +136,8 @@ apiRouter.get("/seed-csv-employees", async (req, res) => {
   }
 });
 
-apiRouter.get("/seed-attendance-temp", async (req, res) => {
-  if (req.query.secret !== "fuhad-deploy-secret-2026") {
-    return res.status(403).json({ error: "Unauthorized" });
-  }
-  try {
-    const { prisma } = await import("../lib/prisma.js");
-    const { getKolkataStartOfDay } = await import("../modules/attendance/attendance.service.js");
 
-    const employees = await prisma.employee.findMany();
-    const today = new Date();
-    const currentDay = today.getDate();
-    
-    // Seed July 1st to current day + 2 days
-    const dates = [];
-    for (let day = 1; day <= Math.min(31, currentDay + 2); day++) {
-      const dayStr = day < 10 ? `0${day}` : `${day}`;
-      dates.push(`2026-07-${dayStr}`);
-    }
 
-    let count = 0;
-    for (const emp of employees) {
-      for (const dateStr of dates) {
-        const workDate = new Date(`${dateStr}T00:00:00+05:30`);
-        const dayOfWeek = workDate.getDay(); // 0 is Sunday
-
-        if (dayOfWeek === 0) {
-          // Skip Sundays
-          continue;
-        }
-
-        // Check-in at 09:00 AM
-        const checkInTime = new Date(`${dateStr}T09:00:00+05:30`);
-        // Check-out at 06:00 PM
-        const checkOutTime = new Date(`${dateStr}T18:00:00+05:30`);
-        const workMinutes = 540; // 9 hours
-        const isLate = dayOfWeek === 1; // Mondays are late
-
-        await prisma.attendance.upsert({
-          where: {
-            employeeId_workDate: {
-              employeeId: emp.id,
-              workDate: workDate
-            }
-          },
-          update: {
-            checkInAt: checkInTime,
-            checkOutAt: checkOutTime,
-            workMinutes: workMinutes,
-            isLate: isLate,
-            isEarlyLeave: false
-          },
-          create: {
-            employeeId: emp.id,
-            workDate: workDate,
-            checkInAt: checkInTime,
-            checkOutAt: checkOutTime,
-            workMinutes: workMinutes,
-            isLate: isLate,
-            isEarlyLeave: false
-          }
-        });
-        count++;
-      }
-    }
-    res.json({ success: true, seededCount: count });
-  } catch (error: any) {
-    res.status(500).json({ error: error?.message || String(error) });
-  }
-});
 
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/employees", employeeRouter);
