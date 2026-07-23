@@ -129,18 +129,15 @@ function buildLopDayTotal(input: {
   return Array.from(lopDays.values()).reduce((sum, value) => sum + value, 0);
 }
 
-function computePayrollAmounts(input: {
+function buildAttendanceSnapshot(input: {
   month: number;
   year: number;
   type: "REGULAR" | "FINAL";
   employee: {
-    id: string;
-    employeeCode: string;
     dateOfJoining: Date;
     dateOfExit?: Date | null;
     attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
     wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
-    salary: { basic: Prisma.Decimal | number; allowances: Prisma.Decimal | number };
   };
 }) {
   const endOfMonthDate = new Date(input.year, input.month, 0);
@@ -148,7 +145,6 @@ function computePayrollAmounts(input: {
   const totalDaysInMonth = endOfMonthDate.getDate();
 
   let attendanceDays = totalDaysInMonth;
-
   if (input.type === "FINAL" && input.employee.dateOfExit) {
     attendanceDays = input.employee.dateOfExit.getDate();
   } else if (input.employee.dateOfJoining > startOfMonthDate) {
@@ -164,18 +160,57 @@ function computePayrollAmounts(input: {
       ? endOfDay(input.employee.dateOfExit)
       : endOfDay(endOfMonthDate);
 
-  const totalLopDays = buildLopDayTotal({
-    attendance: input.employee.attendance,
-    wfhRequests: input.employee.wfhRequests,
+  // Payroll must always read the same live attendance rows that feed the
+  // employee attendance calendar, then apply only leave/WFH LOP rules on top.
+  const attendanceInPeriod = input.employee.attendance.filter(
+    (row) => row.workDate.getTime() >= employeePeriodStart.getTime() && row.workDate.getTime() <= employeePeriodEnd.getTime()
+  );
+  const wfhRequestsInPeriod = input.employee.wfhRequests.filter(
+    (row) => row.startDate.getTime() <= employeePeriodEnd.getTime() && row.endDate.getTime() >= employeePeriodStart.getTime()
+  );
+
+  const payableDays = buildPayableDayTotal({
+    attendance: attendanceInPeriod,
+    wfhRequests: wfhRequestsInPeriod,
     periodStart: employeePeriodStart,
     periodEnd: employeePeriodEnd
   });
-  const payableDays = Math.max(0, attendanceDays - totalLopDays);
-  const proration = payableDays / totalDaysInMonth;
+  const lopDays = buildLopDayTotal({
+    attendance: attendanceInPeriod,
+    wfhRequests: wfhRequestsInPeriod,
+    periodStart: employeePeriodStart,
+    periodEnd: employeePeriodEnd
+  });
 
   return {
     attendanceDays,
-    payableDays,
+    payableDays: Math.max(0, Math.min(attendanceDays, payableDays)),
+    lopDays
+  };
+}
+
+function computePayrollAmounts(input: {
+  month: number;
+  year: number;
+  type: "REGULAR" | "FINAL";
+  employee: {
+    id: string;
+    employeeCode: string;
+    dateOfJoining: Date;
+    dateOfExit?: Date | null;
+    attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
+    wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
+    salary: { basic: Prisma.Decimal | number; allowances: Prisma.Decimal | number };
+  };
+}) {
+  const totalDaysInMonth = new Date(input.year, input.month, 0).getDate();
+  const snapshot = buildAttendanceSnapshot(input);
+  const proration = snapshot.payableDays / totalDaysInMonth;
+
+  return {
+    attendanceDays: snapshot.attendanceDays,
+    payableDays: snapshot.payableDays,
+    lopDays: snapshot.lopDays,
     basic: decimalToNumber(input.employee.salary.basic) * proration,
     allowances: decimalToNumber(input.employee.salary.allowances) * proration
   };
