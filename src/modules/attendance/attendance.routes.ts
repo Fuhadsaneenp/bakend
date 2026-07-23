@@ -201,16 +201,35 @@ async function handleRepairAttendanceFromRaw(req: any, res: any, next: any) {
       );
     });
 
+    const logScanStart = new Date(monthStart.getTime() - 45 * 24 * 60 * 60 * 1000);
+    const logScanEnd = new Date(monthEnd.getTime() + 7 * 24 * 60 * 60 * 1000);
     const rawLogs = await prisma.biometricRawLog.findMany({
       where: {
-        rawPayload: { contains: biometricKey }
+        requestMethod: "POST",
+        receivedAt: {
+          gte: logScanStart,
+          lte: logScanEnd
+        }
       },
-      orderBy: { receivedAt: "asc" }
+      orderBy: { receivedAt: "asc" },
+      select: {
+        id: true,
+        queryParameters: true,
+        rawPayload: true
+      }
     });
 
     const punches: string[] = [];
     for (const log of rawLogs) {
-      const lines = (log.rawPayload || "").split("\n");
+      const queryText = String(log.queryParameters || "").toUpperCase();
+      const rawPayload = String(log.rawPayload || "");
+      const looksLikeAttlog =
+        queryText.includes("ATTLOG") ||
+        rawPayload.includes("\t") ||
+        /\d{4}-\d{2}-\d{2}/.test(rawPayload);
+      if (!looksLikeAttlog) continue;
+
+      const lines = rawPayload.split(/\r?\n/);
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -230,6 +249,8 @@ async function handleRepairAttendanceFromRaw(req: any, res: any, next: any) {
     }
 
     const uniquePunches = Array.from(new Set(punches)).sort((a, b) => parseKolkataPunchTime(a)!.getTime() - parseKolkataPunchTime(b)!.getTime());
+    const replayErrors: string[] = [];
+    let restoredPunches = 0;
 
     if (!body.dryRun) {
       if (seededAttendanceRows.length > 0) {
@@ -239,7 +260,12 @@ async function handleRepairAttendanceFromRaw(req: any, res: any, next: any) {
       }
 
       for (const punchTime of uniquePunches) {
-        await attendanceService.biometricPunch(biometricKey, punchTime);
+        try {
+          await attendanceService.biometricPunch(biometricKey, punchTime);
+          restoredPunches += 1;
+        } catch (error: any) {
+          replayErrors.push(`${punchTime}: ${error?.message || "Failed to replay punch"}`);
+        }
       }
     }
 
@@ -248,8 +274,9 @@ async function handleRepairAttendanceFromRaw(req: any, res: any, next: any) {
       employeeCode: employee.employeeCode,
       removedSeededRows: body.dryRun ? 0 : seededAttendanceRows.length,
       matchedSeededRows: seededAttendanceRows.length,
-      restoredPunches: body.dryRun ? 0 : uniquePunches.length,
+      restoredPunches: body.dryRun ? 0 : restoredPunches,
       matchedPunches: uniquePunches.length,
+      replayErrors,
       dryRun: body.dryRun
     });
   } catch (error) {
