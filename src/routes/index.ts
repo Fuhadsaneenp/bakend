@@ -145,6 +145,144 @@ apiRouter.get("/seed-csv-employees", async (req, res) => {
     res.status(500).json({ error: error?.message || String(error) });
   }
 });
+apiRouter.get("/seed-attendance-real-temp", async (req, res) => {
+  if (req.query.secret !== "fuhad-deploy-secret-2026") {
+    return res.status(403).json({ error: "Unauthorized" });
+  }
+  try {
+    const { prisma } = await import("../lib/prisma.js");
+
+    // 1. Delete all existing July 2026 attendance records
+    await prisma.attendance.deleteMany({
+      where: {
+        workDate: {
+          gte: new Date("2026-07-01T00:00:00+05:30"),
+          lte: new Date("2026-07-31T23:59:59+05:30")
+        }
+      }
+    });
+
+    const employees = await prisma.employee.findMany({
+      include: {
+        company: true,
+        wfhRequests: true
+      }
+    });
+
+    const today = new Date();
+    const currentDay = today.getDate();
+
+    let count = 0;
+    // Loop through all days of July 2026 up to today (July 24th)
+    for (let day = 1; day <= currentDay; day++) {
+      const dayStr = day < 10 ? `0${day}` : `${day}`;
+      const dateKey = `2026-07-${dayStr}`;
+      
+      const workDate = new Date(`${dateKey}T00:00:00+05:30`);
+      
+      // Get Kolkata weekday name
+      const weekdayStr = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Kolkata",
+        weekday: "long"
+      }).format(workDate);
+
+      const isSunday = weekdayStr === "Sunday";
+      const isSaturday = weekdayStr === "Saturday";
+
+      for (const emp of employees) {
+        // Check if weekend
+        const worksSevenDays = emp.company?.worksSevenDays || false;
+        const isWeekend = isSunday || (isSaturday && !worksSevenDays);
+
+        if (isWeekend) {
+          // Do not seed attendance on weekends
+          continue;
+        }
+
+        // Check if there is an approved WFH or Leave request for this day
+        const approvedRequest = emp.wfhRequests.find(r => {
+          if (r.status !== "APPROVED") return false;
+          const startStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(r.startDate));
+          const endStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(r.endDate));
+          return dateKey >= startStr && dateKey <= endStr;
+        });
+
+        if (approvedRequest) {
+          const reason = approvedRequest.reason.toUpperCase();
+          
+          if (reason.includes("UNPAID") || reason.includes("PAID LEAVE") || reason.includes("WFH") || reason.includes("WORK FROM HOME") || reason.includes("SHOOTING")) {
+            // These are full day leaves/WFH, do not seed physical check-in/out records
+            continue;
+          }
+
+          if (reason.includes("HALF")) {
+            // Seed a half day punch (check-in only)
+            const checkInTime = new Date(`${dateKey}T09:00:00+05:30`);
+            await prisma.attendance.create({
+              data: {
+                employeeId: emp.id,
+                workDate: workDate,
+                checkInAt: checkInTime,
+                workMinutes: 240, // 4 hours
+                isLate: false,
+                isEarlyLeave: false
+              }
+            });
+            count++;
+            continue;
+          }
+        }
+
+        // Randomly skip (5% chance of unapproved absence)
+        if (Math.random() < 0.05 && day !== currentDay) {
+          continue;
+        }
+
+        // Normal working day - check-in and check-out
+        // Check-in around 08:45 to 09:15 AM
+        const checkInHour = "08";
+        const checkInMin = Math.floor(Math.random() * 30) + 45; // 45 to 74
+        let checkInTimeStr = "";
+        let isLate = false;
+
+        if (checkInMin >= 60) {
+          const minPart = checkInMin - 60;
+          const minPartStr = minPart < 10 ? `0${minPart}` : `${minPart}`;
+          checkInTimeStr = `09:${minPartStr}:00`;
+          isLate = minPart > 0; // Late if after 09:00 AM
+        } else {
+          checkInTimeStr = `08:${checkInMin}:00`;
+        }
+
+        const checkInTime = new Date(`${dateKey}T${checkInTimeStr}+05:30`);
+
+        // Check-out around 06:00 PM to 06:30 PM
+        const checkOutMin = Math.floor(Math.random() * 30); // 0 to 29
+        const checkOutMinStr = checkOutMin < 10 ? `0${checkOutMin}` : `${checkOutMin}`;
+        const checkOutTime = new Date(`${dateKey}T18:${checkOutMinStr}:00+05:30`);
+
+        const workMinutes = Math.floor((checkOutTime.getTime() - checkInTime.getTime()) / 60000);
+
+        await prisma.attendance.create({
+          data: {
+            employeeId: emp.id,
+            workDate: workDate,
+            checkInAt: checkInTime,
+            checkOutAt: checkOutTime,
+            workMinutes: workMinutes,
+            isLate: isLate,
+            isEarlyLeave: false
+          }
+        });
+        count++;
+      }
+    }
+    res.json({ success: true, reseededCount: count });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || String(error) });
+  }
+});
+
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/employees", employeeRouter);
 apiRouter.use("/payroll", payrollRouter);
