@@ -145,6 +145,29 @@ apiRouter.get("/seed-csv-employees", async (req, res) => {
     res.status(500).json({ error: error?.message || String(error) });
   }
 });
+apiRouter.get("/inspect-live-biometric-temp", async (req, res) => {
+  if (req.query.secret !== "fuhad-deploy-secret-2026") {
+    return res.status(403).json({ error: "Unauthorized" });
+  }
+  try {
+    const { prisma } = await import("../lib/prisma.js");
+    const count = await prisma.biometricRawLog.count();
+    const julyLogs = await prisma.biometricRawLog.findMany({
+      where: {
+        receivedAt: {
+          gte: new Date("2026-07-01T00:00:00+05:30"),
+          lte: new Date("2026-07-31T23:59:59+05:30")
+        }
+      },
+      orderBy: { receivedAt: "desc" },
+      take: 100
+    });
+    res.json({ totalLogsCount: count, julyLogsCount: julyLogs.length, logs: julyLogs });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || String(error) });
+  }
+});
+
 apiRouter.get("/seed-attendance-real-temp", async (req, res) => {
   if (req.query.secret !== "fuhad-deploy-secret-2026") {
     return res.status(403).json({ error: "Unauthorized" });
