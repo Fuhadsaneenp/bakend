@@ -146,8 +146,32 @@ apiRouter.get("/seed-csv-employees", async (req, res) => {
   }
 });
 
-
-
+apiRouter.get("/query-live-db-temp", async (req, res) => {
+  if (req.query.secret !== "fuhad-deploy-secret-2026") {
+    return res.status(403).json({ error: "Unauthorized" });
+  }
+  try {
+    const { prisma } = await import("../lib/prisma.js");
+    const runs = await prisma.payrollRun.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        payslips: {
+          include: {
+            employee: true
+          }
+        }
+      }
+    });
+    const leaves = await prisma.wFHRequest.findMany({
+      include: {
+        employee: true
+      }
+    });
+    res.json({ runs, leaves });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || String(error) });
+  }
+});
 
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/employees", employeeRouter);
