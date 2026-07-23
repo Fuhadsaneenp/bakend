@@ -8,6 +8,8 @@ import { renderPayslipPdf } from "./payslip.pdf.js";
 import { formatFullName } from "../../lib/formatName.js";
 
 const decimalToNumber = (value: Prisma.Decimal | number) => Number(value);
+const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+type PayrollWeekday = typeof weekdayNames[number];
 
 function formatDayKey(date: Date) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -57,6 +59,37 @@ function attendanceCredit(row: { checkInAt?: Date | null; checkOutAt?: Date | nu
   if (getKolkataMinutes(row.checkInAt) > 13 * 60) return 0.5;
   if (getKolkataMinutes(row.checkOutAt) < 15 * 60) return 0.5;
   return 1;
+}
+
+function parseWorkingDays(raw: string | null | undefined): PayrollWeekday[] {
+  if (!raw) return ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((day): day is PayrollWeekday => weekdayNames.includes(day));
+    }
+  } catch {}
+  return ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+}
+
+function weekdayNameForDate(date: Date): PayrollWeekday {
+  return weekdayNames[date.getDay()];
+}
+
+function isWorkingDayForPayroll(
+  date: Date,
+  employee: {
+    shift?: { workingDays?: string | null } | null;
+    company?: { worksSevenDays?: boolean | null } | null;
+  }
+) {
+  if (employee.company?.worksSevenDays) return true;
+  const workingDays = parseWorkingDays(employee.shift?.workingDays);
+  return workingDays.includes(weekdayNameForDate(date));
+}
+
+function requestDayCredit(request: { status: string; reason: string }) {
+  return Math.max(0, 1 - getLopDaysForRequest(request));
 }
 
 function buildPayableDayTotal(input: {
@@ -136,6 +169,8 @@ function buildAttendanceSnapshot(input: {
   employee: {
     dateOfJoining: Date;
     dateOfExit?: Date | null;
+    shift?: { workingDays?: string | null } | null;
+    company?: { worksSevenDays?: boolean | null } | null;
     attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
     wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
   };
@@ -161,26 +196,44 @@ function buildAttendanceSnapshot(input: {
       : endOfDay(endOfMonthDate);
 
   // Payroll must always read the same live attendance rows that feed the
-  // employee attendance calendar, then apply only leave/WFH LOP rules on top.
+  // employee attendance calendar. Non-working days such as Sundays stay paid.
   const attendanceInPeriod = input.employee.attendance.filter(
     (row) => row.workDate.getTime() >= employeePeriodStart.getTime() && row.workDate.getTime() <= employeePeriodEnd.getTime()
   );
   const wfhRequestsInPeriod = input.employee.wfhRequests.filter(
     (row) => row.startDate.getTime() <= employeePeriodEnd.getTime() && row.endDate.getTime() >= employeePeriodStart.getTime()
   );
+  const dayCredits = new Map<string, number>();
 
-  const payableDays = buildPayableDayTotal({
-    attendance: attendanceInPeriod,
-    wfhRequests: wfhRequestsInPeriod,
-    periodStart: employeePeriodStart,
-    periodEnd: employeePeriodEnd
-  });
-  const lopDays = buildLopDayTotal({
-    attendance: attendanceInPeriod,
-    wfhRequests: wfhRequestsInPeriod,
-    periodStart: employeePeriodStart,
-    periodEnd: employeePeriodEnd
-  });
+  const cursor = new Date(employeePeriodStart);
+  while (cursor <= employeePeriodEnd) {
+    const dayKey = formatDayKey(cursor);
+    dayCredits.set(dayKey, isWorkingDayForPayroll(cursor, input.employee) ? 0 : 1);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  for (const row of attendanceInPeriod) {
+    const dayKey = formatDayKey(row.workDate);
+    const currentCredit = dayCredits.get(dayKey) ?? 0;
+    dayCredits.set(dayKey, Math.max(currentCredit, attendanceCredit(row)));
+  }
+
+  for (const request of wfhRequestsInPeriod) {
+    const effectiveStart = new Date(Math.max(request.startDate.getTime(), employeePeriodStart.getTime()));
+    const effectiveEnd = new Date(Math.min(request.endDate.getTime(), employeePeriodEnd.getTime()));
+    if (effectiveStart > effectiveEnd) continue;
+
+    const requestCursor = new Date(effectiveStart);
+    while (requestCursor <= effectiveEnd) {
+      const dayKey = formatDayKey(requestCursor);
+      const currentCredit = dayCredits.get(dayKey) ?? 0;
+      dayCredits.set(dayKey, Math.max(currentCredit, requestDayCredit(request)));
+      requestCursor.setDate(requestCursor.getDate() + 1);
+    }
+  }
+
+  const payableDays = Array.from(dayCredits.values()).reduce((sum, value) => sum + value, 0);
+  const lopDays = Math.max(0, attendanceDays - payableDays);
 
   return {
     attendanceDays,
@@ -198,6 +251,8 @@ function computePayrollAmounts(input: {
     employeeCode: string;
     dateOfJoining: Date;
     dateOfExit?: Date | null;
+    shift?: { workingDays?: string | null } | null;
+    company?: { worksSevenDays?: boolean | null } | null;
     attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
     wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
     salary: { basic: Prisma.Decimal | number; allowances: Prisma.Decimal | number };
@@ -263,6 +318,8 @@ export const payrollService = {
       },
       include: {
         salary: true,
+        shift: true,
+        company: true,
         user: true,
         attendance: {
           where: {
@@ -309,6 +366,8 @@ export const payrollService = {
             employeeCode: employee.employeeCode,
             dateOfJoining: employee.dateOfJoining,
             dateOfExit: employee.dateOfExit,
+            shift: employee.shift,
+            company: employee.company,
             attendance: employee.attendance,
             wfhRequests: employee.wfhRequests,
             salary
@@ -490,6 +549,8 @@ export const payrollService = {
             employee: {
               include: {
                 salary: true,
+                shift: true,
+                company: true,
                 attendance: true,
                 wfhRequests: true
               }
@@ -518,6 +579,8 @@ export const payrollService = {
           employeeCode: payslip.employee.employeeCode,
           dateOfJoining: payslip.employee.dateOfJoining,
           dateOfExit: payslip.employee.dateOfExit,
+          shift: payslip.employee.shift,
+          company: payslip.employee.company,
           attendance: payslip.employee.attendance.filter((row) => row.workDate >= startOfDay(new Date(run.year, run.month - 1, 1)) && row.workDate <= endOfDay(new Date(run.year, run.month, 0))),
           wfhRequests: payslip.employee.wfhRequests.filter((row) => row.startDate <= endOfDay(new Date(run.year, run.month, 0)) && row.endDate >= startOfDay(new Date(run.year, run.month - 1, 1))),
           salary
