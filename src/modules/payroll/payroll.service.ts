@@ -94,6 +94,93 @@ function buildPayableDayTotal(input: {
   return Array.from(payableDays.values()).reduce((total, days) => total + days, 0);
 }
 
+function buildLopDayTotal(input: {
+  attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
+  wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
+  periodStart: Date;
+  periodEnd: Date;
+}) {
+  const lopDays = new Map<string, number>();
+
+  for (const row of input.attendance) {
+    const workTime = row.workDate.getTime();
+    if (workTime < input.periodStart.getTime() || workTime > input.periodEnd.getTime()) continue;
+
+    const dayKey = formatDayKey(row.workDate);
+    const attendanceLop = Math.max(0, 1 - attendanceCredit(row));
+    if (attendanceLop > 0) lopDays.set(dayKey, Math.max(lopDays.get(dayKey) || 0, attendanceLop));
+  }
+
+  for (const request of input.wfhRequests) {
+    const effectiveStart = new Date(Math.max(request.startDate.getTime(), input.periodStart.getTime()));
+    const effectiveEnd = new Date(Math.min(request.endDate.getTime(), input.periodEnd.getTime()));
+
+    if (effectiveStart > effectiveEnd) continue;
+
+    const cursor = new Date(effectiveStart);
+    while (cursor <= effectiveEnd) {
+      const dayKey = formatDayKey(cursor);
+      const requestLop = getLopDaysForRequest({ status: request.status, reason: request.reason });
+      lopDays.set(dayKey, Math.max(lopDays.get(dayKey) || 0, requestLop));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+
+  return Array.from(lopDays.values()).reduce((sum, value) => sum + value, 0);
+}
+
+function computePayrollAmounts(input: {
+  month: number;
+  year: number;
+  type: "REGULAR" | "FINAL";
+  employee: {
+    id: string;
+    employeeCode: string;
+    dateOfJoining: Date;
+    dateOfExit?: Date | null;
+    attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
+    wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
+    salary: { basic: Prisma.Decimal | number; allowances: Prisma.Decimal | number };
+  };
+}) {
+  const endOfMonthDate = new Date(input.year, input.month, 0);
+  const startOfMonthDate = new Date(input.year, input.month - 1, 1);
+  const totalDaysInMonth = endOfMonthDate.getDate();
+
+  let attendanceDays = totalDaysInMonth;
+
+  if (input.type === "FINAL" && input.employee.dateOfExit) {
+    attendanceDays = input.employee.dateOfExit.getDate();
+  } else if (input.employee.dateOfJoining > startOfMonthDate) {
+    attendanceDays = totalDaysInMonth - input.employee.dateOfJoining.getDate() + 1;
+  }
+
+  const employeePeriodStart =
+    input.employee.dateOfJoining > startOfMonthDate
+      ? startOfDay(input.employee.dateOfJoining)
+      : startOfDay(startOfMonthDate);
+  const employeePeriodEnd =
+    input.type === "FINAL" && input.employee.dateOfExit
+      ? endOfDay(input.employee.dateOfExit)
+      : endOfDay(endOfMonthDate);
+
+  const totalLopDays = buildLopDayTotal({
+    attendance: input.employee.attendance,
+    wfhRequests: input.employee.wfhRequests,
+    periodStart: employeePeriodStart,
+    periodEnd: employeePeriodEnd
+  });
+  const payableDays = Math.max(0, attendanceDays - totalLopDays);
+  const proration = payableDays / totalDaysInMonth;
+
+  return {
+    attendanceDays,
+    payableDays,
+    basic: decimalToNumber(input.employee.salary.basic) * proration,
+    allowances: decimalToNumber(input.employee.salary.allowances) * proration
+  };
+}
+
 async function deliverPayslipById(payslipId: string) {
   const payslip = await prisma.payslip.findUnique({
     where: { id: payslipId },
@@ -178,46 +265,20 @@ export const payrollService = {
 
       for (const employee of employees) {
         const salary = employee.salary!;
-        const totalDaysInMonth = endOfMonthDate.getDate();
-        
-        let attendanceDays = totalDaysInMonth;
-        
-        if (type === "FINAL" && employee.dateOfExit) {
-          attendanceDays = employee.dateOfExit.getDate();
-        } else if (employee.dateOfJoining > startOfMonthDate) {
-          attendanceDays = totalDaysInMonth - employee.dateOfJoining.getDate() + 1;
-        }
-
-        const employeePeriodStart = employee.dateOfJoining > startOfMonthDate ? startOfDay(employee.dateOfJoining) : startOfDay(startOfMonthDate);
-        const employeePeriodEnd =
-          type === "FINAL" && employee.dateOfExit
-            ? endOfDay(employee.dateOfExit)
-            : endOfDay(endOfMonthDate);
-
-        const lopDaysMap = new Map<string, number>();
-
-        for (const request of employee.wfhRequests) {
-          const effectiveStart = new Date(Math.max(request.startDate.getTime(), employeePeriodStart.getTime()));
-          const effectiveEnd = new Date(Math.min(request.endDate.getTime(), employeePeriodEnd.getTime()));
-
-          if (effectiveStart > effectiveEnd) continue;
-
-          const cursor = new Date(effectiveStart);
-          while (cursor <= effectiveEnd) {
-            const dayKey = formatDayKey(cursor);
-            const dayLop = getLopDaysForRequest({ status: request.status, reason: request.reason });
-            const existingLop = lopDaysMap.get(dayKey) || 0;
-            lopDaysMap.set(dayKey, Math.max(existingLop, dayLop));
-            cursor.setDate(cursor.getDate() + 1);
+        const { attendanceDays, payableDays, basic, allowances } = computePayrollAmounts({
+          month,
+          year,
+          type,
+          employee: {
+            id: employee.id,
+            employeeCode: employee.employeeCode,
+            dateOfJoining: employee.dateOfJoining,
+            dateOfExit: employee.dateOfExit,
+            attendance: employee.attendance,
+            wfhRequests: employee.wfhRequests,
+            salary
           }
-        }
-
-        const totalLopDays = Array.from(lopDaysMap.values()).reduce((sum, val) => sum + val, 0);
-        const payableDays = Math.max(0, attendanceDays - totalLopDays);
-
-        const proration = payableDays / totalDaysInMonth;
-        const basic = decimalToNumber(salary.basic) * proration;
-        const allowances = decimalToNumber(salary.allowances) * proration;
+        });
         const deductions = decimalToNumber(salary.deductions);
         
         const grossPay = basic + allowances;
@@ -381,6 +442,101 @@ export const payrollService = {
       });
 
       return { payslip: updatedPayslip, run: updatedRun };
+    });
+  },
+
+  async recalculateDraftRun(companyId: string, runId: string) {
+    const run = await prisma.payrollRun.findFirst({
+      where: { id: runId, companyId },
+      include: {
+        company: true,
+        payslips: {
+          include: {
+            employee: {
+              include: {
+                salary: true,
+                attendance: true,
+                wfhRequests: true
+              }
+            }
+          }
+        }
+      }
+    });
+    if (!run) throw new ApiError(404, "Payroll run not found");
+    if (run.status !== "DRAFT" && run.status !== "DRAFT_FINAL") return run;
+
+    const payrollType: "REGULAR" | "FINAL" = run.status.endsWith("_FINAL") ? "FINAL" : "REGULAR";
+    let grossTotal = 0;
+    let netTotal = 0;
+
+    for (const payslip of run.payslips) {
+      const salary = payslip.employee.salary;
+      if (!salary) continue;
+
+      const { attendanceDays, payableDays, basic, allowances } = computePayrollAmounts({
+        month: run.month,
+        year: run.year,
+        type: payrollType,
+        employee: {
+          id: payslip.employee.id,
+          employeeCode: payslip.employee.employeeCode,
+          dateOfJoining: payslip.employee.dateOfJoining,
+          dateOfExit: payslip.employee.dateOfExit,
+          attendance: payslip.employee.attendance.filter((row) => row.workDate >= startOfDay(new Date(run.year, run.month - 1, 1)) && row.workDate <= endOfDay(new Date(run.year, run.month, 0))),
+          wfhRequests: payslip.employee.wfhRequests.filter((row) => row.startDate <= endOfDay(new Date(run.year, run.month, 0)) && row.endDate >= startOfDay(new Date(run.year, run.month - 1, 1))),
+          salary
+        }
+      });
+
+      const deductions = Number(payslip.deductions || 0);
+      const gratuity = Number(payslip.gratuity || 0);
+      const leaveEncashment = Number(payslip.leaveEncashment || 0);
+      const noticePay = Number(payslip.noticePay || 0);
+      const grossPay = basic + allowances + gratuity + leaveEncashment + noticePay;
+      const netPay = Math.max(0, grossPay - deductions);
+
+      const pdfAllowances = allowances + gratuity + leaveEncashment + (noticePay > 0 ? noticePay : 0);
+      const pdfDeductions = deductions + (noticePay < 0 ? Math.abs(noticePay) : 0);
+      const pdfKey = payslip.pdfKey || `companies/${companyId}/payslips/${run.year}-${run.month}/${payslip.employeeId}.pdf`;
+      const pdf = await renderPayslipPdf({
+        companyName: run.company.name,
+        employeeName: formatFullName(payslip.employee),
+        employeeCode: payslip.employee.employeeCode,
+        payslipNumber: payslip.payslipNumber,
+        month: run.month,
+        year: run.year,
+        basic,
+        allowances: pdfAllowances,
+        deductions: pdfDeductions,
+        grossPay,
+        netPay,
+        attendanceDays,
+        payableDays
+      });
+      await storageService.putObject(pdfKey, pdf, "application/pdf");
+
+      await prisma.payslip.update({
+        where: { id: payslip.id },
+        data: {
+          attendanceDays,
+          payableDays,
+          basic,
+          allowances,
+          grossPay,
+          netPay,
+          pdfKey
+        }
+      });
+
+      grossTotal += grossPay;
+      netTotal += netPay;
+    }
+
+    return prisma.payrollRun.update({
+      where: { id: run.id },
+      data: { grossTotal, netTotal },
+      include: { payslips: { include: { employee: { include: { salary: true } } } } }
     });
   },
 

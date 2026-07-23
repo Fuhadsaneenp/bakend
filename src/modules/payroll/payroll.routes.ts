@@ -12,6 +12,18 @@ payrollRouter.use(requireAuth);
 payrollRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const draftRuns = await prisma.payrollRun.findMany({
+      where: {
+        companyId: req.user.companyId,
+        status: { in: ["DRAFT", "DRAFT_FINAL"] }
+      },
+      select: { id: true }
+    });
+
+    for (const run of draftRuns) {
+      await payrollService.recalculateDraftRun(req.user.companyId, run.id);
+    }
+
     const runs = await prisma.payrollRun.findMany({
       where: { companyId: req.user.companyId },
       orderBy: { createdAt: "desc" },
