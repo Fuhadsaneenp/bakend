@@ -26,6 +26,19 @@ function parseRequestType(reason: string) {
   return "Work From Home (WFH)";
 }
 
+function getLopDaysForRequest(input: { status: string; reason: string }) {
+  const requestType = parseRequestType(input.reason).trim().toUpperCase();
+  const isHalfDay = requestType.includes("HALF");
+  const isUnpaid = requestType.includes("UNPAID");
+  const isApproved = input.status === "APPROVED";
+
+  // Half day should always reduce only half a day. Paid leave/WFH remain fully paid.
+  if (isHalfDay) return 0.5;
+  if (isUnpaid) return 1;
+  if (!isApproved) return 1;
+  return 0;
+}
+
 function getKolkataMinutes(date: Date) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Kolkata",
@@ -48,7 +61,7 @@ function attendanceCredit(row: { checkInAt?: Date | null; checkOutAt?: Date | nu
 
 function buildPayableDayTotal(input: {
   attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
-  wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string }>;
+  wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
   periodStart: Date;
   periodEnd: Date;
 }) {
@@ -60,14 +73,9 @@ function buildPayableDayTotal(input: {
   }
 
   for (const request of input.wfhRequests) {
-    const requestType = parseRequestType(request.reason).trim().toUpperCase();
-    const isFullDayCredit = requestType === "PAID LEAVE"
-      || requestType === "WORK FROM HOME (WFH)"
-      || requestType === "WFH"
-      || requestType === "SHOOTING"
-      || requestType === "MISSED PUNCH";
-    const isHalfDayLeave = requestType.startsWith("HALF DAY");
-    if (!isFullDayCredit && !isHalfDayLeave) continue;
+    const lopDays = getLopDaysForRequest({ status: request.status, reason: request.reason });
+    const dayCredit = Math.max(0, 1 - lopDays);
+    if (dayCredit <= 0) continue;
 
     const effectiveStart = new Date(Math.max(request.startDate.getTime(), input.periodStart.getTime()));
     const effectiveEnd = new Date(Math.min(request.endDate.getTime(), input.periodEnd.getTime()));
@@ -78,7 +86,7 @@ function buildPayableDayTotal(input: {
     while (cursor <= effectiveEnd) {
       const dayKey = formatDayKey(cursor);
       const attendanceValue = payableDays.get(dayKey) || 0;
-      payableDays.set(dayKey, Math.max(attendanceValue, isHalfDayLeave ? 0.5 : 1));
+      payableDays.set(dayKey, Math.max(attendanceValue, dayCredit));
       cursor.setDate(cursor.getDate() + 1);
     }
   }
@@ -189,9 +197,6 @@ export const payrollService = {
         const lopDaysMap = new Map<string, number>();
 
         for (const request of employee.wfhRequests) {
-          const requestType = parseRequestType(request.reason).trim().toUpperCase();
-          const isApproved = request.status === "APPROVED";
-          
           const effectiveStart = new Date(Math.max(request.startDate.getTime(), employeePeriodStart.getTime()));
           const effectiveEnd = new Date(Math.min(request.endDate.getTime(), employeePeriodEnd.getTime()));
 
@@ -200,16 +205,7 @@ export const payrollService = {
           const cursor = new Date(effectiveStart);
           while (cursor <= effectiveEnd) {
             const dayKey = formatDayKey(cursor);
-            let dayLop = 0;
-            if (!isApproved) {
-              dayLop = 1;
-            } else {
-              if (requestType.includes("UNPAID")) {
-                dayLop = 1;
-              } else if (requestType.includes("HALF")) {
-                dayLop = 0.5;
-              }
-            }
+            const dayLop = getLopDaysForRequest({ status: request.status, reason: request.reason });
             const existingLop = lopDaysMap.get(dayKey) || 0;
             lopDaysMap.set(dayKey, Math.max(existingLop, dayLop));
             cursor.setDate(cursor.getDate() + 1);
