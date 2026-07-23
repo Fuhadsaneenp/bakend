@@ -9,25 +9,37 @@ import { prisma } from "../../lib/prisma.js";
 export const payrollRouter = Router();
 payrollRouter.use(requireAuth);
 
+async function resolvePayrollCompanyId(req: any, requestedCompanyId?: string) {
+  const companyId = requestedCompanyId || req.user?.companyId;
+  if (!companyId) throw new ApiError(400, "Company context required");
+
+  const company = await prisma.company.findUnique({ where: { id: companyId }, select: { id: true } });
+  if (!company) throw new ApiError(404, "Company not found");
+
+  return company.id;
+}
+
 payrollRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const requestedCompanyId = typeof req.query.companyId === "string" ? req.query.companyId : undefined;
+    const companyId = await resolvePayrollCompanyId(req, requestedCompanyId);
     const draftRuns = await prisma.payrollRun.findMany({
       where: {
-        companyId: req.user.companyId,
+        companyId,
         status: { in: ["DRAFT", "DRAFT_FINAL"] }
       },
       select: { id: true }
     });
 
     for (const run of draftRuns) {
-      await payrollService.recalculateDraftRun(req.user.companyId, run.id);
+      await payrollService.recalculateDraftRun(companyId, run.id);
     }
 
     const runs = await prisma.payrollRun.findMany({
-      where: { companyId: req.user.companyId },
+      where: { companyId },
       orderBy: { createdAt: "desc" },
       include: {
+        company: true,
         payslips: {
           include: {
             employee: {
@@ -47,13 +59,15 @@ payrollRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req
 
 payrollRouter.post("/generate", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    if (!req.user) throw new ApiError(401, "Unauthenticated");
     const body = z.object({
+      companyId: z.string().optional(),
       month: z.number().min(1).max(12),
       year: z.number().min(2020),
       type: z.enum(["REGULAR", "FINAL"]).optional().default("REGULAR")
     }).parse(req.body);
-    res.status(201).json(await payrollService.generate(req.user.companyId, req.user.id, body.month, body.year, body.type));
+    const companyId = await resolvePayrollCompanyId(req, body.companyId);
+    res.status(201).json(await payrollService.generate(companyId, req.user.id, body.month, body.year, body.type));
   } catch (error) {
     next(error);
   }
