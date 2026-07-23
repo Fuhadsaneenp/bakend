@@ -61,10 +61,20 @@ apiRouter.get("/seed-csv-employees", async (req, res) => {
     const results: string[] = [];
 
     for (const rec of rawRecords) {
-      let dept = await prisma.department.findFirst({ where: { companyId: company.id, name: rec.department } });
+      const compQuery = rec.company.toLowerCase().includes("medbio") ? "medbio" : rec.company;
+      let empCompany = await prisma.company.findFirst({
+        where: { name: { contains: compQuery } }
+      });
+      if (!empCompany) {
+        empCompany = await prisma.company.create({
+          data: { name: rec.company, legalName: rec.company }
+        });
+      }
+
+      let dept = await prisma.department.findFirst({ where: { companyId: empCompany.id, name: rec.department } });
       if (!dept) {
         dept = await prisma.department.create({
-          data: { companyId: company.id, name: rec.department, code: `${rec.department.slice(0, 4).toUpperCase()}-${Date.now().toString().slice(-4)}` }
+          data: { companyId: empCompany.id, name: rec.department, code: `${rec.department.slice(0, 4).toUpperCase()}-${Date.now().toString().slice(-4)}` }
         });
       }
       let desg = await prisma.designation.findFirst({ where: { departmentId: dept.id, title: rec.designation } });
@@ -75,12 +85,12 @@ apiRouter.get("/seed-csv-employees", async (req, res) => {
       let user = await prisma.user.findUnique({ where: { email: rec.email } });
       if (!user) {
         user = await prisma.user.create({
-          data: { companyId: company.id, email: rec.email, passwordHash: defaultPasswordHash, role: "EMPLOYEE" }
+          data: { companyId: empCompany.id, email: rec.email, passwordHash: defaultPasswordHash, role: "EMPLOYEE" }
         });
       } else {
         await prisma.user.update({
           where: { id: user.id },
-          data: { passwordHash: defaultPasswordHash }
+          data: { companyId: empCompany.id, passwordHash: defaultPasswordHash }
         });
       }
 
@@ -89,7 +99,7 @@ apiRouter.get("/seed-csv-employees", async (req, res) => {
       });
 
       const empData: any = {
-        companyId: company.id,
+        companyId: empCompany.id,
         userId: user.id,
         employeeCode: rec.empCode,
         biometricId: rec.biometricId,

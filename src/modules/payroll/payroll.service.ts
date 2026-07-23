@@ -144,7 +144,6 @@ export const payrollService = {
         },
         wfhRequests: {
           where: {
-            status: "APPROVED",
             startDate: { lte: endOfDay(endOfMonthDate) },
             endDate: { gte: startOfDay(startOfMonthDate) }
           }
@@ -187,13 +186,38 @@ export const payrollService = {
             ? endOfDay(employee.dateOfExit)
             : endOfDay(endOfMonthDate);
 
-        const payableDayTotal = buildPayableDayTotal({
-          attendance: employee.attendance,
-          wfhRequests: employee.wfhRequests,
-          periodStart: employeePeriodStart,
-          periodEnd: employeePeriodEnd
-        });
-        const payableDays = Math.min(attendanceDays, payableDayTotal);
+        const lopDaysMap = new Map<string, number>();
+
+        for (const request of employee.wfhRequests) {
+          const requestType = parseRequestType(request.reason).trim().toUpperCase();
+          const isApproved = request.status === "APPROVED";
+          
+          const effectiveStart = new Date(Math.max(request.startDate.getTime(), employeePeriodStart.getTime()));
+          const effectiveEnd = new Date(Math.min(request.endDate.getTime(), employeePeriodEnd.getTime()));
+
+          if (effectiveStart > effectiveEnd) continue;
+
+          const cursor = new Date(effectiveStart);
+          while (cursor <= effectiveEnd) {
+            const dayKey = formatDayKey(cursor);
+            let dayLop = 0;
+            if (!isApproved) {
+              dayLop = 1;
+            } else {
+              if (requestType.includes("UNPAID")) {
+                dayLop = 1;
+              } else if (requestType.includes("HALF")) {
+                dayLop = 0.5;
+              }
+            }
+            const existingLop = lopDaysMap.get(dayKey) || 0;
+            lopDaysMap.set(dayKey, Math.max(existingLop, dayLop));
+            cursor.setDate(cursor.getDate() + 1);
+          }
+        }
+
+        const totalLopDays = Array.from(lopDaysMap.values()).reduce((sum, val) => sum + val, 0);
+        const payableDays = Math.max(0, attendanceDays - totalLopDays);
 
         const proration = payableDays / totalDaysInMonth;
         const basic = decimalToNumber(salary.basic) * proration;
