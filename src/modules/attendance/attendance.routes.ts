@@ -132,6 +132,131 @@ const cleanupSeededSchema = z.object({
   dryRun: z.coerce.boolean().optional().default(false)
 });
 
+const repairFromRawSchema = z.object({
+  employeeCode: z.string().min(1),
+  month: z.coerce.number().min(1).max(12),
+  year: z.coerce.number().min(2020),
+  dryRun: z.coerce.boolean().optional().default(false)
+});
+
+function parseKolkataPunchTime(value: string) {
+  if (!/\d{4}-\d{2}-\d{2}/.test(value)) return null;
+  if (value.includes("Z") || value.includes("+")) return new Date(value);
+  return new Date(value.replace(" ", "T") + "+05:30");
+}
+
+function isSeededFixedPunch(punchTime: Date) {
+  const hours = punchTime.getUTCHours();
+  const minutes = punchTime.getUTCMinutes();
+  const seconds = punchTime.getUTCSeconds();
+  return seconds === 0 && ((hours === 3 && minutes === 30) || (hours === 12 && minutes === 30));
+}
+
+async function handleRepairAttendanceFromRaw(req: any, res: any, next: any) {
+  try {
+    const companyId = req.user?.companyId;
+    if (!companyId) throw new ApiError(400, "Company context required");
+
+    const rawInput = req.method === "GET" ? req.query : req.body;
+    const body = repairFromRawSchema.parse(rawInput);
+
+    const employee = await prisma.employee.findFirst({
+      where: {
+        companyId,
+        employeeCode: body.employeeCode
+      },
+      include: { shift: true, user: true }
+    });
+    if (!employee) throw new ApiError(404, "Employee not found");
+
+    const biometricKey = employee.biometricId || employee.employeeCode;
+    const monthStart = new Date(`${body.year}-${String(body.month).padStart(2, "0")}-01T00:00:00+05:30`);
+    const monthEnd = new Date(`${body.year}-${String(body.month).padStart(2, "0")}-${String(new Date(body.year, body.month, 0).getDate()).padStart(2, "0")}T23:59:59+05:30`);
+
+    const attendanceRows = await prisma.attendance.findMany({
+      where: {
+        employeeId: employee.id,
+        workDate: {
+          gte: monthStart,
+          lte: monthEnd
+        }
+      },
+      select: {
+        id: true,
+        workDate: true,
+        checkInAt: true,
+        checkOutAt: true,
+        workMinutes: true
+      }
+    });
+
+    const seededAttendanceRows = attendanceRows.filter((row) => {
+      if (!row.checkInAt || !row.checkOutAt) return false;
+      return (
+        row.checkInAt.getUTCHours() === 3 &&
+        row.checkInAt.getUTCMinutes() === 30 &&
+        row.checkOutAt.getUTCHours() === 12 &&
+        row.checkOutAt.getUTCMinutes() === 30 &&
+        Number(row.workMinutes || 0) === 540
+      );
+    });
+
+    const rawLogs = await prisma.biometricRawLog.findMany({
+      where: {
+        rawPayload: { contains: biometricKey }
+      },
+      orderBy: { receivedAt: "asc" }
+    });
+
+    const punches: string[] = [];
+    for (const log of rawLogs) {
+      const lines = (log.rawPayload || "").split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const match = trimmed.match(/^([^\t\s]+)[\t\s]+(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+\d{2}:?\d{2})?)/);
+        const parts = match ? [match[1].trim(), match[2].trim()] : trimmed.split("\t").slice(0, 2).map((part) => part.trim());
+        if (parts.length < 2) continue;
+        if (parts[0] !== biometricKey && parts[0] !== employee.employeeCode) continue;
+
+        const punchTime = parseKolkataPunchTime(parts[1]);
+        if (!punchTime || Number.isNaN(punchTime.getTime())) continue;
+        if (punchTime < monthStart || punchTime > monthEnd) continue;
+        if (isSeededFixedPunch(punchTime)) continue;
+
+        punches.push(parts[1]);
+      }
+    }
+
+    const uniquePunches = Array.from(new Set(punches)).sort((a, b) => parseKolkataPunchTime(a)!.getTime() - parseKolkataPunchTime(b)!.getTime());
+
+    if (!body.dryRun) {
+      if (seededAttendanceRows.length > 0) {
+        await prisma.attendance.deleteMany({
+          where: { id: { in: seededAttendanceRows.map((row) => row.id) } }
+        });
+      }
+
+      for (const punchTime of uniquePunches) {
+        await attendanceService.biometricPunch(biometricKey, punchTime);
+      }
+    }
+
+    res.json({
+      success: true,
+      employeeCode: employee.employeeCode,
+      removedSeededRows: body.dryRun ? 0 : seededAttendanceRows.length,
+      matchedSeededRows: seededAttendanceRows.length,
+      restoredPunches: body.dryRun ? 0 : uniquePunches.length,
+      matchedPunches: uniquePunches.length,
+      dryRun: body.dryRun
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function handleCleanupSeeded(req: any, res: any, next: any) {
   try {
     const companyId = req.user?.companyId;
@@ -203,6 +328,8 @@ async function handleCleanupSeeded(req: any, res: any, next: any) {
 
 attendanceRouter.get("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleCleanupSeeded);
 attendanceRouter.post("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleCleanupSeeded);
+attendanceRouter.get("/admin/repair-from-raw", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleRepairAttendanceFromRaw);
+attendanceRouter.post("/admin/repair-from-raw", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleRepairAttendanceFromRaw);
 
 // Shifts CRUD endpoints
 attendanceRouter.get("/shifts", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE), async (req, res, next) => {
