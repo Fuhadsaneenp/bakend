@@ -168,12 +168,13 @@ apiRouter.get("/inspect-live-biometric-temp", async (req, res) => {
   }
 });
 
-apiRouter.get("/seed-attendance-real-temp", async (req, res) => {
+apiRouter.get("/rebuild-attendance-from-biometric-temp", async (req, res) => {
   if (req.query.secret !== "fuhad-deploy-secret-2026") {
     return res.status(403).json({ error: "Unauthorized" });
   }
   try {
     const { prisma } = await import("../lib/prisma.js");
+    const { attendanceService } = await import("../modules/attendance/attendance.service.js");
 
     // 1. Delete all existing July 2026 attendance records
     await prisma.attendance.deleteMany({
@@ -185,122 +186,86 @@ apiRouter.get("/seed-attendance-real-temp", async (req, res) => {
       }
     });
 
-    const employees = await prisma.employee.findMany({
-      include: {
-        company: true,
-        wfhRequests: true
-      }
+    // 2. Fetch all Biometric Raw Logs
+    const attlogs = await prisma.biometricRawLog.findMany({
+      orderBy: { receivedAt: "asc" }
     });
 
-    const today = new Date();
-    const currentDay = today.getDate();
-
     let count = 0;
-    // Loop through all days of July 2026 up to today (July 24th)
-    for (let day = 1; day <= currentDay; day++) {
-      const dayStr = day < 10 ? `0${day}` : `${day}`;
-      const dateKey = `2026-07-${dayStr}`;
-      
-      const workDate = new Date(`${dateKey}T00:00:00+05:30`);
-      
-      // Get Kolkata weekday name
-      const weekdayStr = new Intl.DateTimeFormat("en-US", {
-        timeZone: "Asia/Kolkata",
-        weekday: "long"
-      }).format(workDate);
+    for (const log of attlogs) {
+      let query: Record<string, any> = {};
+      try {
+        query = JSON.parse(log.queryParameters || "{}");
+      } catch (e) {}
 
-      const isSunday = weekdayStr === "Sunday";
-      const isSaturday = weekdayStr === "Saturday";
+      const tableValue = query.table ?? query.TABLE ?? query.Table ?? "";
+      let table = String(tableValue).toUpperCase().trim();
 
-      for (const emp of employees) {
-        // Check if weekend
-        const worksSevenDays = emp.company?.worksSevenDays || false;
-        const isWeekend = isSunday || (isSaturday && !worksSevenDays);
-
-        if (isWeekend) {
-          // Do not seed attendance on weekends
-          continue;
+      if (!table && log.rawPayload) {
+        if (log.rawPayload.includes("PIN=") || log.rawPayload.includes("USER ")) {
+          table = "USERINFO";
+        } else if (/\d{4}-\d{2}-\d{2}/.test(log.rawPayload)) {
+          table = "ATTLOG";
         }
+      }
 
-        // Check if there is an approved WFH or Leave request for this day
-        const approvedRequest = emp.wfhRequests.find(r => {
-          if (r.status !== "APPROVED") return false;
-          const startStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(r.startDate));
-          const endStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(r.endDate));
-          return dateKey >= startStr && dateKey <= endStr;
-        });
+      if (table !== "ATTLOG" || !log.rawPayload) continue;
 
-        if (approvedRequest) {
-          const reason = approvedRequest.reason.toUpperCase();
-          
-          if (reason.includes("UNPAID") || reason.includes("PAID LEAVE") || reason.includes("WFH") || reason.includes("WORK FROM HOME") || reason.includes("SHOOTING")) {
-            // These are full day leaves/WFH, do not seed physical check-in/out records
-            continue;
-          }
+      const rawLines = log.rawPayload.split("\n");
+      const punchesToProcess: { biometricId: string; punchTimeStr: string; timestamp: number }[] = [];
 
-          if (reason.includes("HALF")) {
-            // Seed a half day punch (check-in only)
-            const checkInTime = new Date(`${dateKey}T09:00:00+05:30`);
-            await prisma.attendance.create({
-              data: {
-                employeeId: emp.id,
-                workDate: workDate,
-                checkInAt: checkInTime,
-                workMinutes: 240, // 4 hours
-                isLate: false,
-                isEarlyLeave: false
-              }
-            });
-            count++;
-            continue;
-          }
-        }
+      for (const line of rawLines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
 
-        // Randomly skip (5% chance of unapproved absence)
-        if (Math.random() < 0.05 && day !== currentDay) {
-          continue;
-        }
+        const match = trimmed.match(/^([^\t\s]+)[\t\s]+(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+\d{2}:?\d{2})?)/);
+        let biometricId = "";
+        let punchTimeStr = "";
 
-        // Normal working day - check-in and check-out
-        // Check-in around 08:45 to 09:15 AM
-        const checkInHour = "08";
-        const checkInMin = Math.floor(Math.random() * 30) + 45; // 45 to 74
-        let checkInTimeStr = "";
-        let isLate = false;
-
-        if (checkInMin >= 60) {
-          const minPart = checkInMin - 60;
-          const minPartStr = minPart < 10 ? `0${minPart}` : `${minPart}`;
-          checkInTimeStr = `09:${minPartStr}:00`;
-          isLate = minPart > 0; // Late if after 09:00 AM
+        if (match) {
+          biometricId = match[1].trim();
+          punchTimeStr = match[2].trim();
         } else {
-          checkInTimeStr = `08:${checkInMin}:00`;
+          const parts = trimmed.split("\t");
+          if (parts.length >= 2) {
+            biometricId = parts[0].trim();
+            punchTimeStr = parts[1].trim();
+          }
         }
 
-        const checkInTime = new Date(`${dateKey}T${checkInTimeStr}+05:30`);
-
-        // Check-out around 06:00 PM to 06:30 PM
-        const checkOutMin = Math.floor(Math.random() * 30); // 0 to 29
-        const checkOutMinStr = checkOutMin < 10 ? `0${checkOutMin}` : `${checkOutMin}`;
-        const checkOutTime = new Date(`${dateKey}T18:${checkOutMinStr}:00+05:30`);
-
-        const workMinutes = Math.floor((checkOutTime.getTime() - checkInTime.getTime()) / 60000);
-
-        await prisma.attendance.create({
-          data: {
-            employeeId: emp.id,
-            workDate: workDate,
-            checkInAt: checkInTime,
-            checkOutAt: checkOutTime,
-            workMinutes: workMinutes,
-            isLate: isLate,
-            isEarlyLeave: false
+        if (biometricId && punchTimeStr && /\d{4}-\d{2}-\d{2}/.test(punchTimeStr)) {
+          // Process only punches belonging to July 2026
+          if (punchTimeStr.includes("2026-07") || punchTimeStr.includes("202607")) {
+            let punchTime: Date;
+            if (punchTimeStr.includes("Z") || punchTimeStr.includes("+")) {
+              punchTime = new Date(punchTimeStr);
+            } else {
+              const isoStr = punchTimeStr.replace(" ", "T") + "+05:30";
+              punchTime = new Date(isoStr);
+            }
+            punchesToProcess.push({
+              biometricId,
+              punchTimeStr,
+              timestamp: punchTime.getTime()
+            });
           }
-        });
-        count++;
+        }
+      }
+
+      // Sort chronologically
+      punchesToProcess.sort((a, b) => a.timestamp - b.timestamp);
+
+      for (const punch of punchesToProcess) {
+        try {
+          await attendanceService.biometricPunch(punch.biometricId, punch.punchTimeStr);
+          count++;
+        } catch (punchErr: any) {
+          console.error(`[Biometric Rebuild] Failed punch for ${punch.biometricId} at ${punch.punchTimeStr}:`, punchErr.message);
+        }
       }
     }
-    res.json({ success: true, reseededCount: count });
+
+    res.json({ success: true, message: `Successfully rebuilt July 2026 attendance. Processed ${count} biometric punches.` });
   } catch (error: any) {
     res.status(500).json({ error: error?.message || String(error) });
   }
