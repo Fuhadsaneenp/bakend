@@ -125,17 +125,20 @@ attendanceRouter.post("/biometric/sync", requireRoles(Role.SUPER_ADMIN, Role.HR_
   }
 });
 
-attendanceRouter.post("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), async (req, res, next) => {
+const cleanupSeededSchema = z.object({
+  employeeCode: z.string().min(1),
+  month: z.coerce.number().min(1).max(12),
+  year: z.coerce.number().min(2020),
+  dryRun: z.coerce.boolean().optional().default(false)
+});
+
+async function handleCleanupSeeded(req: any, res: any, next: any) {
   try {
     const companyId = req.user?.companyId;
     if (!companyId) throw new ApiError(400, "Company context required");
 
-    const body = z.object({
-      employeeCode: z.string().min(1),
-      month: z.number().min(1).max(12),
-      year: z.number().min(2020),
-      dryRun: z.boolean().optional().default(false)
-    }).parse(req.body);
+    const rawInput = req.method === "GET" ? req.query : req.body;
+    const body = cleanupSeededSchema.parse(rawInput);
 
     const employee = await prisma.employee.findFirst({
       where: {
@@ -196,7 +199,10 @@ attendanceRouter.post("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Ro
   } catch (error) {
     next(error);
   }
-});
+}
+
+attendanceRouter.get("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleCleanupSeeded);
+attendanceRouter.post("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleCleanupSeeded);
 
 // Shifts CRUD endpoints
 attendanceRouter.get("/shifts", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE), async (req, res, next) => {
