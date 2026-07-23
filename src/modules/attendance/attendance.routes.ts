@@ -177,6 +177,8 @@ function isAttlogRawLog(log: { queryParameters?: string | null; rawPayload?: str
 }
 
 function extractEmployeePunchesFromAttlog(rawPayload: string, allowedKeys: Set<string>, monthStart: Date, monthEnd: Date) {
+  // Attendance rebuilds are intentionally locked to machine ATTLOG uploads only.
+  // Do not infer punches from USERINFO, generated schedules, or synthetic defaults.
   const punches: string[] = [];
   const lines = String(rawPayload || "").split(/\r?\n/);
 
