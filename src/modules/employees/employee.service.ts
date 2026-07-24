@@ -99,18 +99,6 @@ const defaultLetterBody = (type: LetterType, employeeName: string) => {
   }
 };
 
-function sanitizeAdditionalCompanyIds(input: unknown, primaryCompanyId?: string | null) {
-  if (!Array.isArray(input)) return undefined;
-
-  const values = input
-    .map((value) => String(value || "").trim())
-    .filter(Boolean)
-    .filter((value, index, array) => array.indexOf(value) === index)
-    .filter((value) => value !== primaryCompanyId);
-
-  return values;
-}
-
 export const employeeService = {
   list(companyId: string) {
     const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
@@ -340,7 +328,6 @@ export const employeeService = {
     phone?: string | null;
     personalEmail?: string | null;
     companyId?: string | null;
-    additionalCompanyIds?: string[];
     departmentId?: string | null;
     designationId?: string | null;
     managerId?: string | null;
@@ -381,9 +368,6 @@ export const employeeService = {
         userUpdateData.companyId = data.companyId;
       }
 
-      const primaryCompanyId = data.companyId ?? employee.companyId;
-      const additionalCompanyIds = sanitizeAdditionalCompanyIds(data.additionalCompanyIds, primaryCompanyId);
-
       if (Object.keys(userUpdateData).length > 0) {
         await tx.user.update({
           where: { id: employee.userId },
@@ -400,7 +384,6 @@ export const employeeService = {
           phone: data.phone,
           personalEmail: data.personalEmail,
           companyId: data.companyId ? data.companyId : undefined,
-          additionalCompanyIds: additionalCompanyIds ? additionalCompanyIds : undefined,
           departmentId: data.departmentId,
           designationId: data.designationId,
           managerId: data.managerId,

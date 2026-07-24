@@ -207,7 +207,6 @@ employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
       phone: z.string().optional().nullable(),
       personalEmail: z.string().email().optional().nullable(),
       companyId: z.string().optional().nullable(),
-      additionalCompanyIds: z.array(z.string()).optional(),
       departmentId: z.string().optional().nullable(),
       designationId: z.string().optional().nullable(),
       managerId: z.string().optional().nullable(),
