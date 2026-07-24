@@ -147,7 +147,8 @@ const rebuildMonthFromMachineSchema = z.object({
   month: z.coerce.number().min(1).max(12),
   year: z.coerce.number().min(2020),
   dryRun: z.coerce.boolean().optional().default(false),
-  employeeCode: z.string().min(1).optional()
+  employeeCode: z.string().min(1).optional(),
+  companyId: z.string().min(1).optional()
 });
 
 function parseKolkataPunchTime(value: string) {
@@ -319,11 +320,15 @@ async function handleRepairAttendanceFromRaw(req: any, res: any, next: any) {
 
 async function handleRebuildMonthFromMachine(req: any, res: any, next: any) {
   try {
-    const companyId = req.user?.companyId;
-    if (!companyId) throw new ApiError(400, "Company context required");
-
     const rawInput = req.method === "GET" ? req.query : req.body;
     const body = rebuildMonthFromMachineSchema.parse(rawInput);
+    const requestedCompanyId =
+      (req.user?.role === Role.SUPER_ADMIN || req.user?.role === Role.HR_ADMIN) && body.companyId
+        ? body.companyId
+        : undefined;
+    const companyId = requestedCompanyId || req.user?.companyId;
+    if (!companyId) throw new ApiError(400, "Company context required");
+
     const monthStart = new Date(`${body.year}-${String(body.month).padStart(2, "0")}-01T00:00:00+05:30`);
     const monthEnd = new Date(`${body.year}-${String(body.month).padStart(2, "0")}-${String(new Date(body.year, body.month, 0).getDate()).padStart(2, "0")}T23:59:59+05:30`);
     const logScanStart = new Date(monthStart.getTime() - 45 * 24 * 60 * 60 * 1000);
