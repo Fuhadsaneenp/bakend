@@ -99,6 +99,18 @@ const defaultLetterBody = (type: LetterType, employeeName: string) => {
   }
 };
 
+function sanitizeAdditionalCompanyIds(input: unknown, primaryCompanyId?: string | null) {
+  if (!Array.isArray(input)) return undefined;
+
+  const values = input
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .filter((value, index, array) => array.indexOf(value) === index)
+    .filter((value) => value !== primaryCompanyId);
+
+  return values;
+}
+
 export const employeeService = {
   list(companyId: string) {
     const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
@@ -126,13 +138,20 @@ export const employeeService = {
     });
   },
 
-  async listForUser(user: AuthUser) {
-    if (user.role === Role.SUPER_ADMIN) {
+  async listForUser(user: AuthUser, requestedCompanyId?: string) {
+    const isAdminScope = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
+    const targetCompanyId = isAdminScope
+      ? requestedCompanyId
+      : user.companyId || undefined;
+
+    if (isAdminScope) {
+      const where = targetCompanyId ? { companyId: targetCompanyId } : undefined;
       const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
       const todayUtc = new Date(todayKolkataStr);
       const todayStart = getKolkataStartOfDay(new Date());
 
       return prisma.employee.findMany({
+        where,
         include: {
           ...employeeProfileFields,
           attendance: {
@@ -152,11 +171,7 @@ export const employeeService = {
       });
     }
 
-    if (!user.companyId) return [];
-
-    if (isHrRole(user.role)) {
-      return this.list(user.companyId);
-    }
+    if (!targetCompanyId) return [];
 
     const currentEmployee = await prisma.employee.findUnique({ where: { userId: user.id } });
     if (!currentEmployee) return [];
@@ -167,7 +182,7 @@ export const employeeService = {
       const todayStart = getKolkataStartOfDay(new Date());
 
       const list = await prisma.employee.findMany({
-        where: { companyId: user.companyId },
+        where: { companyId: targetCompanyId },
         include: {
           ...employeeOperationalFields,
           salary: true,
@@ -325,6 +340,7 @@ export const employeeService = {
     phone?: string | null;
     personalEmail?: string | null;
     companyId?: string | null;
+    additionalCompanyIds?: string[];
     departmentId?: string | null;
     designationId?: string | null;
     managerId?: string | null;
@@ -365,6 +381,9 @@ export const employeeService = {
         userUpdateData.companyId = data.companyId;
       }
 
+      const primaryCompanyId = data.companyId ?? employee.companyId;
+      const additionalCompanyIds = sanitizeAdditionalCompanyIds(data.additionalCompanyIds, primaryCompanyId);
+
       if (Object.keys(userUpdateData).length > 0) {
         await tx.user.update({
           where: { id: employee.userId },
@@ -381,6 +400,7 @@ export const employeeService = {
           phone: data.phone,
           personalEmail: data.personalEmail,
           companyId: data.companyId ? data.companyId : undefined,
+          additionalCompanyIds: additionalCompanyIds ? additionalCompanyIds : undefined,
           departmentId: data.departmentId,
           designationId: data.designationId,
           managerId: data.managerId,

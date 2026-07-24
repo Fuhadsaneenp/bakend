@@ -133,17 +133,24 @@ export const attendanceService = {
     });
   },
 
-  async monthlyReportForUser(user: AuthUser, month: number, year: number) {
+  async monthlyReportForUser(user: AuthUser, month: number, year: number, requestedCompanyId?: string) {
     const employee = await prisma.employee.findUnique({ where: { userId: user.id } });
-    const companyId = user.companyId || employee?.companyId;
-    if (!companyId) return [];
+    const fallbackCompanyId = user.companyId || employee?.companyId || undefined;
 
     const from = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`);
     const totalDays = new Date(year, month, 0).getDate();
     const to = new Date(`${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}T23:59:59+05:30`);
 
     if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
-      return this.monthlyReport(companyId, month, year);
+      if (requestedCompanyId) {
+        return this.monthlyReport(requestedCompanyId, month, year);
+      }
+
+      return prisma.attendance.findMany({
+        where: { workDate: { gte: from, lte: to } },
+        include: { employee: { include: { shift: true } } },
+        orderBy: [{ workDate: "asc" }]
+      });
     }
 
     if (!employee) return [];

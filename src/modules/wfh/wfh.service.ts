@@ -413,23 +413,27 @@ export const wfhService = {
     return request;
   },
 
-  async listForUser(user: AuthUser) {
-    if (!user.companyId) return [];
-
+  async listForUser(user: AuthUser, requestedCompanyId?: string) {
     if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
+      const where = requestedCompanyId
+        ? { employee: { companyId: requestedCompanyId } }
+        : undefined;
       return db.wFHRequest.findMany({
-        where: { employee: { companyId: user.companyId } },
+        where,
         include: requestInclude,
         orderBy: { createdAt: "desc" }
       });
     }
+
+    const targetCompanyId = user.companyId || undefined;
+    if (!targetCompanyId) return [];
 
     const employee = await db.employee.findUnique({ where: { userId: user.id } });
     if (!employee) return [];
 
     if (employee.isHrHead) {
       return db.wFHRequest.findMany({
-        where: { employee: { companyId: user.companyId } },
+        where: { employee: { companyId: targetCompanyId } },
         include: requestInclude,
         orderBy: { createdAt: "desc" }
       });

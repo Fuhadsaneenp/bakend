@@ -19,8 +19,9 @@ wfhRouter.post("/request", async (req, res, next) => {
 
 wfhRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    res.json(await wfhService.listForUser(req.user));
+    const query = z.object({ companyId: z.string().optional() }).parse(req.query);
+    if (req.user?.role !== Role.SUPER_ADMIN && !req.user?.companyId) throw new ApiError(400, "Company context required");
+    res.json(await wfhService.listForUser(req.user!, query.companyId));
   } catch (error) {
     next(error);
   }

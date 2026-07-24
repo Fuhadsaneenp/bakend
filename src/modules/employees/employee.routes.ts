@@ -79,7 +79,8 @@ employeeRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAG
     if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
       throw new ApiError(400, "Company context required");
     }
-    res.json(await employeeService.listForUser(req.user!));
+    const query = z.object({ companyId: z.string().optional() }).parse(req.query);
+    res.json(await employeeService.listForUser(req.user!, query.companyId));
   } catch (error) {
     next(error);
   }
@@ -206,6 +207,7 @@ employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
       phone: z.string().optional().nullable(),
       personalEmail: z.string().email().optional().nullable(),
       companyId: z.string().optional().nullable(),
+      additionalCompanyIds: z.array(z.string()).optional(),
       departmentId: z.string().optional().nullable(),
       designationId: z.string().optional().nullable(),
       managerId: z.string().optional().nullable(),

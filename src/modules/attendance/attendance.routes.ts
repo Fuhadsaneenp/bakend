@@ -95,8 +95,12 @@ attendanceRouter.post("/checkout", async (req, res, next) => {
 
 attendanceRouter.get("/report", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
-    const query = z.object({ month: z.coerce.number().min(1).max(12), year: z.coerce.number().min(2020) }).parse(req.query);
-    res.json(await attendanceService.monthlyReportForUser(req.user!, query.month, query.year));
+    const query = z.object({
+      month: z.coerce.number().min(1).max(12),
+      year: z.coerce.number().min(2020),
+      companyId: z.string().optional()
+    }).parse(req.query);
+    res.json(await attendanceService.monthlyReportForUser(req.user!, query.month, query.year, query.companyId));
   } catch (error) {
     next(error);
   }

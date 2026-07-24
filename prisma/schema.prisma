@@ -175,6 +175,7 @@ model Employee {
   lastName       String
   phone          String?
   personalEmail  String?
+  additionalCompanyIds Json?
   dateOfBirth    DateTime?
   gender         String?
   addressLine1   String?
