@@ -7,6 +7,42 @@ import type { AuthUser } from "../../middleware/auth.js";
 
 const db = prisma as any;
 
+function formatPhoneNumber(phone?: string | null, defaultCountryCode = "+91") {
+  if (!phone) return null;
+  const trimmed = String(phone).trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("+")) {
+    const normalized = `+${trimmed.slice(1).replace(/\D/g, "")}`;
+    return normalized.length > 1 ? normalized : null;
+  }
+
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return null;
+  const countryCodeDigits = defaultCountryCode.replace(/\D/g, "");
+  if (countryCodeDigits && digits.startsWith(countryCodeDigits)) {
+    return `+${digits}`;
+  }
+  return `+${countryCodeDigits || "91"}${digits}`;
+}
+
+function formatRequestDateRange(startDate: Date, endDate: Date) {
+  const formatter = new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+  const start = formatter.format(new Date(startDate));
+  const end = formatter.format(new Date(endDate));
+  return start === end ? start : `${start} to ${end}`;
+}
+
+function parseRequestType(reason: string) {
+  const match = reason.match(/^\[([^\]]+)\]/)?.[1] || "Request";
+  if (match === "WFH") return "Work From Home";
+  return match;
+}
+
 function parseMissedPunchTimes(reason: string) {
   if (!reason.startsWith("[Missed Punch]")) return null;
   const checkIn = reason.match(/\[IN=(\d{2}:\d{2})\]/)?.[1];
@@ -148,6 +184,58 @@ async function getHrHeads(companyId: string, excludeUserIds: string[] = []) {
   });
 }
 
+async function sendWhatsappRequestAlerts(input: {
+  request: any;
+  employee: any;
+  reviewerUserIds: string[];
+}) {
+  if (input.reviewerUserIds.length === 0) return;
+
+  const reviewers = await db.user.findMany({
+    where: { id: { in: input.reviewerUserIds } },
+    include: { employee: true, company: true }
+  });
+
+  const { formatFullName } = await import("../../lib/formatName.js");
+  const employeeName = formatFullName(input.employee);
+  const requestType = parseRequestType(input.request.reason || "");
+  const requestDates = formatRequestDateRange(input.request.startDate, input.request.endDate);
+  const requestReason = (input.request.reason || "").replace(/^(?:\[[^\]]+\]\s*)+/, "").trim();
+
+  await Promise.allSettled(
+    reviewers.map(async (reviewer: any) => {
+      const normalizedPhone = formatPhoneNumber(
+        reviewer.employee?.phone || null,
+        reviewer.company?.phoneCode || "+91"
+      );
+      if (!normalizedPhone) return;
+
+      const messageLines = [
+        "New leave/request alert",
+        `Employee: ${employeeName}`,
+        `Type: ${requestType}`,
+        `Date: ${requestDates}`
+      ];
+
+      if (requestReason) {
+        messageLines.push(`Reason: ${requestReason}`);
+      }
+
+      await notificationService.whatsapp({
+        userId: reviewer.id,
+        phone: normalizedPhone,
+        subject: "New leave request submitted",
+        body: messageLines.join("\n"),
+        metadata: {
+          requestId: input.request.id,
+          employeeId: input.employee.id,
+          requestType
+        }
+      });
+    })
+  );
+}
+
 function buildFinalState(input: {
   status: ApprovalStatus;
   immediateManagerStatus: ApprovalStatus;
@@ -253,6 +341,12 @@ export const wfhService = {
         )
       )
     );
+
+    await sendWhatsappRequestAlerts({
+      request,
+      employee,
+      reviewerUserIds: Array.from(notifyUserIds)
+    });
 
     return request;
   },

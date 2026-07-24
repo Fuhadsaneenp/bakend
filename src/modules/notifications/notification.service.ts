@@ -18,6 +18,21 @@ export const notificationService = {
     return prisma.notification.create({ data: { userId, channel: NotificationChannel.IN_APP, status: NotificationStatus.SENT, subject, body, metadata: metadata as any, sentAt: new Date() } });
   },
 
+  async whatsapp(input: { userId?: string; phone: string; subject: string; body: string; metadata?: Record<string, unknown> }) {
+    await whatsappService.sendText({ to: input.phone, body: input.body });
+    return prisma.notification.create({
+      data: {
+        userId: input.userId,
+        channel: NotificationChannel.WHATSAPP,
+        status: NotificationStatus.SENT,
+        subject: input.subject,
+        body: input.body,
+        metadata: input.metadata as any,
+        sentAt: new Date()
+      }
+    });
+  },
+
   async sendPayslip(input: {
     userId: string;
     email: string;
