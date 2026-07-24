@@ -11,6 +11,7 @@ import { orgRouter } from "../modules/org/org.routes.js";
 import { workTrackRouter } from "../modules/work-track/work-track.routes.js";
 import { env } from "../config/env.js";
 import { exec } from "child_process";
+import { whatsappWebhookRouter } from "./whatsappWebhook.js";
 
 export const apiRouter = Router();
 
@@ -167,4 +168,5 @@ apiRouter.use("/expenses", expenseRouter);
 apiRouter.use("/notifications", notificationRouter);
 apiRouter.use("/dashboard", dashboardRouter);
 apiRouter.use("/work-track", workTrackRouter);
+apiRouter.use("/whatsapp/webhook", whatsappWebhookRouter);
 apiRouter.use("/", orgRouter);

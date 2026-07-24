@@ -35,7 +35,8 @@ const envSchema = z.object({
   WHATSAPP_PROVIDER: z.enum(["meta", "twilio"]).default("meta"),
   WHATSAPP_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
-  WHATSAPP_API_VERSION: z.string().default("v20.0")
+  WHATSAPP_API_VERSION: z.string().default("v20.0"),
+  WHATSAPP_VERIFY_TOKEN: z.string().default("secondtales_whatsapp_verify_2026")
 }).superRefine((value, ctx) => {
   if (value.NODE_ENV === "production" && !value.BIOMETRIC_API_KEY) {
     console.warn("⚠️ Warning: BIOMETRIC_API_KEY is not configured for production environment.");
