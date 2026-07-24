@@ -71,88 +71,6 @@ function getShiftParams(employee: any): ShiftParams {
   };
 }
 
-function parseMissedPunchTimes(reason: string) {
-  if (!reason.startsWith("[Missed Punch]")) return null;
-  const checkIn = reason.match(/\[IN=(\d{2}:\d{2})\]/)?.[1];
-  const checkOut = reason.match(/\[OUT=(\d{2}:\d{2})\]/)?.[1];
-  return checkIn && checkOut ? { checkIn, checkOut } : null;
-}
-
-function getAttendanceDateKey(date: Date) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(new Date(date));
-}
-
-function buildMissedPunchAttendanceRecord(request: any, existingRecord?: any) {
-  const times = parseMissedPunchTimes(request.reason || "");
-  if (!times || !request.employee) return null;
-
-  const dateKey = getAttendanceDateKey(request.startDate);
-  const workDate = new Date(`${dateKey}T00:00:00+05:30`);
-  const checkInAt = new Date(`${dateKey}T${times.checkIn}:00+05:30`);
-  const checkOutAt = new Date(`${dateKey}T${times.checkOut}:00+05:30`);
-  if (checkOutAt <= checkInAt) return null;
-
-  const shiftParams = getShiftParams(request.employee);
-  const shiftStart = getShiftTime(workDate, shiftParams.startTime);
-  const shiftEnd = getShiftEndTime(workDate, shiftParams.startTime, shiftParams.endTime);
-  const worked = Math.max(0, differenceInMinutes(checkOutAt, checkInAt));
-  const lateLimit = new Date(shiftStart.getTime() + shiftParams.gracePeriod * 60 * 1000);
-  const earlyLimit = new Date(shiftEnd.getTime() - shiftParams.earlyPunchTolerance * 60 * 1000);
-
-  return {
-    id: existingRecord?.id || `missed-punch-${request.id}`,
-    employeeId: request.employeeId,
-    employee: request.employee,
-    workDate,
-    checkInAt,
-    checkOutAt,
-    workMinutes: worked,
-    overtimeMinutes: Math.max(0, worked - shiftParams.workMinutesFix),
-    isLate: checkInAt > lateLimit,
-    isEarlyLeave: checkOutAt < earlyLimit,
-    latitude: existingRecord?.latitude ?? null,
-    longitude: existingRecord?.longitude ?? null
-  };
-}
-
-async function mergeApprovedMissedPunchRecords(attendanceRows: any[], where: any) {
-  const approvedRequests = await prisma.wFHRequest.findMany({
-    where: {
-      ...where,
-      status: "APPROVED",
-      reason: { startsWith: "[Missed Punch]" }
-    },
-    include: { employee: { include: { shift: true } } },
-    orderBy: [{ startDate: "asc" }, { createdAt: "asc" }]
-  });
-
-  const byEmployeeAndDate = new Map<string, any>();
-
-  for (const row of attendanceRows) {
-    byEmployeeAndDate.set(`${row.employeeId}:${getAttendanceDateKey(row.workDate)}`, row);
-  }
-
-  for (const request of approvedRequests) {
-    const key = `${request.employeeId}:${getAttendanceDateKey(request.startDate)}`;
-    const existing = byEmployeeAndDate.get(key);
-    const merged = buildMissedPunchAttendanceRecord(request, existing);
-    if (merged) {
-      byEmployeeAndDate.set(key, merged);
-    }
-  }
-
-  return Array.from(byEmployeeAndDate.values()).sort((a, b) => {
-    const dateDiff = new Date(a.workDate).getTime() - new Date(b.workDate).getTime();
-    if (dateDiff !== 0) return dateDiff;
-    return String(a.employeeId).localeCompare(String(b.employeeId));
-  });
-}
-
 export const attendanceService = {
   async checkIn(userId: string, location?: { latitude?: number; longitude?: number }) {
     const employee = await prisma.employee.findUnique({ where: { userId }, include: { shift: true } });
@@ -204,18 +122,14 @@ export const attendanceService = {
     });
   },
 
-  async monthlyReport(companyId: string, month: number, year: number) {
+  monthlyReport(companyId: string, month: number, year: number) {
     const from = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`);
     const totalDays = new Date(year, month, 0).getDate();
     const to = new Date(`${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}T23:59:59+05:30`);
-    const attendanceRows = await prisma.attendance.findMany({
+    return prisma.attendance.findMany({
       where: { employee: { companyId }, workDate: { gte: from, lte: to } },
       include: { employee: { include: { shift: true } } },
       orderBy: [{ workDate: "asc" }]
-    });
-    return mergeApprovedMissedPunchRecords(attendanceRows, {
-      employee: { companyId },
-      startDate: { gte: from, lte: to }
     });
   },
 
@@ -232,13 +146,10 @@ export const attendanceService = {
         return this.monthlyReport(requestedCompanyId, month, year);
       }
 
-      const attendanceRows = await prisma.attendance.findMany({
+      return prisma.attendance.findMany({
         where: { workDate: { gte: from, lte: to } },
         include: { employee: { include: { shift: true } } },
         orderBy: [{ workDate: "asc" }]
-      });
-      return mergeApprovedMissedPunchRecords(attendanceRows, {
-        startDate: { gte: from, lte: to }
       });
     }
 
@@ -249,14 +160,10 @@ export const attendanceService = {
         ? { OR: [{ id: employee.id }, { managerId: employee.id }] }
         : { id: employee.id };
 
-    const attendanceRows = await prisma.attendance.findMany({
+    return prisma.attendance.findMany({
       where: { employee: employeeWhere, workDate: { gte: from, lte: to } },
       include: { employee: { include: { shift: true } } },
       orderBy: [{ workDate: "asc" }]
-    });
-    return mergeApprovedMissedPunchRecords(attendanceRows, {
-      employee: employeeWhere,
-      startDate: { gte: from, lte: to }
     });
   },
 
