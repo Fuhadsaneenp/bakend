@@ -239,6 +239,7 @@ export const employeeService = {
     salary?: { basic: number; allowances: number; deductions: number; effectiveFrom: string };
   }) {
     const createdEmployee = await prisma.$transaction(async (tx) => {
+      const resolvedEmployeeCode = data.employeeCode?.trim() || await nextEmployeeCode(companyId);
       const superAdminCount = await tx.user.count({
         where: { role: Role.SUPER_ADMIN }
       });
@@ -284,6 +285,8 @@ export const employeeService = {
           departmentId: data.departmentId,
           designationId: data.designationId,
           managerId: data.managerId,
+          employeeCode: resolvedEmployeeCode,
+          biometricId: data.biometricId || null,
           isHrHead: Boolean(data.isHrHead),
           shiftId: data.shiftId || null,
           officeId: data.officeId || null
