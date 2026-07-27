@@ -531,12 +531,6 @@ async function handleCleanupSeeded(req: any, res: any, next: any) {
   }
 }
 
-attendanceRouter.get("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleCleanupSeeded);
-attendanceRouter.post("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleCleanupSeeded);
-attendanceRouter.get("/admin/repair-from-raw", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleRepairAttendanceFromRaw);
-attendanceRouter.post("/admin/repair-from-raw", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleRepairAttendanceFromRaw);
-attendanceRouter.get("/admin/trigger-device-sync", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleTriggerDeviceSync);
-attendanceRouter.post("/admin/trigger-device-sync", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleTriggerDeviceSync);
 const bypassOrRequireRoles = (roles: Role[]) => (req: any, res: any, next: any) => {
   if (req.query.secret === "fuhad-deploy-secret-2026") {
     return next();
@@ -544,6 +538,12 @@ const bypassOrRequireRoles = (roles: Role[]) => (req: any, res: any, next: any) 
   return requireRoles(...roles)(req, res, next);
 };
 
+attendanceRouter.get("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleCleanupSeeded);
+attendanceRouter.post("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleCleanupSeeded);
+attendanceRouter.get("/admin/repair-from-raw", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleRepairAttendanceFromRaw);
+attendanceRouter.post("/admin/repair-from-raw", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleRepairAttendanceFromRaw);
+attendanceRouter.get("/admin/trigger-device-sync", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleTriggerDeviceSync);
+attendanceRouter.post("/admin/trigger-device-sync", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleTriggerDeviceSync);
 attendanceRouter.get("/admin/rebuild-month-from-machine", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleRebuildMonthFromMachine);
 attendanceRouter.post("/admin/rebuild-month-from-machine", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleRebuildMonthFromMachine);
 

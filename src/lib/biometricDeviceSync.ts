@@ -38,7 +38,7 @@ function sanitizeEmployeeName(value: string) {
   return value.replace(/[\r\n\t]+/g, " ").trim().slice(0, 24);
 }
 
-async function resolveTargetSerialNumber() {
+export async function resolveTargetSerialNumber() {
   const configured = (process.env.ALLOWED_BIOMETRIC_SNS || "")
     .split(",")
     .map((value) => value.trim())
