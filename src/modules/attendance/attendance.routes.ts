@@ -339,6 +339,25 @@ async function handleRepairAttendanceFromRaw(req: any, res: any, next: any) {
   }
 }
 
+async function handleTriggerDeviceSync(req: any, res: any, next: any) {
+  try {
+    const { queueDeviceAttendanceUpload, resolveTargetSerialNumber } = await import("../../lib/biometricDeviceSync.js");
+    const serialNumber = await resolveTargetSerialNumber();
+    if (!serialNumber) {
+      throw new ApiError(404, "No biometric device found/connected");
+    }
+
+    await queueDeviceAttendanceUpload(serialNumber);
+    res.json({
+      success: true,
+      message: `Sync command queued successfully for device ${serialNumber}. The device will start uploading all logs on its next heartbeat.`,
+      deviceSerialNumber: serialNumber
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function handleRebuildMonthFromMachine(req: any, res: any, next: any) {
   try {
     const rawInput = req.method === "GET" ? req.query : req.body;
@@ -516,6 +535,8 @@ attendanceRouter.get("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Rol
 attendanceRouter.post("/admin/cleanup-seeded", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleCleanupSeeded);
 attendanceRouter.get("/admin/repair-from-raw", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleRepairAttendanceFromRaw);
 attendanceRouter.post("/admin/repair-from-raw", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER), handleRepairAttendanceFromRaw);
+attendanceRouter.get("/admin/trigger-device-sync", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleTriggerDeviceSync);
+attendanceRouter.post("/admin/trigger-device-sync", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleTriggerDeviceSync);
 const bypassOrRequireRoles = (roles: Role[]) => (req: any, res: any, next: any) => {
   if (req.query.secret === "fuhad-deploy-secret-2026") {
     return next();
