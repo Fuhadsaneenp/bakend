@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
 }
 
 enum Role {
@@ -239,7 +239,7 @@ model EmployeeDocument {
   fileKey     String
   fileName    String
   mimeType    String
-  fileData    Bytes?   @db.LongBlob
+  fileData    Bytes?
   storedInDatabase Boolean @default(false)
   uploadedBy  String?
   verifiedAt  DateTime?
@@ -256,7 +256,7 @@ model EmployeeLetter {
   title       String
   body        String     @db.Text
   fileKey     String?
-  fileData    Bytes?       @db.LongBlob
+  fileData    Bytes?
   storedInDatabase Boolean @default(false)
   generatedBy String?
   issuedAt    DateTime   @default(now())

@@ -69,7 +69,6 @@ async function performBiometricSync() {
             const firstName = nameParts[0] || "Biometric";
             const lastName = nameParts.slice(1).join(" ") || "Employee";
 
-            // 1. Search for existing employee by biometricId or employeeCode
             let employee = await prisma.employee.findFirst({
               where: {
                 companyId: company.id,
@@ -79,6 +78,19 @@ async function performBiometricSync() {
                 ]
               }
             });
+
+            if (!employee && /^\d+$/.test(pin)) {
+              const paddedId = pin.padStart(3, "0");
+              employee = await prisma.employee.findFirst({
+                where: {
+                  companyId: company.id,
+                  OR: [
+                    { employeeCode: { endsWith: paddedId } },
+                    { biometricId: { endsWith: paddedId } }
+                  ]
+                }
+              });
+            }
 
             if (employee) {
               // Update existing employee's biometricId
@@ -147,7 +159,7 @@ async function performBiometricSync() {
         const punchesToProcess: { biometricId: string; punchTimeStr: string; timestamp: number }[] = [];
         
         for (const line of rawLines) {
-          const trimmed = line.trim();
+          const trimmed = line.trim().replace(/^(ATTLOG|OPLOG|USERINFO|USER)\s+/i, "");
           if (!trimmed) continue;
 
           const match = trimmed.match(/^([^\t\s]+)[\t\s]+(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+\d{2}:?\d{2})?)/);

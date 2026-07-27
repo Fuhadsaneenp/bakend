@@ -168,7 +168,7 @@ export const attendanceService = {
   },
 
   async biometricPunch(biometricId: string, punchTimeStr: string, direction?: "IN" | "OUT") {
-    const employee = await prisma.employee.findFirst({
+    let employee = await prisma.employee.findFirst({
       where: {
         OR: [
           { biometricId },
@@ -177,6 +177,20 @@ export const attendanceService = {
       },
       include: { shift: true }
     });
+
+    // Fallback suffix matching for numeric biometric IDs (e.g., "2" -> "ST002")
+    if (!employee && /^\d+$/.test(biometricId)) {
+      const paddedId = biometricId.padStart(3, "0");
+      employee = await prisma.employee.findFirst({
+        where: {
+          OR: [
+            { employeeCode: { endsWith: paddedId } },
+            { biometricId: { endsWith: paddedId } }
+          ]
+        },
+        include: { shift: true }
+      });
+    }
 
     // Attendance data must never create people. Device PIN slots can remain on
     // the machine after an employee is deleted, and their later punches would

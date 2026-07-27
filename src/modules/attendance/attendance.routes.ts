@@ -181,6 +181,25 @@ function isAttlogRawLog(log: { queryParameters?: string | null; rawPayload?: str
   return false;
 }
 
+function isPinMatch(pin1: string, pin2: string): boolean {
+  const p1 = pin1.trim().toLowerCase();
+  const p2 = pin2.trim().toLowerCase();
+  if (p1 === p2) return true;
+
+  const num1 = p1.replace(/\D/g, "");
+  const num2 = p2.replace(/\D/g, "");
+  if (!num1 || !num2) return false;
+
+  if (Number(num1) === Number(num2)) {
+    const verifySuffix = (str: string, num: string) => {
+      if (/^\d+$/.test(str)) return true;
+      return str.endsWith(num.padStart(3, "0"));
+    };
+    return verifySuffix(p1, num1) && verifySuffix(p2, num2);
+  }
+  return false;
+}
+
 function extractEmployeePunchesFromAttlog(rawPayload: string, allowedKeys: Set<string>, monthStart: Date, monthEnd: Date) {
   // Attendance rebuilds are intentionally locked to machine ATTLOG uploads only.
   // Do not infer punches from USERINFO, generated schedules, or synthetic defaults.
@@ -188,13 +207,15 @@ function extractEmployeePunchesFromAttlog(rawPayload: string, allowedKeys: Set<s
   const lines = String(rawPayload || "").split(/\r?\n/);
 
   for (const line of lines) {
-    const trimmed = line.trim();
+    const trimmed = line.trim().replace(/^(ATTLOG|OPLOG|USERINFO|USER)\s+/i, "");
     if (!trimmed) continue;
 
     const match = trimmed.match(/^([^\t\s]+)[\t\s]+(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+\d{2}:?\d{2})?)/);
     const parts = match ? [match[1].trim(), match[2].trim()] : trimmed.split("\t").slice(0, 2).map((part) => part.trim());
     if (parts.length < 2) continue;
-    if (!allowedKeys.has(parts[0])) continue;
+
+    const matchesAllowed = Array.from(allowedKeys).some((key) => isPinMatch(parts[0], key));
+    if (!matchesAllowed) continue;
 
     const punchTime = parseKolkataPunchTime(parts[1]);
     if (!punchTime || Number.isNaN(punchTime.getTime())) continue;
