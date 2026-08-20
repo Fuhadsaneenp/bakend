@@ -1153,3 +1153,31 @@ model MetaLeadNote {
   createdAt   DateTime  @default(now())
 }
 
+model BiometricDeviceCommand {
+  id                 Int       @id @default(autoincrement())
+  deviceSerialNumber String
+  employeeId         String?
+  commandType        String
+  commandPayload     String    @db.Text
+  processingStatus   String    @default("QUEUED")
+  responsePayload    String?   @db.Text
+  errorMessage       String?   @db.Text
+  sentAt             DateTime?
+  acknowledgedAt     DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model BiometricTemplateArchive {
+  id                 Int       @id @default(autoincrement())
+  deviceSerialNumber String
+  employeeId         String?
+  biometricId        String?
+  templateType       String
+  fingerIndex        Int?
+  sourceTable        String
+  templateData       String    @db.Text
+  rawPayload         String    @db.LongText
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
