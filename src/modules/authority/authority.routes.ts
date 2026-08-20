@@ -385,3 +385,43 @@ authorityRouter.put("/user-track-settings", requirePermission("settings.authorit
     next(error);
   }
 });
+
+// ─── 9. DELETE USER (SUPER_ADMIN only — for removing ghost/dummy accounts) ───
+authorityRouter.delete("/users/:userId", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    if (userId === req.user!.id) {
+      res.status(400).json({ error: "Cannot delete your own account" });
+      return;
+    }
+    // Delete permission overrides, profiles, scopes, and then the user
+    await prisma.userPermissionOverride.deleteMany({ where: { userId } });
+    await prisma.userPermissionScope.deleteMany({ where: { userId } });
+    await prisma.userAccessProfile.deleteMany({ where: { userId } });
+    await prisma.user.delete({ where: { id: userId } });
+    res.json({ success: true, deleted: userId });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Bulk delete multiple users at once
+authorityRouter.post("/users/bulk-delete", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const { userIds } = z.object({ userIds: z.array(z.string()) }).parse(req.body);
+    const selfId = req.user!.id;
+    const toDelete = userIds.filter(id => id !== selfId);
+    let deleted = 0;
+    for (const userId of toDelete) {
+      await prisma.userPermissionOverride.deleteMany({ where: { userId } });
+      await prisma.userPermissionScope.deleteMany({ where: { userId } });
+      await prisma.userAccessProfile.deleteMany({ where: { userId } });
+      await prisma.user.delete({ where: { id: userId } }).catch(() => {});
+      deleted++;
+    }
+    res.json({ success: true, deleted });
+  } catch (error) {
+    next(error);
+  }
+});
+
