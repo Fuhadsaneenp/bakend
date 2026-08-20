@@ -797,9 +797,52 @@ export const workTrackService = {
     return card;
   },
 
-  async deleteWorkCard(companyId: string, id: string) {
+  async deleteWorkCard(companyId: string, userId: string, id: string) {
     const card = await prisma.workCard.findUnique({ where: { id } });
     if (!card || card.companyId !== companyId) throw notFound("Work Card");
+
+    const scope = {
+      companyId: card.companyId,
+      clientId: card.clientId,
+      assignedToEmployeeId: card.assignedToId || null,
+      createdByEmployeeId: card.assignedById || null
+    };
+
+    const actor = await accessResolverService.getUserAccessContext(userId);
+    const userRoleStr = String(actor.user.role || "").toUpperCase();
+    const isAdmin = userRoleStr === "SUPER_ADMIN" || userRoleStr === "HR_ADMIN" || Boolean((actor.user as any).impersonatedBy);
+    let canDelete = isAdmin;
+
+    if (!canDelete) {
+      canDelete = await permissionService.hasPermission(userId, "worktrack.task.delete", scope)
+        || await permissionService.hasPermission(userId, "worktrack.review.approve", scope);
+    }
+
+    if (!canDelete && actor.employee?.id) {
+      // Allow if user is creator or assigned
+      if (card.assignedById === actor.employee.id || card.assignedToId === actor.employee.id) {
+        canDelete = true;
+      }
+
+      if (!canDelete) {
+        const empRecord = await prisma.employee.findUnique({
+          where: { id: actor.employee.id },
+          include: { designation: true }
+        });
+        const title = (empRecord?.designation?.title || "").toLowerCase();
+        canDelete =
+          title.includes("coordinator") ||
+          title.includes("head") ||
+          title.includes("manager") ||
+          title.includes("lead") ||
+          title.includes("director") ||
+          title.includes("admin");
+      }
+    }
+
+    if (!canDelete) {
+      throw new ApiError(403, "You do not have permission to delete this task.");
+    }
 
     await prisma.statusHistory.deleteMany({ where: { workCardId: id } });
     await prisma.reworkLog.deleteMany({ where: { workCardId: id } });

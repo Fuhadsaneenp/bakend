@@ -160,8 +160,18 @@ export const authService = {
     const isSuperAdmin = actorUser.role === "SUPER_ADMIN" || (actorUser as any).impersonatedBy?.role === "SUPER_ADMIN";
     const companyId = actorUser.companyId ?? (actorUser as any).impersonatedBy?.companyId;
 
+    // Determine the real admin's user ID (works whether currently impersonating or not)
+    const realAdminUserId = (actorUser as any).impersonatedBy?.id || actorUser.id;
+
     const employees = await prisma.employee.findMany({
-      where: isSuperAdmin ? {} : { companyId: companyId ?? undefined },
+      where: {
+        ...(isSuperAdmin ? {} : { companyId: companyId ?? undefined }),
+        // Exclude the real admin's own employee record from the list
+        user: {
+          id: { not: realAdminUserId },
+          isActive: true
+        }
+      },
       include: {
         user: {
           select: {

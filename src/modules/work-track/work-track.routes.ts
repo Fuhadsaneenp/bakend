@@ -220,10 +220,10 @@ workTrackRouter.patch("/cards/:id/status", requireAnyPermission(["worktrack.task
   }
 });
 
-workTrackRouter.delete("/cards/:id", requirePermission("worktrack.task.delete"), async (req, res, next) => {
+workTrackRouter.delete("/cards/:id", async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    res.json(await workTrackService.deleteWorkCard(req.user.companyId, req.params.id));
+    res.json(await workTrackService.deleteWorkCard(req.user.companyId, req.user.id, req.params.id));
   } catch (error) {
     next(error);
   }
