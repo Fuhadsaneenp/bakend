@@ -180,6 +180,7 @@ export const accessResolverService = {
 
     const permissionMap = new Map<string, EffectivePermission>();
 
+    // ── Step 1: Profile-based permissions ──
     for (const assignment of user.assignedAccessProfiles) {
       if (assignment.expiresAt && assignment.expiresAt < new Date()) continue;
       for (const profilePermission of assignment.accessProfile.permissions) {
@@ -198,28 +199,8 @@ export const accessResolverService = {
       }
     }
 
-    const legacyPermissions = legacyRolePermissionFallback[user.role] || [];
-    if (legacyPermissions.includes("*")) {
-      const allPermissions = await prisma.permission.findMany();
-      for (const permission of allPermissions) {
-        const entry = ensurePermissionEntry(permissionMap, permission.code, permission.isSensitive);
-        entry.allowed = true;
-        entry.sources.push(`legacy-role:${user.role}`);
-        for (const scope of legacyRoleScopes[user.role] || [AccessScopeType.GLOBAL]) {
-          pushScope(entry, scope);
-        }
-      }
-    } else {
-      for (const code of legacyPermissions) {
-        const entry = ensurePermissionEntry(permissionMap, code, code.startsWith("settings.authority") || code.startsWith("payroll."));
-        entry.allowed = true;
-        entry.sources.push(`legacy-role:${user.role}`);
-        for (const scope of legacyRoleScopes[user.role] || [AccessScopeType.SELF]) {
-          pushScope(entry, scope);
-        }
-      }
-    }
-
+    // ── Step 2: Explicit overrides (processed BEFORE legacy fallback so DENY always wins) ──
+    const explicitlyOverriddenCodes = new Set<string>();
     for (const override of user.permissionOverrides) {
       if (override.expiresAt && override.expiresAt < new Date()) continue;
       const entry = ensurePermissionEntry(
@@ -229,8 +210,38 @@ export const accessResolverService = {
       );
       entry.allowed = override.effect === "ALLOW";
       entry.sources.push(`override:${override.effect.toLowerCase()}`);
+      explicitlyOverriddenCodes.add(override.permission.code);
     }
 
+    // ── Step 3: Legacy role fallback — only applies to codes NOT explicitly overridden ──
+    // If a user has ANY explicit overrides (i.e. they were configured via Authority UI),
+    // skip the legacy fallback entirely so the UI is the sole source of truth.
+    const hasExplicitOverrides = explicitlyOverriddenCodes.size > 0;
+    if (!hasExplicitOverrides) {
+      const legacyPermissions = legacyRolePermissionFallback[user.role] || [];
+      if (legacyPermissions.includes("*")) {
+        const allPermissions = await prisma.permission.findMany();
+        for (const permission of allPermissions) {
+          const entry = ensurePermissionEntry(permissionMap, permission.code, permission.isSensitive);
+          entry.allowed = true;
+          entry.sources.push(`legacy-role:${user.role}`);
+          for (const scope of legacyRoleScopes[user.role] || [AccessScopeType.GLOBAL]) {
+            pushScope(entry, scope);
+          }
+        }
+      } else {
+        for (const code of legacyPermissions) {
+          const entry = ensurePermissionEntry(permissionMap, code, code.startsWith("settings.authority") || code.startsWith("payroll."));
+          entry.allowed = true;
+          entry.sources.push(`legacy-role:${user.role}`);
+          for (const scope of legacyRoleScopes[user.role] || [AccessScopeType.SELF]) {
+            pushScope(entry, scope);
+          }
+        }
+      }
+    }
+
+    // ── Step 4: User-level scope hints ──
     for (const scope of user.userPermissionScopes) {
       const entry = ensurePermissionEntry(permissionMap, scope.permission.code, scope.permission.isSensitive);
       entry.sources.push("user-scope");
