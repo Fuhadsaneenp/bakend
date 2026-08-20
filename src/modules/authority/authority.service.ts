@@ -34,7 +34,7 @@ export const authorityService = {
   async listPermissions(search?: string, module?: string) {
     return prisma.permission.findMany({
       where: {
-        code: search ? { contains: search, mode: "insensitive" } : undefined,
+        code: search ? { contains: search } : undefined,
         module: module || undefined
       },
       orderBy: [{ module: "asc" }, { code: "asc" }]
@@ -226,10 +226,10 @@ export const authorityService = {
         companyId: companyId || undefined,
         OR: search
           ? [
-              { email: { contains: search, mode: "insensitive" } },
-              { employee: { firstName: { contains: search, mode: "insensitive" } } },
-              { employee: { lastName: { contains: search, mode: "insensitive" } } },
-              { employee: { employeeCode: { contains: search, mode: "insensitive" } } }
+              { email: { contains: search } },
+              { employee: { firstName: { contains: search } } },
+              { employee: { lastName: { contains: search } } },
+              { employee: { employeeCode: { contains: search } } }
             ]
           : undefined
       },

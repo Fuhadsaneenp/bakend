@@ -2005,7 +2005,7 @@ export const workTrackService = {
     if (filters.campaignId) where.campaignId = filters.campaignId;
     if (filters.leadStatus && filters.leadStatus !== "ALL") where.leadStatus = filters.leadStatus;
     if (filters.qualificationStatus && filters.qualificationStatus !== "ALL") where.qualificationStatus = filters.qualificationStatus;
-    if (filters.leadSource && filters.leadSource !== "ALL") where.leadSource = { contains: filters.leadSource, mode: "insensitive" };
+    if (filters.leadSource && filters.leadSource !== "ALL") where.leadSource = { contains: filters.leadSource };
     if (filters.startDate || filters.endDate) {
       where.leadSubmittedAt = {};
       if (filters.startDate) where.leadSubmittedAt.gte = new Date(filters.startDate);
@@ -2013,13 +2013,13 @@ export const workTrackService = {
     }
     if (filters.search) {
       where.OR = [
-        { name: { contains: filters.search, mode: "insensitive" } },
-        { phone: { contains: filters.search, mode: "insensitive" } },
-        { email: { contains: filters.search, mode: "insensitive" } },
-        { location: { contains: filters.search, mode: "insensitive" } },
-        { formName: { contains: filters.search, mode: "insensitive" } },
-        { adSetName: { contains: filters.search, mode: "insensitive" } },
-        { adName: { contains: filters.search, mode: "insensitive" } }
+        { name: { contains: filters.search } },
+        { phone: { contains: filters.search } },
+        { email: { contains: filters.search } },
+        { location: { contains: filters.search } },
+        { formName: { contains: filters.search } },
+        { adSetName: { contains: filters.search } },
+        { adName: { contains: filters.search } }
       ];
     }
 
