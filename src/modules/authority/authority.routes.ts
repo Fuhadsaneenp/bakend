@@ -1,12 +1,100 @@
 import { AccessScopeType, PermissionEffect, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requirePermission } from "../../middleware/auth.js";
+import { requireAuth, requirePermission, requireRoles } from "../../middleware/auth.js";
 import { authorityService } from "./authority.service.js";
+import { prisma } from "../../lib/prisma.js";
 
 export const authorityRouter = Router();
 
 authorityRouter.use(requireAuth);
+
+// ─── BOOTSTRAP: Seed permissions (SUPER_ADMIN only, bypasses permission check) ───
+authorityRouter.post("/seed-permissions", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const permissionSeeds: Array<[string, string, string, string, string, boolean]> = [
+      ["settings.authority.view", "settings", "authority", "view", "View authority settings, access profiles, and audit logs.", true],
+      ["settings.authority.manage", "settings", "authority", "manage", "Create and manage access profiles, user overrides, scopes, and workflows.", true],
+      ["dashboard.summary.view", "dashboard", "summary", "view", "View the main HR dashboard with summary metrics.", false],
+      ["employee.profile.view", "employee", "profile", "view", "View employee profiles and directory.", false],
+      ["employee.profile.edit", "employee", "profile", "edit", "Edit employee profiles.", false],
+      ["employee.profile.create", "employee", "profile", "create", "Create new employee records.", false],
+      ["employee.profile.delete", "employee", "profile", "delete", "Delete or archive employee records.", true],
+      ["employee.document.view", "employee", "document", "view", "View employee documents.", false],
+      ["employee.document.upload", "employee", "document", "upload", "Upload documents for employees.", false],
+      ["employee.letter.view", "employee", "letter", "view", "View employment letters.", false],
+      ["employee.letter.generate", "employee", "letter", "generate", "Generate employment letters.", false],
+      ["attendance.record.view", "attendance", "record", "view", "View attendance records.", false],
+      ["attendance.punch.manual", "attendance", "punch", "manual", "Manually add or edit punch records.", true],
+      ["attendance.regularize.approve", "attendance", "regularize", "approve", "Approve attendance regularization requests.", false],
+      ["attendance.biometric.sync", "attendance", "biometric", "sync", "Sync biometric device data.", true],
+      ["attendance.settings.manage", "attendance", "settings", "manage", "Manage attendance settings.", true],
+      ["leave.request.view", "leave", "request", "view", "View leave requests.", false],
+      ["leave.request.create", "leave", "request", "create", "Create leave requests.", false],
+      ["leave.request.approve", "leave", "request", "approve", "Approve or reject leave requests.", false],
+      ["leave.settings.manage", "leave", "settings", "manage", "Manage leave types and policies.", true],
+      ["wfh.request.view", "wfh", "request", "view", "View WFH requests.", false],
+      ["wfh.request.create", "wfh", "request", "create", "Create WFH requests.", false],
+      ["wfh.request.approve", "wfh", "request", "approve", "Approve or reject WFH requests.", false],
+      ["expense.claim.view", "expense", "claim", "view", "View expense claims.", false],
+      ["expense.claim.create", "expense", "claim", "create", "Submit expense claims.", false],
+      ["expense.claim.review", "expense", "claim", "review", "Review expense claims.", false],
+      ["expense.claim.approve", "expense", "claim", "approve", "Approve or reject expense claims.", false],
+      ["payroll.run.view", "payroll", "run", "view", "View payroll runs and payslips.", true],
+      ["payroll.run.process", "payroll", "run", "process", "Process and finalize payroll runs.", true],
+      ["payroll.run.approve", "payroll", "run", "approve", "Approve payroll for payment.", true],
+      ["payroll.settings.manage", "payroll", "settings", "manage", "Manage payroll settings and structures.", true],
+      ["crm.client.view", "crm", "client", "view", "View CRM clients.", false],
+      ["crm.client.create", "crm", "client", "create", "Create CRM clients.", false],
+      ["crm.client.edit", "crm", "client", "edit", "Edit CRM clients.", false],
+      ["crm.lead.view", "crm", "lead", "view", "View CRM leads.", false],
+      ["crm.lead.create", "crm", "lead", "create", "Create CRM leads.", false],
+      ["crm.lead.edit", "crm", "lead", "edit", "Edit CRM leads.", false],
+      ["crm.lead.convert", "crm", "lead", "convert", "Convert leads to clients.", false],
+      ["worktrack.settings.view", "worktrack", "settings", "view", "View Work Track settings.", false],
+      ["worktrack.settings.manage", "worktrack", "settings", "manage", "Manage Work Track settings.", true],
+      ["worktrack.client.view", "worktrack", "client", "view", "View Work Track clients.", false],
+      ["worktrack.client.create", "worktrack", "client", "create", "Create Work Track clients.", false],
+      ["worktrack.task.view", "worktrack", "task", "view", "View tasks.", false],
+      ["worktrack.task.create", "worktrack", "task", "create", "Create tasks.", false],
+      ["worktrack.task.edit", "worktrack", "task", "edit", "Edit tasks.", false],
+      ["worktrack.task.assign", "worktrack", "task", "assign", "Assign tasks to employees.", false],
+      ["worktrack.task.status.update", "worktrack", "task", "status.update", "Update task status.", false],
+      ["worktrack.file.upload", "worktrack", "file", "upload", "Upload files to tasks.", false],
+      ["worktrack.comment.create", "worktrack", "comment", "create", "Add comments to tasks.", false],
+      ["worktrack.review.review", "worktrack", "review", "review", "Review submitted work.", false],
+      ["worktrack.review.return", "worktrack", "review", "return", "Return work for revision.", false],
+      ["worktrack.review.approve", "worktrack", "review", "approve", "Approve submitted work.", false],
+      ["worktrack.review.reject", "worktrack", "review", "reject", "Reject submitted work.", false],
+      ["worktrack.analytics.view", "worktrack", "analytics", "view", "View Work Track analytics.", false],
+      ["recruitment.applicant.view", "recruitment", "applicant", "view", "View recruitment applicants.", false],
+      ["recruitment.applicant.evaluate", "recruitment", "applicant", "evaluate", "Evaluate recruitment applicants.", false],
+      ["performance.goal.manage", "performance", "goal", "manage", "Manage performance goals.", false],
+      ["performance.appraisal.review", "performance", "appraisal", "review", "Review performance appraisals.", false],
+      ["lifecycle.checklist.manage", "lifecycle", "checklist", "manage", "Manage onboarding/offboarding checklists.", false],
+      ["settings.company.view", "settings", "company", "view", "View company settings.", false],
+      ["settings.company.manage", "settings", "company", "manage", "Manage company settings.", true],
+      ["settings.department.manage", "settings", "department", "manage", "Manage departments.", true],
+      ["settings.office.manage", "settings", "office", "manage", "Manage office locations.", true],
+      ["settings.shift.manage", "settings", "shift", "manage", "Manage work shifts.", true],
+      ["report.hr.view", "report", "hr", "view", "View HR reports.", false],
+      ["report.payroll.view", "report", "payroll", "view", "View payroll reports.", true],
+    ];
+
+    let created = 0;
+    let skipped = 0;
+    for (const [code, module, feature, action, description, isSensitive] of permissionSeeds) {
+      const existing = await prisma.permission.findUnique({ where: { code } });
+      if (existing) { skipped++; continue; }
+      await prisma.permission.create({ data: { code, module, feature, action, description, isSensitive } });
+      created++;
+    }
+
+    res.json({ success: true, created, skipped, total: permissionSeeds.length });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // ─── 1. PERMISSIONS CATALOG ───
 authorityRouter.get("/permissions", requirePermission("settings.authority.view"), async (req, res, next) => {
