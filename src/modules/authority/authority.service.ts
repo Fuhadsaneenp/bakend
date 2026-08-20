@@ -256,7 +256,18 @@ export const authorityService = {
       orderBy: { email: "asc" }
     });
 
-    return users.map((u) => ({
+    const visibleUsers = users.filter((u) => {
+      const email = String(u.email || "").trim().toLowerCase();
+      const localPart = email.split("@")[0] || "";
+      const isBiometricPlaceholder =
+        !u.employee &&
+        email.endsWith("@stems.secondtales.com") &&
+        /^hf\d{3,}$/.test(localPart);
+
+      return !isBiometricPlaceholder;
+    });
+
+    return visibleUsers.map((u) => ({
       id: u.id,
       email: u.email,
       role: u.role,
@@ -810,11 +821,11 @@ export const authorityService = {
 
     const existing = await this.getUserTrackSettings(resolvedCompanyId);
     const merged = {
-      trackLevels: { ...(existing.trackLevels || {}), ...(data.trackLevels || {}) },
-      moduleGrants: { ...(existing.moduleGrants || {}), ...(data.moduleGrants || {}) },
-      actionGrants: { ...(existing.actionGrants || {}), ...(data.actionGrants || {}) },
-      positionOverrides: { ...(existing.positionOverrides || {}), ...(data.positionOverrides || {}) },
-      emsLevels: { ...(existing.emsLevels || {}), ...(data.emsLevels || {}) }
+      trackLevels: data.trackLevels !== undefined ? data.trackLevels : (existing.trackLevels || {}),
+      moduleGrants: data.moduleGrants !== undefined ? data.moduleGrants : (existing.moduleGrants || {}),
+      actionGrants: data.actionGrants !== undefined ? data.actionGrants : (existing.actionGrants || {}),
+      positionOverrides: data.positionOverrides !== undefined ? data.positionOverrides : (existing.positionOverrides || {}),
+      emsLevels: data.emsLevels !== undefined ? data.emsLevels : (existing.emsLevels || {})
     };
 
     await prisma.companySetting.upsert({
