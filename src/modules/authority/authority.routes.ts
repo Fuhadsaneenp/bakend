@@ -172,7 +172,8 @@ authorityRouter.delete("/profiles/:id", requirePermission("settings.authority.ma
 authorityRouter.get("/users", requirePermission("settings.authority.view"), async (req, res, next) => {
   try {
     const search = typeof req.query.search === "string" ? req.query.search : undefined;
-    res.json(await authorityService.listUsersWithAccess(req.user?.companyId || null, search));
+    const companyId = req.user?.role === Role.SUPER_ADMIN ? null : req.user?.companyId || null;
+    res.json(await authorityService.listUsersWithAccess(companyId, search));
   } catch (error) {
     next(error);
   }
@@ -424,4 +425,3 @@ authorityRouter.post("/users/bulk-delete", requireRoles(Role.SUPER_ADMIN), async
     next(error);
   }
 });
-

@@ -248,6 +248,18 @@ export const accessResolverService = {
       pushScope(entry, scope.scopeType, scope.scopeRefId);
     }
 
+    // Super Admin is a platform owner role. It must always resolve to every
+    // permission even if older Authority UI overrides accidentally contain DENY.
+    if (user.role === "SUPER_ADMIN") {
+      const allPermissions = await prisma.permission.findMany();
+      for (const permission of allPermissions) {
+        const entry = ensurePermissionEntry(permissionMap, permission.code, permission.isSensitive);
+        entry.allowed = true;
+        entry.sources.push("role:super-admin-full-access");
+        pushScope(entry, AccessScopeType.GLOBAL);
+      }
+    }
+
     const permissions = Array.from(permissionMap.values()).sort((a, b) => a.code.localeCompare(b.code));
     const approvalAuthorities = permissions
       .filter((permission) => permission.allowed && (permission.code.includes(".approve") || permission.code.includes(".review") || permission.code.includes(".reject") || permission.code.includes(".return")))

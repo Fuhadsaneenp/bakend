@@ -847,6 +847,11 @@ export const workTrackService = {
     await prisma.statusHistory.deleteMany({ where: { workCardId: id } });
     await prisma.reworkLog.deleteMany({ where: { workCardId: id } });
     await prisma.comment.deleteMany({ where: { workCardId: id } });
+    await prisma.rating.deleteMany({ where: { workCardId: id } });
+    await prisma.pointsLedger.updateMany({
+      where: { workCardId: id },
+      data: { workCardId: null }
+    });
 
     return prisma.workCard.delete({ where: { id } });
   },

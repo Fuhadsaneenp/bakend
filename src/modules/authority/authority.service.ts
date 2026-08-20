@@ -265,7 +265,7 @@ export const authorityService = {
         ? {
             id: u.employee.id,
             code: u.employee.employeeCode,
-            name: `${u.employee.firstName} ${u.employee.lastName}`,
+            name: [u.employee.firstName, u.employee.middleName, u.employee.lastName].filter(Boolean).join(" "),
             department: u.employee.department?.name || null,
             designation: u.employee.designation?.title || null,
             office: null,
@@ -778,7 +778,7 @@ export const authorityService = {
       const firstCompany = await prisma.company.findFirst();
       resolvedCompanyId = firstCompany?.id || null;
     }
-    if (!resolvedCompanyId) return { trackLevels: {}, moduleGrants: {}, positionOverrides: {} };
+    if (!resolvedCompanyId) return { trackLevels: {}, moduleGrants: {}, actionGrants: {}, positionOverrides: {}, emsLevels: {} };
 
     const setting = await prisma.companySetting.findUnique({
       where: {
@@ -789,14 +789,14 @@ export const authorityService = {
       }
     });
 
-    if (!setting?.value) return { trackLevels: {}, moduleGrants: {}, actionGrants: {}, positionOverrides: {} };
+    if (!setting?.value) return { trackLevels: {}, moduleGrants: {}, actionGrants: {}, positionOverrides: {}, emsLevels: {} };
     try {
       if (typeof setting.value === "string") {
         return JSON.parse(setting.value);
       }
       return setting.value as any;
     } catch {
-      return { trackLevels: {}, moduleGrants: {}, actionGrants: {}, positionOverrides: {} };
+      return { trackLevels: {}, moduleGrants: {}, actionGrants: {}, positionOverrides: {}, emsLevels: {} };
     }
   },
 
@@ -813,7 +813,8 @@ export const authorityService = {
       trackLevels: { ...(existing.trackLevels || {}), ...(data.trackLevels || {}) },
       moduleGrants: { ...(existing.moduleGrants || {}), ...(data.moduleGrants || {}) },
       actionGrants: { ...(existing.actionGrants || {}), ...(data.actionGrants || {}) },
-      positionOverrides: { ...(existing.positionOverrides || {}), ...(data.positionOverrides || {}) }
+      positionOverrides: { ...(existing.positionOverrides || {}), ...(data.positionOverrides || {}) },
+      emsLevels: { ...(existing.emsLevels || {}), ...(data.emsLevels || {}) }
     };
 
     await prisma.companySetting.upsert({
