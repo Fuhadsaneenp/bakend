@@ -3,6 +3,7 @@ import { differenceInMinutes } from "date-fns";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
 import { notificationService } from "../notifications/notification.service.js";
+import { leaveAllocationService } from "./leaveAllocation.service.js";
 import type { AuthUser } from "../../middleware/auth.js";
 
 const db = prisma as any;
@@ -104,6 +105,14 @@ async function applyApprovedMissedPunch(request: any) {
       isEarlyLeave: checkOutAt.getTime() < shiftEnd.getTime() - earlyPunchTolerance * 60_000
     }
   });
+
+  const { payrollService } = await import("../payroll/payroll.service.js");
+  await payrollService.recalculateDraftRunsForPeriods(employee.companyId, [
+    {
+      month: workDate.getMonth() + 1,
+      year: workDate.getFullYear()
+    }
+  ]);
 }
 
 const requestInclude = {
@@ -288,6 +297,17 @@ export const wfhService = {
       }
     }
 
+    const leaveType = parseRequestType(data.reason);
+    const isLeave = leaveType !== "Work From Home" && leaveType !== "Request" && !data.reason.startsWith("[Missed Punch]");
+    if (isLeave) {
+      await leaveAllocationService.validateLeaveBalance(
+        employee.id,
+        leaveType,
+        new Date(data.startDate),
+        new Date(data.endDate)
+      );
+    }
+
     const immediateManagerId = employee.managerId || null;
     const higherManagerId = employee.manager?.managerId || null;
 
@@ -438,6 +458,18 @@ export const wfhService = {
         data: updateData,
         include: requestInclude
       });
+
+      // Handle leave balance allocation tracking
+      const nextLeaveType = parseRequestType(request.reason);
+      const isNextLeave = nextLeaveType !== "Work From Home" && nextLeaveType !== "Request" && !request.reason.startsWith("[Missed Punch]");
+      
+      if (isNextLeave) {
+        if (request.status === ApprovalStatus.APPROVED && existing.status !== ApprovalStatus.APPROVED) {
+          await leaveAllocationService.recordLeaveUsage(request.employeeId, nextLeaveType, request.startDate, request.endDate, true);
+        } else if (existing.status === ApprovalStatus.APPROVED && request.status !== ApprovalStatus.APPROVED) {
+          await leaveAllocationService.recordLeaveUsage(request.employeeId, nextLeaveType, request.startDate, request.endDate, false);
+        }
+      }
     } catch (err) {
       console.error("DEBUG: WFH review try block failed! Error details:", err);
       const fallbackImmediateManagerId =

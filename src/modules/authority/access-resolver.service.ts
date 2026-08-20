@@ -1,0 +1,275 @@
+import { AccessScopeType, Role } from "@prisma/client";
+import { prisma } from "../../lib/prisma.js";
+
+const legacyRolePermissionFallback: Record<Role, string[]> = {
+  SUPER_ADMIN: ["*"],
+  HR_ADMIN: [
+    "dashboard.summary.view",
+    "employee.profile.view",
+    "employee.profile.edit",
+    "attendance.record.view",
+    "leave.request.view",
+    "leave.request.approve",
+    "expense.claim.view",
+    "payroll.run.view",
+    "crm.client.view",
+    "crm.client.create",
+    "crm.client.edit",
+    "crm.lead.view",
+    "crm.lead.create",
+    "crm.lead.edit",
+    "crm.lead.convert",
+    "worktrack.settings.view",
+    "worktrack.settings.manage",
+    "worktrack.client.view",
+    "worktrack.client.create",
+    "worktrack.task.view",
+    "worktrack.task.create",
+    "worktrack.task.edit",
+    "worktrack.task.assign",
+    "worktrack.task.status.update",
+    "worktrack.file.upload",
+    "worktrack.comment.create",
+    "worktrack.review.review",
+    "worktrack.review.return",
+    "worktrack.review.approve",
+    "worktrack.review.reject",
+    "worktrack.analytics.view",
+    "settings.authority.view",
+    "settings.authority.manage"
+  ],
+  MANAGER: [
+    "dashboard.summary.view",
+    "employee.profile.view",
+    "attendance.record.view",
+    "leave.request.view",
+    "leave.request.approve",
+    "crm.client.view",
+    "crm.lead.view",
+    "crm.lead.create",
+    "crm.lead.edit",
+    "worktrack.client.view",
+    "worktrack.task.view",
+    "worktrack.task.create",
+    "worktrack.task.assign",
+    "worktrack.task.edit",
+    "worktrack.task.status.update",
+    "worktrack.file.upload",
+    "worktrack.comment.create",
+    "worktrack.review.review",
+    "worktrack.review.return",
+    "worktrack.review.approve",
+    "worktrack.review.reject",
+    "worktrack.analytics.view",
+    "settings.authority.view"
+  ],
+  EMPLOYEE: [
+    "dashboard.summary.view",
+    "employee.profile.view",
+    "leave.request.view",
+    "expense.claim.view",
+    "worktrack.task.view",
+    "worktrack.task.status.update",
+    "worktrack.file.upload",
+    "worktrack.comment.create"
+  ]
+};
+
+const legacyRoleScopes: Record<Role, AccessScopeType[]> = {
+  SUPER_ADMIN: [AccessScopeType.GLOBAL],
+  HR_ADMIN: [AccessScopeType.COMPANY],
+  MANAGER: [AccessScopeType.DEPARTMENT, AccessScopeType.ASSIGNED_CLIENTS, AccessScopeType.COMPANY],
+  EMPLOYEE: [AccessScopeType.SELF, AccessScopeType.ASSIGNED_TO_ME, AccessScopeType.CREATED_BY_ME]
+};
+
+export type EffectivePermission = {
+  code: string;
+  allowed: boolean;
+  sensitive: boolean;
+  sources: string[];
+  scopes: Array<{ type: AccessScopeType; refId?: string | null }>;
+};
+
+export type AccessContext = {
+  user: {
+    id: string;
+    companyId: string | null;
+    role: Role;
+    email: string;
+  };
+  employee: null | {
+    id: string;
+    departmentId: string | null;
+    managerId: string | null;
+    officeId: string | null;
+  };
+  profiles: Array<{
+    id: string;
+    code: string;
+    name: string;
+    category: string | null;
+    expiresAt: Date | null;
+    isActive: boolean;
+  }>;
+  permissions: EffectivePermission[];
+  permissionMap: Map<string, EffectivePermission>;
+  approvalAuthorities: string[];
+};
+
+function ensurePermissionEntry(
+  permissionMap: Map<string, EffectivePermission>,
+  code: string,
+  sensitive = false
+) {
+  let entry = permissionMap.get(code);
+  if (!entry) {
+    entry = { code, allowed: false, sensitive, sources: [], scopes: [] };
+    permissionMap.set(code, entry);
+  }
+  return entry;
+}
+
+function pushScope(entry: EffectivePermission, type: AccessScopeType, refId?: string | null) {
+  const exists = entry.scopes.some((scope) => scope.type === type && (scope.refId || null) === (refId || null));
+  if (!exists) {
+    entry.scopes.push({ type, refId: refId || null });
+  }
+}
+
+export const accessResolverService = {
+  async getUserAccessContext(userId: string): Promise<AccessContext> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            departmentId: true,
+            managerId: true,
+            officeId: true
+          }
+        },
+        assignedAccessProfiles: {
+          where: { isActive: true },
+          include: {
+            accessProfile: {
+              include: {
+                permissions: {
+                  include: {
+                    permission: true,
+                    scopes: true
+                  }
+                }
+              }
+            }
+          }
+        },
+        permissionOverrides: {
+          where: { isActive: true },
+          include: { permission: true }
+        },
+        userPermissionScopes: {
+          include: { permission: true }
+        }
+      }
+    });
+
+    if (!user) {
+      throw new Error("User access resolution failed: user not found.");
+    }
+
+    const permissionMap = new Map<string, EffectivePermission>();
+
+    for (const assignment of user.assignedAccessProfiles) {
+      if (assignment.expiresAt && assignment.expiresAt < new Date()) continue;
+      for (const profilePermission of assignment.accessProfile.permissions) {
+        const entry = ensurePermissionEntry(
+          permissionMap,
+          profilePermission.permission.code,
+          profilePermission.permission.isSensitive
+        );
+        if (profilePermission.effect === "ALLOW") {
+          entry.allowed = true;
+        }
+        entry.sources.push(`profile:${assignment.accessProfile.code}`);
+        for (const scope of profilePermission.scopes) {
+          pushScope(entry, scope.scopeType, scope.scopeRefId);
+        }
+      }
+    }
+
+    const legacyPermissions = legacyRolePermissionFallback[user.role] || [];
+    if (legacyPermissions.includes("*")) {
+      const allPermissions = await prisma.permission.findMany();
+      for (const permission of allPermissions) {
+        const entry = ensurePermissionEntry(permissionMap, permission.code, permission.isSensitive);
+        entry.allowed = true;
+        entry.sources.push(`legacy-role:${user.role}`);
+        for (const scope of legacyRoleScopes[user.role] || [AccessScopeType.GLOBAL]) {
+          pushScope(entry, scope);
+        }
+      }
+    } else {
+      for (const code of legacyPermissions) {
+        const entry = ensurePermissionEntry(permissionMap, code, code.startsWith("settings.authority") || code.startsWith("payroll."));
+        entry.allowed = true;
+        entry.sources.push(`legacy-role:${user.role}`);
+        for (const scope of legacyRoleScopes[user.role] || [AccessScopeType.SELF]) {
+          pushScope(entry, scope);
+        }
+      }
+    }
+
+    for (const override of user.permissionOverrides) {
+      if (override.expiresAt && override.expiresAt < new Date()) continue;
+      const entry = ensurePermissionEntry(
+        permissionMap,
+        override.permission.code,
+        override.permission.isSensitive
+      );
+      entry.allowed = override.effect === "ALLOW";
+      entry.sources.push(`override:${override.effect.toLowerCase()}`);
+    }
+
+    for (const scope of user.userPermissionScopes) {
+      const entry = ensurePermissionEntry(permissionMap, scope.permission.code, scope.permission.isSensitive);
+      entry.sources.push("user-scope");
+      pushScope(entry, scope.scopeType, scope.scopeRefId);
+    }
+
+    const permissions = Array.from(permissionMap.values()).sort((a, b) => a.code.localeCompare(b.code));
+    const approvalAuthorities = permissions
+      .filter((permission) => permission.allowed && (permission.code.includes(".approve") || permission.code.includes(".review") || permission.code.includes(".reject") || permission.code.includes(".return")))
+      .map((permission) => permission.code);
+
+    return {
+      user: {
+        id: user.id,
+        companyId: user.companyId,
+        role: user.role,
+        email: user.email
+      },
+      employee: user.employee
+        ? {
+            id: user.employee.id,
+            departmentId: user.employee.departmentId,
+            managerId: user.employee.managerId,
+            officeId: user.employee.officeId
+          }
+        : null,
+      profiles: user.assignedAccessProfiles
+        .filter((assignment) => !assignment.expiresAt || assignment.expiresAt >= new Date())
+        .map((assignment) => ({
+          id: assignment.accessProfile.id,
+          code: assignment.accessProfile.code,
+          name: assignment.accessProfile.name,
+          category: assignment.accessProfile.category,
+          expiresAt: assignment.expiresAt,
+          isActive: assignment.isActive
+        })),
+      permissions,
+      permissionMap,
+      approvalAuthorities
+    };
+  }
+};

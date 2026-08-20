@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
 }
 
 enum Role {
@@ -12,6 +12,35 @@ enum Role {
   HR_ADMIN
   MANAGER
   EMPLOYEE
+}
+
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
+enum AccessScopeType {
+  GLOBAL
+  COMPANY
+  SELF
+  DIRECT_REPORTS
+  DEPARTMENT
+  TEAM
+  OFFICE
+  CLIENT
+  PROJECT
+  ASSIGNED_CLIENTS
+  ASSIGNED_PROJECTS
+  ASSIGNED_TO_ME
+  CREATED_BY_ME
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+  RETURNED
+  ESCALATED
+  COMMENTED
 }
 
 enum EmployeeStatus {
@@ -86,6 +115,18 @@ model Company {
   offices     Office[]
   settings    CompanySetting[]
   worksSevenDays Boolean      @default(false)
+  appraisalCycles AppraisalCycle[]
+  appraisals      Appraisal[]
+  lifecycleTemplates LifecycleTemplate[]
+  jobOpenings         JobOpening[]
+  jobApplicants       JobApplicant[]
+  accessProfiles      AccessProfile[]
+  approvalWorkflows   ApprovalWorkflow[]
+  authorityAuditLogs  AuthorityAuditLog[]
+  teams               Team[]
+  metaAdAccounts      MetaAdAccount[]
+  metaCampaigns       MetaCampaign[]
+  metaLeads           MetaLead[]
 }
 
 model CompanySetting {
@@ -132,6 +173,15 @@ model User {
   auditLogs       AuditLog[]   @relation("ActorAuditLogs")
   statusHistories StatusHistory[]
   comments        Comment[]
+  assignedAccessProfiles        UserAccessProfile[]        @relation("UserAssignedAccessProfiles")
+  accessProfilesAssignedBy      UserAccessProfile[]        @relation("AccessProfileAssignmentsMade")
+  permissionOverrides           UserPermissionOverride[]   @relation("UserPermissionOverrides")
+  permissionOverridesAssignedBy UserPermissionOverride[]   @relation("PermissionOverridesAssignedBy")
+  userPermissionScopes          UserPermissionScope[]      @relation("UserPermissionScopes")
+  userPermissionScopesAssignedBy UserPermissionScope[]     @relation("PermissionScopesAssignedBy")
+  approvalActions               ApprovalActionLog[]
+  authorityChangesMade          AuthorityAuditLog[]        @relation("AuthorityChangesMade")
+  authorityChangesReceived      AuthorityAuditLog[]        @relation("AuthorityChangesReceived")
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 }
@@ -144,6 +194,8 @@ model Department {
   code        String
   employees   Employee[]
   designations Designation[]
+  jobOpenings JobOpening[]
+  teams       Team[]
   @@unique([companyId, code])
 }
 
@@ -202,6 +254,9 @@ model Employee {
   shift          Shift?          @relation(fields: [shiftId], references: [id])
   officeId       String?
   isHrHead       Boolean         @default(false)
+  customAttendanceHoursEnabled Boolean @default(false)
+  customFullDayHours Decimal?      @db.Decimal(4, 2)
+  customHalfDayHours Decimal?      @db.Decimal(4, 2)
   documents      EmployeeDocument[]
   letters        EmployeeLetter[]
   attendance     Attendance[]
@@ -214,6 +269,19 @@ model Employee {
   pointsLedgers     PointsLedger[]
   ratingsGiven      Rating[] @relation("RatingsGiven")
   managedClients    Client[] @relation("ManagedClients")
+  kras              KRA[]
+  goals             Goal[]
+  appraisals        Appraisal[]
+  approvedAppraisals Appraisal[] @relation("AppraisalApprover")
+  checklists        EmployeeChecklist[]
+  completedChecklistItems EmployeeChecklistItem[] @relation("TaskCompletedBy")
+  advances          EmployeeAdvance[]
+  leaveAllocations  LeaveAllocation[]
+  managedJobOpenings JobOpening[] @relation("HiringManagerJobOpenings")
+  teamMemberships   TeamMember[]
+  ledTeams          Team[]
+  assignedMetaCampaigns MetaCampaign[] @relation("AssignedMetaCampaigns")
+  assignedMetaLeads     MetaLead[]     @relation("AssignedMetaLeads")
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   @@unique([companyId, employeeCode])
@@ -239,7 +307,7 @@ model EmployeeDocument {
   fileKey     String
   fileName    String
   mimeType    String
-  fileData    Bytes?   @db.LongBlob
+  fileData    Bytes?
   storedInDatabase Boolean @default(false)
   uploadedBy  String?
   verifiedAt  DateTime?
@@ -256,7 +324,7 @@ model EmployeeLetter {
   title       String
   body        String     @db.Text
   fileKey     String?
-  fileData    Bytes?       @db.LongBlob
+  fileData    Bytes?
   storedInDatabase Boolean @default(false)
   generatedBy String?
   issuedAt    DateTime   @default(now())
@@ -356,6 +424,8 @@ model ExpenseClaim {
   managerStatus ApprovalStatus    @default(PENDING)
   hrStatus    ApprovalStatus      @default(PENDING)
   reimbursementStatus ReimbursementStatus @default(NOT_READY)
+  advanceId   String?
+  advance     EmployeeAdvance? @relation(fields: [advanceId], references: [id])
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 }
@@ -385,19 +455,250 @@ model AuditLog {
   createdAt   DateTime @default(now())
 }
 
+model Permission {
+  id                     String                    @id @default(cuid())
+  code                   String                    @unique
+  module                 String
+  feature                String
+  action                 String
+  description            String                    @db.Text
+  isSensitive            Boolean                   @default(false)
+  accessProfilePermissions AccessProfilePermission[]
+  userPermissionOverrides UserPermissionOverride[]
+  profilePermissionScopes ProfilePermissionScope[]
+  userPermissionScopes    UserPermissionScope[]
+  approvalWorkflowStages  ApprovalWorkflowStage[]
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+}
+
+model AccessProfile {
+  id              String                    @id @default(cuid())
+  companyId       String?
+  company         Company?                  @relation(fields: [companyId], references: [id])
+  code            String
+  name            String
+  description     String?                   @db.Text
+  category        String?
+  isSystem        Boolean                   @default(false)
+  isActive        Boolean                   @default(true)
+  permissions     AccessProfilePermission[]
+  userAssignments UserAccessProfile[]
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  @@unique([companyId, code])
+}
+
+model AccessProfilePermission {
+  id               String           @id @default(cuid())
+  accessProfileId  String
+  accessProfile    AccessProfile    @relation(fields: [accessProfileId], references: [id])
+  permissionId     String
+  permission       Permission       @relation(fields: [permissionId], references: [id])
+  effect           PermissionEffect @default(ALLOW)
+  scopes           ProfilePermissionScope[]
+  createdAt        DateTime         @default(now())
+
+  @@unique([accessProfileId, permissionId])
+}
+
+model UserAccessProfile {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation("UserAssignedAccessProfiles", fields: [userId], references: [id])
+  accessProfileId String
+  accessProfile   AccessProfile @relation(fields: [accessProfileId], references: [id])
+  assignedById    String?
+  assignedBy      User?         @relation("AccessProfileAssignmentsMade", fields: [assignedById], references: [id])
+  assignedAt      DateTime      @default(now())
+  expiresAt       DateTime?
+  isActive        Boolean       @default(true)
+
+  @@index([userId, isActive])
+}
+
+model UserPermissionOverride {
+  id           String           @id @default(cuid())
+  userId       String
+  user         User             @relation("UserPermissionOverrides", fields: [userId], references: [id])
+  permissionId String
+  permission   Permission       @relation(fields: [permissionId], references: [id])
+  effect       PermissionEffect @default(ALLOW)
+  reason       String?          @db.Text
+  expiresAt    DateTime?
+  assignedById String?
+  assignedBy   User?            @relation("PermissionOverridesAssignedBy", fields: [assignedById], references: [id])
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([userId, isActive])
+}
+
+model AccessScope {
+  id          String          @id @default(cuid())
+  code        AccessScopeType @unique
+  name        String
+  description String          @db.Text
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model ProfilePermissionScope {
+  id                        String                  @id @default(cuid())
+  accessProfilePermissionId String
+  accessProfilePermission   AccessProfilePermission @relation(fields: [accessProfilePermissionId], references: [id])
+  permissionId              String
+  permission                Permission              @relation(fields: [permissionId], references: [id])
+  scopeType                 AccessScopeType
+  scopeRefId                String?
+  createdAt                 DateTime                @default(now())
+
+  @@index([accessProfilePermissionId, scopeType])
+}
+
+model UserPermissionScope {
+  id           String          @id @default(cuid())
+  userId       String
+  user         User            @relation("UserPermissionScopes", fields: [userId], references: [id])
+  permissionId String
+  permission   Permission      @relation(fields: [permissionId], references: [id])
+  scopeType    AccessScopeType
+  scopeRefId   String?
+  assignedById String?
+  assignedBy   User?           @relation("PermissionScopesAssignedBy", fields: [assignedById], references: [id])
+  createdAt    DateTime        @default(now())
+
+  @@index([userId, permissionId, scopeType])
+}
+
+model Team {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id])
+  departmentId   String?
+  department     Department?  @relation(fields: [departmentId], references: [id])
+  leadEmployeeId String?
+  leadEmployee   Employee?    @relation(fields: [leadEmployeeId], references: [id])
+  code           String?
+  name           String
+  isActive       Boolean      @default(true)
+  members        TeamMember[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([companyId, name])
+}
+
+model TeamMember {
+  id         String    @id @default(cuid())
+  teamId     String
+  team       Team      @relation(fields: [teamId], references: [id])
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+  createdAt  DateTime  @default(now())
+
+  @@unique([teamId, employeeId])
+}
+
+model ApprovalWorkflow {
+  id          String                  @id @default(cuid())
+  companyId   String?
+  company     Company?                @relation(fields: [companyId], references: [id])
+  code        String
+  name        String
+  module      String
+  feature     String
+  description String?                 @db.Text
+  isActive    Boolean                 @default(true)
+  stages      ApprovalWorkflowStage[]
+  actions     ApprovalActionLog[]
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  @@unique([companyId, code])
+}
+
+model ApprovalWorkflowStage {
+  id                   String             @id @default(cuid())
+  workflowId           String
+  workflow             ApprovalWorkflow   @relation(fields: [workflowId], references: [id])
+  stageOrder           Int
+  stageName            String
+  requiredPermissionId String?
+  requiredPermission   Permission?        @relation(fields: [requiredPermissionId], references: [id])
+  approverScopeType    AccessScopeType    @default(GLOBAL)
+  approverScopeRefId   String?
+  escalationHours      Int?
+  finalStatus          String?
+  isFinal              Boolean            @default(false)
+  canReturn            Boolean            @default(true)
+  canReject            Boolean            @default(true)
+  actionLogs           ApprovalActionLog[]
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@unique([workflowId, stageOrder])
+}
+
+model ApprovalActionLog {
+  id          String               @id @default(cuid())
+  workflowId  String
+  workflow    ApprovalWorkflow     @relation(fields: [workflowId], references: [id])
+  stageId     String?
+  stage       ApprovalWorkflowStage? @relation(fields: [stageId], references: [id])
+  entityType  String
+  entityId    String
+  actorUserId String?
+  actorUser   User?                @relation(fields: [actorUserId], references: [id])
+  decision    ApprovalDecision
+  comments    String?              @db.Text
+  previousStatus String?
+  newStatus   String?
+  createdAt   DateTime             @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model AuthorityAuditLog {
+  id           String    @id @default(cuid())
+  companyId    String?
+  company      Company?  @relation(fields: [companyId], references: [id])
+  actorUserId  String?
+  actorUser    User?     @relation("AuthorityChangesMade", fields: [actorUserId], references: [id])
+  targetUserId String?
+  targetUser   User?     @relation("AuthorityChangesReceived", fields: [targetUserId], references: [id])
+  action       String
+  entityType   String
+  entityId     String?
+  oldValue     Json?
+  newValue     Json?
+  reason       String?   @db.Text
+  createdAt    DateTime  @default(now())
+}
+
 model Client {
-  id               String       @id @default(cuid())
-  companyId        String
-  company          Company      @relation(fields: [companyId], references: [id])
-  name             String
-  details          String?      @db.Text
-  contacts         String?      @db.Text
-  accountManagerId String?
-  accountManager   Employee?    @relation("ManagedClients", fields: [accountManagerId], references: [id])
-  specialDays      SpecialDay[]
-  workCards        WorkCard[]
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id                         String       @id @default(cuid())
+  companyId                  String
+  company                    Company      @relation(fields: [companyId], references: [id])
+  name                       String
+  details                    String?      @db.Text
+  contacts                   String?      @db.Text
+  packageName                String?
+  postersCommitted           Int?
+  videoSeo                   String?
+  digitalMarketingActivities String?      @db.Text
+  accountManagerId           String?
+  accountManager             Employee?    @relation("ManagedClients", fields: [accountManagerId], references: [id])
+  specialDays                SpecialDay[]
+  workCards                  WorkCard[]
+  metaAdAccount              MetaAdAccount?
+  metaCampaigns              MetaCampaign[]
+  metaLeads                  MetaLead[]
+  metaDailyInsights          MetaDailyInsight[]
+  createdAt                  DateTime     @default(now())
+  updatedAt                  DateTime     @updatedAt
 }
 
 model SpecialDay {
@@ -538,3 +839,317 @@ model Shift {
 
   @@unique([companyId, name])
 }
+
+model AppraisalCycle {
+  id          String      @id @default(cuid())
+  companyId   String
+  company     Company     @relation(fields: [companyId], references: [id])
+  title       String
+  startDate   DateTime
+  endDate     DateTime
+  status      String      @default("DRAFT") // DRAFT, ACTIVE, COMPLETED
+  appraisals  Appraisal[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model KRA {
+  id          String      @id @default(cuid())
+  employeeId  String
+  employee    Employee    @relation(fields: [employeeId], references: [id])
+  title       String
+  weightage   Float       // percentage (e.g. 20.0)
+  description String?     @db.Text
+  goals       Goal[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Goal {
+  id          String      @id @default(cuid())
+  employeeId  String
+  employee    Employee    @relation(fields: [employeeId], references: [id])
+  kraId       String?
+  kra         KRA?        @relation(fields: [kraId], references: [id])
+  title       String
+  description String?     @db.Text
+  startDate   DateTime
+  endDate     DateTime
+  target      Float       @default(100.0)
+  achieved    Float       @default(0.0)
+  status      String      @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, ARCHIVED
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Appraisal {
+  id               String         @id @default(cuid())
+  companyId        String
+  company          Company        @relation(fields: [companyId], references: [id])
+  employeeId       String
+  employee         Employee       @relation(fields: [employeeId], references: [id])
+  appraisalCycleId String
+  appraisalCycle   AppraisalCycle @relation(fields: [appraisalCycleId], references: [id])
+  status           String         @default("DRAFT") // DRAFT, SUBMITTED, REVIEWED, APPROVED
+  selfScore        Float?
+  managerScore     Float?
+  finalScore       Float?
+  selfFeedback     String?        @db.Text
+  managerFeedback  String?        @db.Text
+  approvedById     String?
+  approvedBy       Employee?      @relation("AppraisalApprover", fields: [approvedById], references: [id])
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model LifecycleTemplate {
+  id          String                  @id @default(cuid())
+  companyId   String
+  company     Company                 @relation(fields: [companyId], references: [id])
+  title       String
+  type        String                  // ONBOARDING, EXIT
+  tasks       LifecycleTemplateTask[]
+  checklists  EmployeeChecklist[]
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+}
+
+model LifecycleTemplateTask {
+  id          String            @id @default(cuid())
+  templateId  String
+  template    LifecycleTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  title       String
+  description String?           @db.Text
+  assignedRole String            @default("HR") // HR, IT, FINANCE, MANAGER
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model EmployeeChecklist {
+  id          String                @id @default(cuid())
+  employeeId  String
+  employee    Employee              @relation(fields: [employeeId], references: [id])
+  templateId  String
+  template    LifecycleTemplate     @relation(fields: [templateId], references: [id])
+  type        String                // ONBOARDING, EXIT
+  status      String                @default("PENDING") // PENDING, COMPLETED
+  items       EmployeeChecklistItem[]
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+}
+
+model EmployeeChecklistItem {
+  id          String            @id @default(cuid())
+  checklistId String
+  checklist   EmployeeChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  title       String
+  description String?           @db.Text
+  assignedRole String
+  status      String            @default("PENDING") // PENDING, COMPLETED
+  completedAt DateTime?
+  completedById String?
+  completedBy Employee?         @relation("TaskCompletedBy", fields: [completedById], references: [id])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model EmployeeAdvance {
+  id              String         @id @default(cuid())
+  employeeId      String
+  employee        Employee       @relation(fields: [employeeId], references: [id])
+  purpose         String
+  amount          Decimal        @db.Decimal(12, 2)
+  currency        String         @default("INR")
+  status          String         @default("PENDING") // PENDING, APPROVED, REJECTED, PAID, SETTLED
+  managerStatus   ApprovalStatus @default(PENDING)
+  hrStatus        ApprovalStatus @default(PENDING)
+  claimedAmount   Decimal        @default(0.00) @db.Decimal(12, 2)
+  expenseClaims   ExpenseClaim[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model LeaveAllocation {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  leaveType   String   // e.g. "Casual Leave", "Sick Leave"
+  year        Int      // e.g. 2026
+  maxDays     Decimal  @db.Decimal(5, 2)
+  usedDays    Decimal  @default(0.00) @db.Decimal(5, 2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([employeeId, leaveType, year])
+}
+
+model JobOpening {
+  id               String        @id @default(cuid())
+  companyId        String
+  company          Company       @relation(fields: [companyId], references: [id])
+  departmentId     String?
+  department       Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  hiringManagerId  String?
+  hiringManager    Employee?     @relation("HiringManagerJobOpenings", fields: [hiringManagerId], references: [id], onDelete: SetNull)
+  title            String
+  employmentType   String        @default("FULL_TIME")
+  location         String?
+  openings         Int           @default(1)
+  status           String        @default("DRAFT") // DRAFT, OPEN, ON_HOLD, CLOSED
+  priority         String        @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  description      String?       @db.Text
+  targetDate       DateTime?
+  applicants       JobApplicant[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([companyId, status])
+}
+
+model JobApplicant {
+  id                   String      @id @default(cuid())
+  companyId            String
+  company              Company     @relation(fields: [companyId], references: [id])
+  jobOpeningId         String
+  jobOpening           JobOpening  @relation(fields: [jobOpeningId], references: [id], onDelete: Cascade)
+  fullName             String
+  email                String
+  phone                String?
+  stage                String      @default("APPLIED") // APPLIED, SCREENING, INTERVIEW, OFFER, HIRED, REJECTED, ON_HOLD
+  source               String?
+  currentCompany       String?
+  experienceYears      Float?
+  rating               Float?
+  noticePeriodDays     Int?
+  expectedCompensation Decimal?    @db.Decimal(12, 2)
+  summary              String?     @db.Text
+  appliedAt            DateTime    @default(now())
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  @@index([companyId, stage])
+  @@index([jobOpeningId, stage])
+}
+
+model MetaAdAccount {
+  id                  String    @id @default(cuid())
+  companyId           String
+  company             Company   @relation(fields: [companyId], references: [id])
+  clientId            String    @unique
+  client              Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  businessManagerId   String?
+  adAccountId         String?
+  pageId              String?
+  instagramAccountId  String?
+  pixelId             String?
+  accessToken         String?   @db.Text
+  tokenStatus         String    @default("VALID") // VALID, EXPIRED, REVOKED, NOT_CONFIGURED
+  connectionStatus    String    @default("CONNECTED") // CONNECTED, FAILED, DISCONNECTED
+  syncFrequency       String    @default("DAILY") // HOURLY, DAILY, MANUAL
+  lastSyncedAt        DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model MetaCampaign {
+  id                  String              @id @default(cuid())
+  companyId           String
+  company             Company             @relation(fields: [companyId], references: [id])
+  clientId            String
+  client              Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  metaCampaignId      String?
+  name                String
+  status              String              @default("ACTIVE") // ACTIVE, PAUSED, ARCHIVED
+  objective           String              @default("LEADS") // LEADS, CONVERSIONS, TRAFFIC, ENGAGEMENT, MESSAGES
+  dailyBudget         Float               @default(0)
+  lifetimeBudget      Float?
+  amountSpent         Float               @default(0)
+  impressions         Int                 @default(0)
+  reach               Int                 @default(0)
+  clicks              Int                 @default(0)
+  ctr                 Float               @default(0)
+  cpc                 Float               @default(0)
+  cpm                 Float               @default(0)
+  leads               Int                 @default(0)
+  messages            Int                 @default(0)
+  conversions         Int                 @default(0)
+  costPerResult       Float               @default(0)
+  roas                Float               @default(0)
+  startDate           DateTime?
+  endDate             DateTime?
+  assignedMarketerId  String?
+  assignedMarketer    Employee?           @relation("AssignedMetaCampaigns", fields: [assignedMarketerId], references: [id])
+  creativeUrl         String?
+  creativeType        String?             // IMAGE, VIDEO, CAROUSEL
+  notes               String?             @db.Text
+  dailyInsights       MetaDailyInsight[]
+  metaLeads           MetaLead[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+}
+
+model MetaDailyInsight {
+  id          String        @id @default(cuid())
+  clientId    String
+  client      Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  campaignId  String?
+  campaign    MetaCampaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  date        DateTime
+  spend       Float         @default(0)
+  leads       Int           @default(0)
+  impressions Int           @default(0)
+  clicks      Int           @default(0)
+  cpl         Float         @default(0)
+  roas        Float         @default(0)
+  createdAt   DateTime      @default(now())
+}
+
+model MetaLead {
+  id                  String         @id @default(cuid())
+  companyId           String
+  company             Company        @relation(fields: [companyId], references: [id])
+  clientId            String
+  client              Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  campaignId          String?
+  campaign            MetaCampaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  metaLeadId          String?        // Meta API leadgen_id
+  formId              String?
+  formName            String?
+  adSetId             String?
+  adSetName           String?
+  adId                String?
+  adName              String?
+  leadSource          String         @default("Facebook") // Facebook, Instagram
+  name                String
+  phone               String?
+  email               String?
+  location            String?        // City / Region
+  ageGroup            String?        // 18-24, 25-34, 35-44, 45-54, 55+
+  gender              String?        // Male, Female, Other
+  leadStatus          String         @default("NEW_LEAD") // NEW_LEAD, CONTACTED, INTERESTED, FOLLOW_UP, CONVERTED, NOT_INTERESTED, WRONG_NUMBER, CLOSED
+  qualificationStatus String         @default("QUALIFIED") // QUALIFIED, UNQUALIFIED, DUPLICATE, INVALID
+  assignedToId        String?
+  assignedTo          Employee?      @relation("AssignedMetaLeads", fields: [assignedToId], references: [id], onDelete: SetNull)
+  lastContactDate     DateTime?
+  nextFollowUpDate    DateTime?
+  conversionDate      DateTime?
+  conversionValue     Float?         @default(0)
+  notes               String?        @db.Text
+  leadSubmittedAt     DateTime       @default(now())
+  leadNotes           MetaLeadNote[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  @@index([companyId, clientId])
+  @@index([campaignId])
+}
+
+model MetaLeadNote {
+  id          String    @id @default(cuid())
+  leadId      String
+  lead        MetaLead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  authorName  String
+  content     String    @db.Text
+  createdAt   DateTime  @default(now())
+}
+

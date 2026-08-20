@@ -111,6 +111,8 @@ export const orgService = {
         await tx.rating.deleteMany({ where: { ratedById: { in: employeeIds } } });
         await tx.client.deleteMany({ where: { companyId: id } });
         await tx.workCard.deleteMany({ where: { companyId: id } });
+        await tx.jobApplicant.deleteMany({ where: { companyId: id } });
+        await tx.jobOpening.deleteMany({ where: { companyId: id } });
         await tx.employee.deleteMany({ where: { companyId: id } });
       }
 
@@ -176,6 +178,7 @@ export const orgService = {
   async deleteDepartment(id: string) {
     return prisma.$transaction(async (tx) => {
       // Nullify department references or delete designations under this department
+      await tx.jobOpening.updateMany({ where: { departmentId: id }, data: { departmentId: null } });
       await tx.designation.deleteMany({ where: { departmentId: id } });
       await tx.employee.updateMany({ where: { departmentId: id }, data: { departmentId: null, designationId: null } });
       return tx.department.delete({ where: { id } });

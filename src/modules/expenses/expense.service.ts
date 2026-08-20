@@ -2,10 +2,11 @@ import { ApprovalStatus, ExpenseCategory, ReimbursementStatus, Role } from "@pri
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
 import { notificationService } from "../notifications/notification.service.js";
+import { advanceService } from "./advance.service.js";
 import type { AuthUser } from "../../middleware/auth.js";
 
 export const expenseService = {
-  async submit(userId: string, data: { category: ExpenseCategory; amount: number; currency?: string; description: string; receiptKey?: string }) {
+  async submit(userId: string, data: { category: ExpenseCategory; amount: number; currency?: string; description: string; receiptKey?: string; advanceId?: string }) {
     const employee = await prisma.employee.findUnique({ where: { userId } });
     if (!employee) throw notFound("Employee");
     return prisma.expenseClaim.create({
@@ -15,7 +16,8 @@ export const expenseService = {
         amount: data.amount,
         currency: data.currency ?? employee.baseCurrency,
         description: data.description,
-        receiptKey: data.receiptKey
+        receiptKey: data.receiptKey,
+        advanceId: data.advanceId
       }
     });
   },
@@ -69,6 +71,11 @@ export const expenseService = {
       data: { hrStatus: status, reimbursementStatus: reimbursementStatus ?? (status === ApprovalStatus.APPROVED ? ReimbursementStatus.READY : ReimbursementStatus.NOT_READY) },
       include: { employee: true }
     });
+    
+    if (status === ApprovalStatus.APPROVED && claim.advanceId) {
+      await advanceService.linkExpenseClaimToAdvance(claim.advanceId, Number(claim.amount));
+    }
+
     await notificationService.inApp(claim.employee.userId, `Expense ${status.toLowerCase()}`, `HR ${status.toLowerCase()} an expense claim.`);
     return claim;
   }

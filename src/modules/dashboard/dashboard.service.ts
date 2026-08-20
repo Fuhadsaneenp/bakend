@@ -193,7 +193,7 @@ export const dashboardService = {
     const monthStart = startOfMonth(new Date());
     const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
     const todayUtc = new Date(todayKolkataStr);
-    const [employees, pendingWfh, pendingExpenses, payrollRuns, attendanceToday, recentEmployees, terminatedCount, attendanceStats] = await Promise.all([
+    const [employees, pendingWfh, pendingExpenses, payrollRuns, attendanceToday, recentEmployees, terminatedCount, attendanceStats, jobApplicants] = await Promise.all([
       prisma.employee.count({ where: { companyId, status: "ACTIVE" } }),
       prisma.wFHRequest.count({ where: { employee: { companyId }, status: "PENDING" } }),
       prisma.expenseClaim.count({ where: { employee: { companyId }, OR: [{ managerStatus: "PENDING" }, { hrStatus: "PENDING" }] } }),
@@ -222,7 +222,8 @@ export const dashboardService = {
         orderBy: { createdAt: "desc" }
       }),
       prisma.employee.count({ where: { companyId, status: "TERMINATED" } }),
-      getAttendanceStats({}, companyId)
+      getAttendanceStats({}, companyId),
+      prisma.jobApplicant.count({ where: { companyId } })
     ]);
     const employeeIds = await prisma.employee.findMany({
       where: { companyId, status: "ACTIVE" },
@@ -238,7 +239,7 @@ export const dashboardService = {
       contractEmployees: Math.max(1, Math.round(activeCount * 0.32)),
       freelanceEmployees: Math.max(1, Math.round(activeCount * 0.14)),
       internshipEmployees: Math.max(1, Math.round(activeCount * 0.026)),
-      jobApplicants: Math.max(1, Math.round(activeCount * 0.32)),
+      jobApplicants,
       newEmployees: Math.max(1, Math.round(activeCount * 0.14)),
       resignedEmployees: terminatedCount || Math.max(1, Math.round(activeCount * 0.026)),
       pendingApprovals: pendingWfh + pendingExpenses,
@@ -254,7 +255,7 @@ export const dashboardService = {
     const monthStart = startOfMonth(new Date());
     const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
     const todayUtc = new Date(todayKolkataStr);
-    const [employees, pendingWfh, pendingExpenses, payrollRuns, attendanceToday, recentEmployees, terminatedCount, attendanceStats] = await Promise.all([
+    const [employees, pendingWfh, pendingExpenses, payrollRuns, attendanceToday, recentEmployees, terminatedCount, attendanceStats, jobApplicants] = await Promise.all([
       prisma.employee.count({ where: { status: "ACTIVE" } }),
       prisma.wFHRequest.count({ where: { status: "PENDING" } }),
       prisma.expenseClaim.count({ where: { OR: [{ managerStatus: "PENDING" }, { hrStatus: "PENDING" }] } }),
@@ -283,7 +284,8 @@ export const dashboardService = {
         orderBy: { createdAt: "desc" }
       }),
       prisma.employee.count({ where: { status: "TERMINATED" } }),
-      getAttendanceStats({})
+      getAttendanceStats({}),
+      prisma.jobApplicant.count()
     ]);
     const employeeIds = await prisma.employee.findMany({
       where: { status: "ACTIVE" },
@@ -299,7 +301,7 @@ export const dashboardService = {
       contractEmployees: Math.max(1, Math.round(activeCount * 0.32)),
       freelanceEmployees: Math.max(1, Math.round(activeCount * 0.14)),
       internshipEmployees: Math.max(1, Math.round(activeCount * 0.026)),
-      jobApplicants: Math.max(1, Math.round(activeCount * 0.32)),
+      jobApplicants,
       newEmployees: Math.max(1, Math.round(activeCount * 0.14)),
       resignedEmployees: terminatedCount || Math.max(1, Math.round(activeCount * 0.026)),
       pendingApprovals: pendingWfh + pendingExpenses,

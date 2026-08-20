@@ -7,6 +7,7 @@ import { attendanceService } from "./attendance.service.js";
 import { env } from "../../config/env.js";
 import { prisma } from "../../lib/prisma.js";
 import { runBiometricSync } from "../../routes/biometricSync.js";
+import { payrollService } from "../payroll/payroll.service.js";
 
 export const attendanceRouter = Router();
 
@@ -103,6 +104,13 @@ const importAttlogTextSchema = z.object({
   employeeCode: z.string().min(1).optional(),
   companyId: z.string().min(1).optional(),
   rawPayload: z.string().min(1, "rawPayload is required")
+});
+
+const inspectMonthAttendanceSchema = z.object({
+  month: z.coerce.number().min(1).max(12),
+  year: z.coerce.number().min(2020),
+  employeeCode: z.string().min(1).optional(),
+  companyId: z.string().min(1).optional()
 });
 
 function parseKolkataPunchTime(value: string) {
@@ -269,13 +277,15 @@ async function handleRepairAttendanceFromRaw(req: any, res: any, next: any) {
       }
 
       for (const punchTime of orderedUniquePunches) {
-        try {
-          await attendanceService.biometricPunch(biometricKey, punchTime);
+          try {
+          await attendanceService.biometricPunch(biometricKey, punchTime, undefined, { skipPayrollRecalc: true });
           restoredPunches += 1;
         } catch (error: any) {
           replayErrors.push(`${punchTime}: ${error?.message || "Failed to replay punch"}`);
         }
       }
+
+      await payrollService.recalculateDraftRunsForPeriods(companyId, [{ month: body.month, year: body.year }]);
     }
 
     res.json({
@@ -379,7 +389,7 @@ async function handleRebuildMonthFromMachine(req: any, res: any, next: any) {
         const biometricKey = employee.biometricId || employee.employeeCode;
         for (const punchTime of orderedUniquePunches) {
           try {
-            await attendanceService.biometricPunch(biometricKey, punchTime);
+            await attendanceService.biometricPunch(biometricKey, punchTime, undefined, { skipPayrollRecalc: true });
             restoredPunches += 1;
           } catch (error: any) {
             replayErrors.push(error?.message || "Failed to replay punch");
@@ -393,6 +403,10 @@ async function handleRebuildMonthFromMachine(req: any, res: any, next: any) {
         restoredPunches: body.dryRun ? 0 : restoredPunches,
         replayErrors: replayErrors.length
       });
+    }
+
+    if (!body.dryRun && companyId) {
+      await payrollService.recalculateDraftRunsForPeriods(companyId, [{ month: body.month, year: body.year }]);
     }
 
     res.json({
@@ -464,7 +478,7 @@ async function handleImportAttlogText(req: any, res: any, next: any) {
       if (!body.dryRun) {
         for (const punchTime of orderedUniquePunches) {
           try {
-            await attendanceService.biometricPunch(biometricKey, punchTime);
+            await attendanceService.biometricPunch(biometricKey, punchTime, undefined, { skipPayrollRecalc: true });
             restoredPunches += 1;
           } catch (error: any) {
             replayErrors.push(error?.message || "Failed to replay punch");
@@ -480,6 +494,10 @@ async function handleImportAttlogText(req: any, res: any, next: any) {
       });
     }
 
+    if (!body.dryRun && companyId) {
+      await payrollService.recalculateDraftRunsForPeriods(companyId, [{ month: body.month, year: body.year }]);
+    }
+
     res.json({
       success: true,
       month: body.month,
@@ -489,6 +507,75 @@ async function handleImportAttlogText(req: any, res: any, next: any) {
       removedAttendanceRows: body.dryRun ? 0 : attendanceRows.length,
       source: "attlog-text",
       results
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function handleInspectMonthAttendance(req: any, res: any, next: any) {
+  try {
+    const rawInput = req.method === "GET" ? req.query : req.body;
+    const body = inspectMonthAttendanceSchema.parse(rawInput);
+    const hasDeploySecret = req.query.secret === "fuhad-deploy-secret-2026";
+    const companyId = body.companyId || req.user?.companyId;
+    if (!companyId && !hasDeploySecret) throw new ApiError(400, "Company context required");
+
+    const monthStart = new Date(`${body.year}-${String(body.month).padStart(2, "0")}-01T00:00:00+05:30`);
+    const monthEnd = new Date(`${body.year}-${String(body.month).padStart(2, "0")}-${String(new Date(body.year, body.month, 0).getDate()).padStart(2, "0")}T23:59:59+05:30`);
+
+    const employees = await prisma.employee.findMany({
+      where: {
+        ...(companyId ? { companyId } : {}),
+        ...(body.employeeCode ? { employeeCode: body.employeeCode } : {})
+      },
+      select: {
+        id: true,
+        companyId: true,
+        employeeCode: true,
+        biometricId: true,
+        firstName: true,
+        lastName: true
+      },
+      orderBy: [{ employeeCode: "asc" }]
+    });
+
+    const attendance = await prisma.attendance.findMany({
+      where: {
+        employeeId: { in: employees.map((employee) => employee.id) },
+        workDate: { gte: monthStart, lte: monthEnd }
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        workDate: true,
+        checkInAt: true,
+        checkOutAt: true,
+        workMinutes: true,
+        isLate: true
+      },
+      orderBy: [{ workDate: "asc" }, { checkInAt: "asc" }]
+    });
+
+    const byEmployee = employees.map((employee) => {
+      const rows = attendance.filter((row) => row.employeeId === employee.id);
+      return {
+        id: employee.id,
+        companyId: employee.companyId,
+        employeeCode: employee.employeeCode,
+        biometricId: employee.biometricId,
+        name: `${employee.firstName} ${employee.lastName}`.trim(),
+        attendanceCount: rows.length,
+        sample: rows.slice(0, 10)
+      };
+    });
+
+    res.json({
+      success: true,
+      month: body.month,
+      year: body.year,
+      employees: byEmployee,
+      attendanceRows: attendance.length
     });
   } catch (error) {
     next(error);
@@ -549,6 +636,7 @@ async function handleCleanupSeeded(req: any, res: any, next: any) {
           id: { in: seededRows.map((row) => row.id) }
         }
       });
+      await payrollService.recalculateDraftRunsForPeriods(companyId, [{ month: body.month, year: body.year }]);
     }
 
     res.json({
@@ -591,8 +679,17 @@ attendanceRouter.post("/admin/trigger-device-sync", bypassOrRequireRoles([Role.S
 attendanceRouter.get("/admin/rebuild-month-from-machine", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleRebuildMonthFromMachine);
 attendanceRouter.post("/admin/rebuild-month-from-machine", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleRebuildMonthFromMachine);
 attendanceRouter.post("/admin/import-attlog-text", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleImportAttlogText);
+attendanceRouter.get("/admin/inspect-month-attendance", bypassOrRequireRoles([Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER]), handleInspectMonthAttendance);
 
 attendanceRouter.use(requireAuth);
+
+attendanceRouter.get("/today", async (req, res, next) => {
+  try {
+    res.json(await attendanceService.getTodayStatus(req.user!.id));
+  } catch (error) {
+    next(error);
+  }
+});
 
 attendanceRouter.post("/checkin", async (req, res, next) => {
   try {

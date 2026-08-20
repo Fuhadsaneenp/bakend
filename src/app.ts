@@ -49,20 +49,8 @@ export const createApp = () => {
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
   app.use(helmet({
-    crossOriginResourcePolicy: { policy: "same-site" },
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'none'"],
-        baseUri: ["'none'"],
-        formAction: ["'none'"],
-        frameAncestors: ["'none'"],
-        imgSrc: ["'self'", "data:"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        scriptSrc: ["'self'"],
-        connectSrc: ["'self'"],
-        objectSrc: ["'none'"]
-      }
-    }
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false
   }));
   app.use(cors({
     origin: (origin, callback) => {
@@ -110,7 +98,11 @@ export const createApp = () => {
 
       res.setHeader("Content-Type", mimeType);
       res.setHeader("Content-Length", String(bytes.length));
-      res.setHeader("Cache-Control", "private, max-age=3600");
+      if (mimeType === "application/pdf" || key.includes("payslip")) {
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      } else {
+        res.setHeader("Cache-Control", "private, max-age=3600");
+      }
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`);
       return res.send(bytes);

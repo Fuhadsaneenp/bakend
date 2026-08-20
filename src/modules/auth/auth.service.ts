@@ -19,7 +19,7 @@ const resetRequestMessage = "If an account exists for this email, a password res
 
 export const authService = {
   async login(email: string, password: string) {
-    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
     if (!user || !user.isActive) throw new ApiError(401, "Invalid credentials");
 
     const valid = await bcrypt.compare(password, user.passwordHash);
@@ -148,5 +148,151 @@ export const authService = {
 
     resetCodes.delete(normalizedEmail);
     return { ok: true, message: "Password updated successfully" };
+  },
+
+  async listImpersonationTargets(actorUser: AuthUser) {
+    const allowedRoles: string[] = ["SUPER_ADMIN", "HR_ADMIN"];
+    const isAuthorized = allowedRoles.includes(actorUser.role) || Boolean((actorUser as any).impersonatedBy);
+    if (!isAuthorized) {
+      throw new ApiError(403, "Access denied. Only administrators can switch accounts.");
+    }
+
+    const isSuperAdmin = actorUser.role === "SUPER_ADMIN" || (actorUser as any).impersonatedBy?.role === "SUPER_ADMIN";
+    const companyId = actorUser.companyId ?? (actorUser as any).impersonatedBy?.companyId;
+
+    const employees = await prisma.employee.findMany({
+      where: isSuperAdmin ? {} : { companyId: companyId ?? undefined },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            isActive: true
+          }
+        },
+        department: {
+          select: {
+            id: true,
+            name: true,
+            code: true
+          }
+        },
+        designation: {
+          select: {
+            id: true,
+            title: true
+          }
+        },
+        documents: {
+          where: { type: "PHOTO" },
+          select: {
+            id: true,
+            fileKey: true
+          },
+          take: 1
+        }
+      },
+      orderBy: [
+        { firstName: "asc" },
+        { lastName: "asc" }
+      ]
+    });
+
+    return employees.map((emp) => ({
+      id: emp.id,
+      employeeCode: emp.employeeCode,
+      biometricId: emp.biometricId,
+      firstName: emp.firstName,
+      middleName: emp.middleName,
+      lastName: emp.lastName,
+      email: emp.user?.email || emp.personalEmail,
+      role: emp.user?.role || "EMPLOYEE",
+      isActive: emp.user?.isActive ?? (emp.status === "ACTIVE"),
+      userId: emp.user?.id || emp.userId,
+      department: emp.department?.name || "General",
+      designation: emp.designation?.title || "Team Member",
+      photoKey: emp.documents?.[0]?.fileKey || null
+    }));
+  },
+
+  async impersonateUser(actorUser: AuthUser, target: { targetUserId?: string; targetEmployeeId?: string; targetEmail?: string }) {
+    const allowedRoles: string[] = ["SUPER_ADMIN", "HR_ADMIN"];
+    const isAuthorized = allowedRoles.includes(actorUser.role) || Boolean((actorUser as any).impersonatedBy);
+    if (!isAuthorized) {
+      throw new ApiError(403, "Access denied. Only administrators can impersonate users.");
+    }
+
+    const originalAdminInfo = (actorUser as any).impersonatedBy || {
+      id: actorUser.id,
+      email: actorUser.email,
+      role: actorUser.role
+    };
+
+    let targetUser: any = null;
+
+    if (target.targetUserId) {
+      targetUser = await prisma.user.findUnique({
+        where: { id: target.targetUserId },
+        include: { employee: true }
+      });
+    } else if (target.targetEmail) {
+      targetUser = await prisma.user.findUnique({
+        where: { email: target.targetEmail.trim().toLowerCase() },
+        include: { employee: true }
+      });
+    } else if (target.targetEmployeeId) {
+      const emp = await prisma.employee.findUnique({
+        where: { id: target.targetEmployeeId },
+        include: { user: true }
+      });
+      if (emp?.user) {
+        targetUser = { ...emp.user, employee: emp };
+      }
+    }
+
+    if (!targetUser) {
+      throw new ApiError(404, "Target user account not found");
+    }
+
+    if (!targetUser.isActive) {
+      throw new ApiError(400, "Cannot impersonate an inactive account");
+    }
+
+    const payload = {
+      id: targetUser.id,
+      companyId: targetUser.companyId,
+      role: targetUser.role,
+      email: targetUser.email,
+      impersonatedBy: originalAdminInfo
+    };
+
+    const accessToken = signAccessToken(payload as any);
+    const refreshToken = signRefreshToken(payload as any);
+
+    try {
+      await prisma.auditLog.create({
+        data: {
+          actorUserId: originalAdminInfo.id,
+          action: "AUTH_IMPERSONATE",
+          entity: "User",
+          entityId: targetUser.id,
+          metadata: {
+            actorEmail: originalAdminInfo.email,
+            targetEmail: targetUser.email,
+            targetRole: targetUser.role
+          }
+        }
+      });
+    } catch (err) {
+      console.warn("Failed to create audit log for impersonation:", err);
+    }
+
+    return {
+      accessToken,
+      refreshToken,
+      user: payload,
+      originalAdmin: originalAdminInfo
+    };
   }
 };

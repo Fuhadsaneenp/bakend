@@ -288,6 +288,9 @@ export const employeeService = {
           employeeCode: resolvedEmployeeCode,
           biometricId: data.biometricId || null,
           isHrHead: Boolean(data.isHrHead),
+          customAttendanceHoursEnabled: Boolean((data as any).customAttendanceHoursEnabled),
+          customFullDayHours: (data as any).customFullDayHours != null ? new Prisma.Decimal((data as any).customFullDayHours) : null,
+          customHalfDayHours: (data as any).customHalfDayHours != null ? new Prisma.Decimal((data as any).customHalfDayHours) : null,
           shiftId: data.shiftId || null,
           officeId: data.officeId || null
         } as any
@@ -336,6 +339,9 @@ export const employeeService = {
     managerId?: string | null;
     role?: Role;
     isHrHead?: boolean;
+    customAttendanceHoursEnabled?: boolean | null;
+    customFullDayHours?: number | null;
+    customHalfDayHours?: number | null;
     dateOfJoining?: string;
     biometricId?: string | null;
     employeeCode?: string;
@@ -391,6 +397,9 @@ export const employeeService = {
           designationId: data.designationId,
           managerId: data.managerId,
           isHrHead: typeof data.isHrHead === "boolean" ? data.isHrHead : undefined,
+          customAttendanceHoursEnabled: typeof (data as any).customAttendanceHoursEnabled === "boolean" ? (data as any).customAttendanceHoursEnabled : undefined,
+          customFullDayHours: (data as any).customFullDayHours !== undefined ? ((data as any).customFullDayHours != null ? new Prisma.Decimal((data as any).customFullDayHours) : null) : undefined,
+          customHalfDayHours: (data as any).customHalfDayHours !== undefined ? ((data as any).customHalfDayHours != null ? new Prisma.Decimal((data as any).customHalfDayHours) : null) : undefined,
           dateOfJoining: data.dateOfJoining ? new Date(data.dateOfJoining) : undefined,
           biometricId: data.biometricId,
           employeeCode: data.employeeCode,

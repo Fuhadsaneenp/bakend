@@ -71,7 +71,49 @@ function getShiftParams(employee: any): ShiftParams {
   };
 }
 
+async function recalculateDraftPayrollForWorkDate(companyId: string, workDate: Date) {
+  const { payrollService } = await import("../payroll/payroll.service.js");
+  await payrollService.recalculateDraftRunsForPeriods(companyId, [
+    {
+      month: workDate.getMonth() + 1,
+      year: workDate.getFullYear()
+    }
+  ]);
+}
+
 export const attendanceService = {
+  async getTodayStatus(userId: string) {
+    const employee = await prisma.employee.findUnique({ where: { userId }, include: { shift: true } });
+    if (!employee) return null;
+
+    const now = new Date();
+    const workDate = getKolkataStartOfDay(now);
+    const attendance = await prisma.attendance.findUnique({
+      where: { employeeId_workDate: { employeeId: employee.id, workDate } }
+    });
+
+    const shiftParams = getShiftParams(employee);
+    const isWorking = Boolean(attendance?.checkInAt && !attendance?.checkOutAt);
+
+    let currentWorkMinutes = attendance?.workMinutes || 0;
+    if (isWorking && attendance?.checkInAt) {
+      currentWorkMinutes = Math.max(0, differenceInMinutes(now, attendance.checkInAt));
+    }
+
+    return {
+      employeeId: employee.id,
+      employeeName: `${employee.firstName || ""} ${employee.lastName || ""}`.trim(),
+      workDate,
+      checkInAt: attendance?.checkInAt || null,
+      checkOutAt: attendance?.checkOutAt || null,
+      workMinutes: currentWorkMinutes,
+      isLate: attendance?.isLate || false,
+      isEarlyLeave: attendance?.isEarlyLeave || false,
+      isWorking,
+      shift: shiftParams
+    };
+  },
+
   async checkIn(userId: string, location?: { latitude?: number; longitude?: number }) {
     const employee = await prisma.employee.findUnique({ where: { userId }, include: { shift: true } });
     if (!employee) throw notFound("Employee");
@@ -82,18 +124,38 @@ export const attendanceService = {
     const shiftStart = getShiftTime(workDate, shiftParams.startTime);
     const lateLimit = new Date(shiftStart.getTime() + shiftParams.gracePeriod * 60 * 1000);
 
-    return prisma.attendance.upsert({
-      where: { employeeId_workDate: { employeeId: employee.id, workDate } },
-      create: {
-        employeeId: employee.id,
-        workDate,
-        checkInAt: now,
-        isLate: now > lateLimit,
-        latitude: location?.latitude,
-        longitude: location?.longitude
-      },
-      update: { checkInAt: now, isLate: now > lateLimit, latitude: location?.latitude, longitude: location?.longitude }
+    const existing = await prisma.attendance.findUnique({
+      where: { employeeId_workDate: { employeeId: employee.id, workDate } }
     });
+
+    let result;
+    if (!existing) {
+      result = await prisma.attendance.create({
+        data: {
+          employeeId: employee.id,
+          workDate,
+          checkInAt: now,
+          checkOutAt: null,
+          isLate: now > lateLimit,
+          latitude: location?.latitude,
+          longitude: location?.longitude
+        }
+      });
+    } else {
+      result = await prisma.attendance.update({
+        where: { id: existing.id },
+        data: {
+          checkInAt: existing.checkInAt || now,
+          checkOutAt: null,
+          isLate: existing.checkInAt ? existing.isLate : (now > lateLimit),
+          latitude: location?.latitude ?? existing.latitude,
+          longitude: location?.longitude ?? existing.longitude
+        }
+      });
+    }
+
+    await recalculateDraftPayrollForWorkDate(employee.companyId, workDate);
+    return result;
   },
 
   async checkOut(userId: string) {
@@ -111,7 +173,7 @@ export const attendanceService = {
     const worked = Math.max(0, differenceInMinutes(now, attendance.checkInAt));
     const isEarlyLeave = now < earlyLimit;
 
-    return prisma.attendance.update({
+    const result = await prisma.attendance.update({
       where: { id: attendance.id },
       data: {
         checkOutAt: now,
@@ -120,6 +182,8 @@ export const attendanceService = {
         overtimeMinutes: Math.max(0, worked - shiftParams.workMinutesFix)
       }
     });
+    await recalculateDraftPayrollForWorkDate(employee.companyId, workDate);
+    return result;
   },
 
   monthlyReport(companyId: string, month: number, year: number) {
@@ -167,7 +231,12 @@ export const attendanceService = {
     });
   },
 
-  async biometricPunch(biometricId: string, punchTimeStr: string, direction?: "IN" | "OUT") {
+  async biometricPunch(
+    biometricId: string,
+    punchTimeStr: string,
+    direction?: "IN" | "OUT",
+    options?: { skipPayrollRecalc?: boolean }
+  ) {
     let employee = await prisma.employee.findFirst({
       where: {
         OR: [
@@ -223,6 +292,9 @@ export const attendanceService = {
           isLate: punchTime > lateLimit
         }
       });
+      if (!options?.skipPayrollRecalc) {
+        await recalculateDraftPayrollForWorkDate(employee.companyId, workDate);
+      }
       return { employeeId: employee.id, type: "CHECK_IN", attendanceId: attendance.id };
     }
 
@@ -270,6 +342,9 @@ export const attendanceService = {
         overtimeMinutes: Math.max(0, worked - shiftParams.workMinutesFix)
       }
     });
+    if (!options?.skipPayrollRecalc) {
+      await recalculateDraftPayrollForWorkDate(employee.companyId, workDate);
+    }
     return { employeeId: employee.id, type: "CHECK_OUT", attendanceId: attendance.id };
   }
 };

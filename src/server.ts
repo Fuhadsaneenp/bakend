@@ -6,7 +6,7 @@ import { ensureShiftSchema } from "./lib/ensureShiftSchema.js";
 async function start() {
   const app = createApp();
 
-  app.listen(env.PORT, () => {
+  app.listen(env.PORT, "0.0.0.0", () => {
     console.log(`HR SaaS API listening on http://localhost:${env.PORT}`);
   });
 

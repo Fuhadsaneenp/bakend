@@ -53,9 +53,46 @@ function getKolkataMinutes(date: Date) {
   return hour * 60 + minute;
 }
 
-function attendanceCredit(row: { checkInAt?: Date | null; checkOutAt?: Date | null }) {
+function getAttendanceWorkedMinutes(row: {
+  checkInAt?: Date | null;
+  checkOutAt?: Date | null;
+  workMinutes?: number | null;
+}) {
+  const storedWorkedMinutes = Number(row.workMinutes || 0);
+  if (!row.checkInAt || !row.checkOutAt) return storedWorkedMinutes;
+  const calculatedWorkedMinutes = Math.max(0, Math.floor((row.checkOutAt.getTime() - row.checkInAt.getTime()) / 60_000));
+  return Math.max(storedWorkedMinutes, calculatedWorkedMinutes);
+}
+
+function attendanceCredit(
+  row: {
+    checkInAt?: Date | null;
+    checkOutAt?: Date | null;
+    workMinutes?: number | null;
+  },
+  employee?: {
+    customAttendanceHoursEnabled?: boolean | null;
+    customFullDayHours?: any;
+    customHalfDayHours?: any;
+  } | null
+) {
   if (!row.checkInAt) return 0;
+  const worked = getAttendanceWorkedMinutes(row);
+
+  if (employee?.customAttendanceHoursEnabled && employee.customFullDayHours != null) {
+    const fullDayMin = Number(employee.customFullDayHours) * 60;
+    const halfDayMin = employee.customHalfDayHours != null
+      ? Number(employee.customHalfDayHours) * 60
+      : fullDayMin / 2;
+
+    if (worked >= fullDayMin) return 1;
+    if (worked >= halfDayMin) return 0.5;
+    if (!row.checkOutAt) return 0.5;
+    return 0.5;
+  }
+
   if (!row.checkOutAt) return 0.5;
+  if (worked > 0 && worked < 4 * 60) return 0.5;
   if (getKolkataMinutes(row.checkInAt) > 13 * 60) return 0.5;
   if (getKolkataMinutes(row.checkOutAt) < 15 * 60) return 0.5;
   return 1;
@@ -93,15 +130,20 @@ function requestDayCredit(request: { status: string; reason: string }) {
 }
 
 function buildPayableDayTotal(input: {
-  attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
+  attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date; workMinutes?: number | null }>;
   wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
   periodStart: Date;
   periodEnd: Date;
+  employee?: {
+    customAttendanceHoursEnabled?: boolean | null;
+    customFullDayHours?: any;
+    customHalfDayHours?: any;
+  } | null;
 }) {
   const payableDays = new Map<string, number>();
 
   for (const row of input.attendance) {
-    const credit = attendanceCredit(row);
+    const credit = attendanceCredit(row, input.employee);
     if (credit > 0) payableDays.set(formatDayKey(row.workDate), credit);
   }
 
@@ -128,10 +170,15 @@ function buildPayableDayTotal(input: {
 }
 
 function buildLopDayTotal(input: {
-  attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
+  attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date; workMinutes?: number | null }>;
   wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
   periodStart: Date;
   periodEnd: Date;
+  employee?: {
+    customAttendanceHoursEnabled?: boolean | null;
+    customFullDayHours?: any;
+    customHalfDayHours?: any;
+  } | null;
 }) {
   const lopDays = new Map<string, number>();
 
@@ -140,7 +187,7 @@ function buildLopDayTotal(input: {
     if (workTime < input.periodStart.getTime() || workTime > input.periodEnd.getTime()) continue;
 
     const dayKey = formatDayKey(row.workDate);
-    const attendanceLop = Math.max(0, 1 - attendanceCredit(row));
+    const attendanceLop = Math.max(0, 1 - attendanceCredit(row, input.employee));
     if (attendanceLop > 0) lopDays.set(dayKey, Math.max(lopDays.get(dayKey) || 0, attendanceLop));
   }
 
@@ -171,7 +218,10 @@ function buildAttendanceSnapshot(input: {
     dateOfExit?: Date | null;
     shift?: { workingDays?: string | null } | null;
     company?: { worksSevenDays?: boolean | null } | null;
-    attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
+    customAttendanceHoursEnabled?: boolean | null;
+    customFullDayHours?: any;
+    customHalfDayHours?: any;
+    attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date; workMinutes?: number | null }>;
     wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
   };
 }) {
@@ -215,7 +265,7 @@ function buildAttendanceSnapshot(input: {
   for (const row of attendanceInPeriod) {
     const dayKey = formatDayKey(row.workDate);
     const currentCredit = dayCredits.get(dayKey) ?? 0;
-    dayCredits.set(dayKey, Math.max(currentCredit, attendanceCredit(row)));
+    dayCredits.set(dayKey, Math.max(currentCredit, attendanceCredit(row, input.employee)));
   }
 
   for (const request of wfhRequestsInPeriod) {
@@ -253,7 +303,7 @@ function computePayrollAmounts(input: {
     dateOfExit?: Date | null;
     shift?: { workingDays?: string | null } | null;
     company?: { worksSevenDays?: boolean | null } | null;
-    attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date }>;
+    attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date; workMinutes?: number | null }>;
     wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
     salary: { basic: Prisma.Decimal | number; allowances: Prisma.Decimal | number };
   };
@@ -636,6 +686,33 @@ export const payrollService = {
       data: { grossTotal, netTotal },
       include: { payslips: { include: { employee: { include: { salary: true } } } } }
     });
+  },
+
+  async recalculateDraftRunsForPeriods(companyId: string, periods: Array<{ month: number; year: number }>) {
+    const uniquePeriods = Array.from(
+      new Map(
+        periods
+          .filter((period) => period.month >= 1 && period.month <= 12 && period.year >= 2020)
+          .map((period) => [`${period.year}-${period.month}`, period] as const)
+      ).values()
+    );
+
+    if (uniquePeriods.length === 0) return [];
+
+    const runs = await prisma.payrollRun.findMany({
+      where: {
+        companyId,
+        status: { in: ["DRAFT", "DRAFT_FINAL"] },
+        OR: uniquePeriods.map((period) => ({ month: period.month, year: period.year }))
+      },
+      select: { id: true }
+    });
+
+    const recalculatedRuns = [];
+    for (const run of runs) {
+      recalculatedRuns.push(await this.recalculateDraftRun(companyId, run.id));
+    }
+    return recalculatedRuns;
   },
 
   async skipPayslip(companyId: string, payslipId: string) {

@@ -173,6 +173,9 @@ employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (r
       shiftId: z.string().optional(),
       officeId: z.string().optional(),
       isHrHead: z.boolean().optional(),
+      customAttendanceHoursEnabled: z.boolean().optional(),
+      customFullDayHours: z.number().positive().optional().nullable(),
+      customHalfDayHours: z.number().positive().optional().nullable(),
       ...profileFieldsSchema,
       salary: z.object({
         basic: z.number().nonnegative(),
@@ -216,6 +219,9 @@ employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
       shiftId: z.string().optional().nullable(),
       officeId: z.string().optional().nullable(),
       isHrHead: z.boolean().optional(),
+      customAttendanceHoursEnabled: z.boolean().optional().nullable(),
+      customFullDayHours: z.number().positive().optional().nullable(),
+      customHalfDayHours: z.number().positive().optional().nullable(),
       ...nullableProfileFieldsSchema,
       salary: z.object({
         basic: z.number().nonnegative(),
