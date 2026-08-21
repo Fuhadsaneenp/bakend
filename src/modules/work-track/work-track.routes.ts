@@ -300,6 +300,19 @@ workTrackRouter.post("/meta/accounts/:clientId", async (req, res, next) => {
   }
 });
 
+workTrackRouter.post("/meta/sync-all", async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    res.json(await workTrackService.syncAllMetaAccounts(req.user.companyId, {
+      since: typeof req.query.since === "string" ? req.query.since : undefined,
+      until: typeof req.query.until === "string" ? req.query.until : undefined,
+      datePreset: typeof req.query.datePreset === "string" ? req.query.datePreset : undefined
+    }));
+  } catch (error) {
+    next(error);
+  }
+});
+
 workTrackRouter.post("/meta/sync/:clientId", async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");

@@ -1528,15 +1528,32 @@ export const workTrackService = {
       orderBy: { updatedAt: "desc" }
     });
 
-    const candidateToken = tokenSource?.accessToken || process.env.META_ACCESS_TOKEN;
+    const tokenCandidates = [
+      process.env.META_ACCESS_TOKEN,
+      tokenSource?.accessToken
+    ].filter(Boolean) as string[];
 
-    if (candidateToken) {
+    let validToken: string | null = null;
+    let connectedAccounts: Array<{ id: string; name: string }> = [];
+
+    for (const token of tokenCandidates) {
       try {
-        const connectedAccounts = await fetchConnectedMetaAdAccounts(candidateToken);
-        const connectedAccountIds = connectedAccounts.map(account => account.id);
+        const accounts = await fetchConnectedMetaAdAccounts(token);
+        if (accounts && accounts.length > 0) {
+          validToken = token;
+          connectedAccounts = accounts;
+          break;
+        }
+      } catch (error: any) {
+        console.warn("Meta token candidate check failed:", error?.message || error);
+      }
+    }
 
+    if (validToken && connectedAccounts.length > 0) {
+      try {
         for (const account of connectedAccounts) {
-          const existingAccount = await prisma.metaAdAccount.findFirst({
+          // Check if ad account or client with matching name already exists
+          let existingAccount = await prisma.metaAdAccount.findFirst({
             where: {
               companyId,
               adAccountId: account.id
@@ -1544,22 +1561,65 @@ export const workTrackService = {
             include: { client: true }
           });
 
+          if (!existingAccount) {
+            const matchingClient = await prisma.client.findFirst({
+              where: {
+                companyId,
+                name: account.name
+              }
+            });
+
+            if (matchingClient) {
+              const clientMetaAcc = await prisma.metaAdAccount.findUnique({
+                where: { clientId: matchingClient.id }
+              });
+
+              if (clientMetaAcc) {
+                existingAccount = await prisma.metaAdAccount.update({
+                  where: { id: clientMetaAcc.id },
+                  data: {
+                    adAccountId: account.id,
+                    accessToken: validToken,
+                    tokenStatus: "VALID",
+                    connectionStatus: "CONNECTED",
+                    syncFrequency: "DAILY"
+                  },
+                  include: { client: true }
+                });
+              } else {
+                existingAccount = await prisma.metaAdAccount.create({
+                  data: {
+                    companyId,
+                    clientId: matchingClient.id,
+                    adAccountId: account.id,
+                    accessToken: validToken,
+                    tokenStatus: "VALID",
+                    connectionStatus: "CONNECTED",
+                    syncFrequency: "DAILY"
+                  },
+                  include: { client: true }
+                });
+              }
+            }
+          }
+
           if (existingAccount) {
             await prisma.client.update({
               where: { id: existingAccount.clientId },
               data: {
                 name: existingAccount.client.name || account.name
               }
-            });
+            }).catch(() => {});
             await prisma.metaAdAccount.update({
               where: { id: existingAccount.id },
               data: {
-                accessToken: candidateToken,
+                adAccountId: account.id,
+                accessToken: validToken,
                 tokenStatus: "VALID",
                 connectionStatus: "CONNECTED",
-                syncFrequency: "HOURLY"
+                syncFrequency: "DAILY"
               }
-            });
+            }).catch(() => {});
             continue;
           }
 
@@ -1567,8 +1627,8 @@ export const workTrackService = {
             data: {
               companyId,
               name: account.name,
-              details: "Meta Ads account",
-              packageName: "Meta Ads"
+              details: `Meta Ad Account (${account.id})`,
+              packageName: "Performance Marketing"
             }
           });
 
@@ -1577,24 +1637,15 @@ export const workTrackService = {
               companyId,
               clientId: client.id,
               adAccountId: account.id,
-              accessToken: candidateToken,
+              accessToken: validToken,
               tokenStatus: "VALID",
               connectionStatus: "CONNECTED",
-              syncFrequency: "HOURLY"
+              syncFrequency: "DAILY"
             }
           });
         }
       } catch (error: any) {
-        console.warn("Unable to reconcile Meta ad accounts (token may be expired or invalid):", error?.message || error);
-        if (tokenSource) {
-          await prisma.metaAdAccount.updateMany({
-            where: { id: tokenSource.id },
-            data: {
-              tokenStatus: "EXPIRED",
-              connectionStatus: "DISCONNECTED"
-            }
-          }).catch(() => {});
-        }
+        console.warn("Unable to reconcile Meta ad accounts:", error?.message || error);
       }
     }
 
@@ -1618,7 +1669,7 @@ export const workTrackService = {
       orderBy: { name: "asc" }
     });
 
-    return clients.map(c => {
+    const mappedClients = clients.map(c => {
       const activeCampaignsCount = c.metaCampaigns.filter(camp => camp.status === "ACTIVE").length;
       const totalSpend = c.metaCampaigns.reduce((sum, camp) => sum + (camp.amountSpent || 0), 0);
       const totalLeads = c.metaCampaigns.reduce((sum, camp) => sum + (camp.leads || 0), 0);
@@ -1643,6 +1694,45 @@ export const workTrackService = {
         }
       };
     });
+
+    // Sort: Connected accounts with campaigns/spend first, then connected accounts, then other clients
+    return mappedClients.sort((a, b) => {
+      const aConnected = a.metaAdAccount?.connectionStatus === "CONNECTED" && a.metaAdAccount?.tokenStatus === "VALID";
+      const bConnected = b.metaAdAccount?.connectionStatus === "CONNECTED" && b.metaAdAccount?.tokenStatus === "VALID";
+      if (aConnected && !bConnected) return -1;
+      if (!aConnected && bConnected) return 1;
+
+      if ((b.stats?.totalSpend || 0) !== (a.stats?.totalSpend || 0)) {
+        return (b.stats?.totalSpend || 0) - (a.stats?.totalSpend || 0);
+      }
+      if ((b.stats?.campaignsCount || 0) !== (a.stats?.campaignsCount || 0)) {
+        return (b.stats?.campaignsCount || 0) - (a.stats?.campaignsCount || 0);
+      }
+      return a.name.localeCompare(b.name);
+    });
+  },
+
+  async syncAllMetaAccounts(companyId: string, options: { since?: string; until?: string; datePreset?: string } = {}) {
+    const clients = await this.getMetaClients(companyId);
+    const connectedClients = clients.filter(c => c.metaAdAccount?.connectionStatus === "CONNECTED" && c.metaAdAccount?.adAccountId);
+    const results: any[] = [];
+
+    for (const client of connectedClients) {
+      try {
+        const syncResult = await this.syncMetaAccount(companyId, client.id, options);
+        results.push({ clientId: client.id, name: client.name, success: true, count: syncResult.metaCampaigns?.length || 0 });
+      } catch (err: any) {
+        console.warn(`Sync failed for ${client.name} (${client.id}):`, err?.message || err);
+        results.push({ clientId: client.id, name: client.name, success: false, error: err?.message || "Sync failed" });
+      }
+    }
+
+    return {
+      success: true,
+      syncedAt: new Date(),
+      totalAccounts: connectedClients.length,
+      results
+    };
   },
 
   async getMetaAccountDetails(companyId: string, clientId: string) {
