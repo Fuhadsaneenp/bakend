@@ -1746,14 +1746,14 @@ export const workTrackService = {
     });
     if (!client) throw notFound("Client not found");
 
-    const token = client.metaAdAccount?.accessToken;
+    const token = client.metaAdAccount?.accessToken || process.env.META_ACCESS_TOKEN;
     const adAccountId = client.metaAdAccount?.adAccountId;
 
     const now = new Date();
     const syncedCampaigns: any[] = [];
 
     if (!adAccountId || !token) {
-      throw new ApiError(400, "Meta ad account is not configured for this client");
+      throw new ApiError(400, "Meta ad account or access token is not configured for this client");
     }
 
     try {
@@ -1999,7 +1999,7 @@ export const workTrackService = {
 
     if (data.status !== undefined) {
       const nextStatus = String(data.status).toUpperCase() === "ACTIVE" ? "ACTIVE" : "PAUSED";
-      const token = existingCampaign.client.metaAdAccount?.accessToken;
+      const token = existingCampaign.client.metaAdAccount?.accessToken || process.env.META_ACCESS_TOKEN;
       const metaCampaignId = existingCampaign.metaCampaignId;
 
       if (!token || !metaCampaignId) {

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma.js";
 
-const META_ACCESS_TOKEN = "EAGPX4DeSj5EBSDWEkrhBxmXUTmN5GwuRiryaRThFaMmwCSRgmL5MZCLZBECQ9OFArbjiCfk6XA0fgyBgbJVuhoURUW7K2rGIdR0ML1ssOdWLrbadxZCdKNmULkrkYZBXXh5QlJkKrb4fjkLingovFm7KWZCpwXKwyO3gWoVZCgZAEhTPdUQL3l2bkiYiiLmyF2VozEeQjczClewzlhBX9UzWBHBy0h1FbQqqZAZAmD0Hs5V1t7svgq8McTBToqrWpoKuSyxKYkUFW9FZAZBOXmschFg";
+const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || "EAGPX4DeSj5EBSVqZAUDhCdmv2tC5XLBdlWsZAMYqONwPGGhku5GZBPuDpVAiAnsNW5wgy5dRbJlAP9blToD6HZCv2i1BMnoayIB6pTzindkGZBajcUKO9zmZAgQpPh55y8ZAHT9hY9p24lqInajrmGdeXvVJr9drcbN6OavbFjazxwHx96c7fri02K0ZABQpvwZDZD";
 
 async function fetchJson(url: string) {
   const res = await fetch(url);
