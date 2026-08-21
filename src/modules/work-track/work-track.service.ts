@@ -200,15 +200,52 @@ const trackCoordinatorPermissionCodes: Record<string, string[]> = {
   "data-entry": ["data_entry.review.submit"]
 };
 
+function isCoordinatorOrHead(employee: {
+  department?: { name?: string | null } | null;
+  designation?: { title?: string | null } | null;
+  role?: string | null;
+  user?: { role?: string | null } | null;
+}) {
+  const title = (employee.designation?.title || "").toLowerCase();
+  const userRole = (employee.user?.role || employee.role || "").toUpperCase();
+
+  const isCoord =
+    title.includes("coordinator") ||
+    title.includes("co-ordinator") ||
+    title.includes("coordinat");
+
+  const isHead =
+    title.includes("head") ||
+    title.includes("lead") ||
+    title.includes("manager") ||
+    title.includes("director") ||
+    title.includes("supervisor") ||
+    title.includes("admin") ||
+    title.includes("chief") ||
+    title.includes("officer") ||
+    userRole === "SUPER_ADMIN" ||
+    userRole === "HR_ADMIN" ||
+    userRole === "ADMIN";
+
+  return isCoord || isHead;
+}
+
 function employeeMatchesWorkTrack(employee: {
   department?: { name?: string | null } | null;
   designation?: { title?: string | null } | null;
+  role?: string | null;
+  user?: { role?: string | null } | null;
 }, track?: string) {
+  // If employee is naturally a coordinator or head, they should not match pure member track
+  if (isCoordinatorOrHead(employee)) {
+    return false;
+  }
+
   const title = (employee.designation?.title || "").toLowerCase();
   const department = (employee.department?.name || "").toLowerCase();
 
-  const isVideoPerson = title.includes("video") || title.includes("motion") || title.includes("animat") || title.includes("editor") || department.includes("video") || department.includes("production");
-  const isDesignPerson = title.includes("designer") || title.includes("graphic") || title.includes("ui/ux") || title.includes("ui design") || title.includes("brand") || (department.includes("design") && !isVideoPerson);
+  const isVideoPerson = title.includes("video") || title.includes("motion") || title.includes("animat") || title.includes("editor") || title.includes("cinemat") || title.includes("colorist") || title.includes("videograph") || department.includes("video") || department.includes("production");
+  const isDesignPerson = title.includes("designer") || title.includes("graphic") || title.includes("ui/ux") || title.includes("ui design") || title.includes("brand") || title.includes("visual") || title.includes("illustrat") || (department.includes("design") && !isVideoPerson);
 
   if (track === "designer") {
     return isDesignPerson && !isVideoPerson;
@@ -220,7 +257,7 @@ function employeeMatchesWorkTrack(employee: {
     return title.includes("seo") || department.includes("seo");
   }
   if (track === "performance-marketing") {
-    return title.includes("marketing") || title.includes("ads") || department.includes("marketing") || department.includes("growth");
+    return title.includes("marketing") || title.includes("ads") || title.includes("media buyer") || department.includes("marketing") || department.includes("growth");
   }
   if (track === "development") {
     return title.includes("developer") || title.includes("engineer") || department.includes("development") || department.includes("tech");
@@ -595,7 +632,7 @@ export const workTrackService = {
         );
       }
 
-      if (hasTrackAccess && !hasCoordinatorAccess) {
+      if (hasTrackAccess && !hasCoordinatorAccess && !isCoordinatorOrHead(employee)) {
         filtered.push(employee);
         continue;
       }
