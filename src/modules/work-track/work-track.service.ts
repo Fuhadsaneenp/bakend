@@ -1523,16 +1523,16 @@ export const workTrackService = {
     const tokenSource = await prisma.metaAdAccount.findFirst({
       where: {
         companyId,
-        accessToken: { not: null },
-        tokenStatus: "VALID",
-        connectionStatus: "CONNECTED"
+        accessToken: { not: null }
       },
       orderBy: { updatedAt: "desc" }
     });
 
-    if (tokenSource?.accessToken) {
+    const candidateToken = tokenSource?.accessToken || process.env.META_ACCESS_TOKEN;
+
+    if (candidateToken) {
       try {
-        const connectedAccounts = await fetchConnectedMetaAdAccounts(tokenSource.accessToken);
+        const connectedAccounts = await fetchConnectedMetaAdAccounts(candidateToken);
         const connectedAccountIds = connectedAccounts.map(account => account.id);
 
         for (const account of connectedAccounts) {
@@ -1554,7 +1554,7 @@ export const workTrackService = {
             await prisma.metaAdAccount.update({
               where: { id: existingAccount.id },
               data: {
-                accessToken: tokenSource.accessToken,
+                accessToken: candidateToken,
                 tokenStatus: "VALID",
                 connectionStatus: "CONNECTED",
                 syncFrequency: "HOURLY"
@@ -1577,40 +1577,30 @@ export const workTrackService = {
               companyId,
               clientId: client.id,
               adAccountId: account.id,
-              accessToken: tokenSource.accessToken,
+              accessToken: candidateToken,
               tokenStatus: "VALID",
               connectionStatus: "CONNECTED",
               syncFrequency: "HOURLY"
             }
           });
         }
-
-        await prisma.metaAdAccount.updateMany({
-          where: {
-            companyId,
-            adAccountId: { notIn: connectedAccountIds }
-          },
-          data: {
-            tokenStatus: "NOT_CONFIGURED",
-            connectionStatus: "DISCONNECTED"
-          }
-        });
-      } catch (error) {
-        console.error("Unable to reconcile Meta ad accounts:", error);
+      } catch (error: any) {
+        console.warn("Unable to reconcile Meta ad accounts (token may be expired or invalid):", error?.message || error);
+        if (tokenSource) {
+          await prisma.metaAdAccount.updateMany({
+            where: { id: tokenSource.id },
+            data: {
+              tokenStatus: "EXPIRED",
+              connectionStatus: "DISCONNECTED"
+            }
+          }).catch(() => {});
+        }
       }
     }
 
     const clients = await prisma.client.findMany({
       where: {
-        companyId,
-        metaAdAccount: {
-          is: {
-            accessToken: { not: null },
-            adAccountId: { not: null },
-            tokenStatus: "VALID",
-            connectionStatus: "CONNECTED"
-          }
-        }
+        companyId
       },
       include: {
         metaAdAccount: true,
@@ -1687,35 +1677,64 @@ export const workTrackService = {
     const client = await prisma.client.findFirst({ where: { id: clientId, companyId } });
     if (!client) throw notFound("Client not found");
 
+    let tokenStatus = data.tokenStatus || (data.accessToken ? "VALID" : "NOT_CONFIGURED");
+    let connectionStatus = data.connectionStatus || (data.accessToken ? "CONNECTED" : "DISCONNECTED");
+
+    if (data.accessToken) {
+      try {
+        const testRes = await fetch(`https://graph.facebook.com/v20.0/me?access_token=${data.accessToken}`);
+        const testJson: any = await testRes.json();
+        if (!testRes.ok || testJson?.error) {
+          tokenStatus = "EXPIRED";
+          connectionStatus = "DISCONNECTED";
+        } else {
+          tokenStatus = "VALID";
+          connectionStatus = "CONNECTED";
+        }
+      } catch {
+        tokenStatus = "EXPIRED";
+        connectionStatus = "DISCONNECTED";
+      }
+    }
+
+    const normalizedAdAccountId = data.adAccountId ? normalizeMetaAdAccountId(data.adAccountId) : null;
+
     const adAccount = await prisma.metaAdAccount.upsert({
       where: { clientId },
       create: {
         companyId,
         clientId,
         businessManagerId: data.businessManagerId || null,
-        adAccountId: data.adAccountId || null,
+        adAccountId: normalizedAdAccountId,
         pageId: data.pageId || null,
         instagramAccountId: data.instagramAccountId || null,
         pixelId: data.pixelId || null,
         accessToken: data.accessToken || null,
-        tokenStatus: data.accessToken ? "VALID" : "NOT_CONFIGURED",
-        connectionStatus: data.accessToken ? "CONNECTED" : "DISCONNECTED",
+        tokenStatus,
+        connectionStatus,
         syncFrequency: data.syncFrequency || "DAILY",
         lastSyncedAt: new Date()
       },
       update: {
         businessManagerId: data.businessManagerId,
-        adAccountId: data.adAccountId,
+        adAccountId: normalizedAdAccountId,
         pageId: data.pageId,
         instagramAccountId: data.instagramAccountId,
         pixelId: data.pixelId,
         accessToken: data.accessToken !== undefined ? data.accessToken : undefined,
-        tokenStatus: data.tokenStatus || (data.accessToken ? "VALID" : undefined),
-        connectionStatus: data.connectionStatus || (data.accessToken ? "CONNECTED" : undefined),
+        tokenStatus,
+        connectionStatus,
         syncFrequency: data.syncFrequency,
         lastSyncedAt: new Date()
       }
     });
+
+    // If valid token and account ID, trigger async live sync
+    if (tokenStatus === "VALID" && normalizedAdAccountId && data.accessToken) {
+      this.syncMetaAccount(companyId, clientId).catch((err) => {
+        console.warn("Background sync after Meta account update failed:", err?.message || err);
+      });
+    }
 
     return adAccount;
   },
