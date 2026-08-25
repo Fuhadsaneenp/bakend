@@ -12,7 +12,7 @@ wfhRouter.use(requireAuth);
 
 wfhRouter.post("/request", async (req, res, next) => {
   try {
-    const body = z.object({ startDate: z.string(), endDate: z.string(), reason: z.string().min(5) }).parse(req.body);
+    const body = z.object({ startDate: z.string(), endDate: z.string(), reason: z.string().min(1) }).parse(req.body);
     res.status(201).json(await wfhService.request(req.user!.id, body));
   } catch (error) {
     next(error);

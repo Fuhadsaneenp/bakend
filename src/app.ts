@@ -16,6 +16,16 @@ const productionOrigins = [
   "https://secondtales.com"
 ];
 
+const inferMimeTypeFromKey = (key: string) => {
+  const lowerKey = key.toLowerCase();
+  if (lowerKey.endsWith(".jpg") || lowerKey.endsWith(".jpeg")) return "image/jpeg";
+  if (lowerKey.endsWith(".png")) return "image/png";
+  if (lowerKey.endsWith(".webp")) return "image/webp";
+  if (lowerKey.endsWith(".gif")) return "image/gif";
+  if (lowerKey.endsWith(".pdf")) return "application/pdf";
+  return "application/octet-stream";
+};
+
 const configuredOrigins = () => {
   const origins = new Set([
     env.APP_ORIGIN,
@@ -65,8 +75,8 @@ export const createApp = () => {
     maxAge: 600
   }));
   app.use("/iclock", iclockRouter);
-  app.use(express.json({ limit: "2mb" }));
-  app.use(express.urlencoded({ extended: false, limit: "100kb" }));
+  app.use(express.json({ limit: "25mb" }));
+  app.use(express.urlencoded({ extended: false, limit: "25mb" }));
   app.use(morgan("combined"));
   app.use(rateLimit({
     windowMs: 60_000,
@@ -93,7 +103,7 @@ export const createApp = () => {
       const bytes = databaseBytes
         ? Buffer.from(databaseBytes)
         : await storageService.getObject(key);
-      const mimeType = document?.mimeType || (letter ? "application/pdf" : "application/octet-stream");
+      const mimeType = document?.mimeType || (letter ? "application/pdf" : inferMimeTypeFromKey(key));
       const fileName = document?.fileName || (letter ? `${letter.title}.pdf` : key.split("/").pop()) || "download";
 
       res.setHeader("Content-Type", mimeType);

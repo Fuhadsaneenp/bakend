@@ -246,18 +246,30 @@ export const authService = {
         where: { id: target.targetUserId },
         include: { employee: true }
       });
-    } else if (target.targetEmail) {
+    }
+    
+    if (!targetUser && target.targetEmail) {
       targetUser = await prisma.user.findUnique({
         where: { email: target.targetEmail.trim().toLowerCase() },
         include: { employee: true }
       });
-    } else if (target.targetEmployeeId) {
+    }
+    
+    if (!targetUser && target.targetEmployeeId) {
       const emp = await prisma.employee.findUnique({
         where: { id: target.targetEmployeeId },
         include: { user: true }
       });
       if (emp?.user) {
         targetUser = { ...emp.user, employee: emp };
+      } else if (emp) {
+        const empEmail = ((emp as any).workEmail || emp.personalEmail || "").trim().toLowerCase();
+        if (empEmail) {
+          targetUser = await prisma.user.findUnique({
+            where: { email: empEmail },
+            include: { employee: true }
+          });
+        }
       }
     }
 
@@ -279,6 +291,17 @@ export const authService = {
 
     const accessToken = signAccessToken(payload as any);
     const refreshToken = signRefreshToken(payload as any);
+
+    try {
+      if (targetUser.id) {
+        await prisma.user.update({
+          where: { id: targetUser.id },
+          data: { refreshHash: await bcrypt.hash(refreshToken, 10) }
+        });
+      }
+    } catch (err) {
+      console.warn("Failed to store refresh token hash for impersonation:", err);
+    }
 
     try {
       await prisma.auditLog.create({

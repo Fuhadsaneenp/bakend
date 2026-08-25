@@ -297,7 +297,18 @@ export const authorityService = {
   },
 
   async getUserAccess(userId: string) {
-    return permissionService.getAccessPayload(userId);
+    let targetUserId = userId;
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      const emp = await prisma.employee.findUnique({
+        where: { id: userId },
+        include: { user: true }
+      });
+      if (emp?.user) {
+        targetUserId = emp.user.id;
+      }
+    }
+    return permissionService.getAccessPayload(targetUserId);
   },
 
   async updateUserPermissionsBatch(actorUserId: string, userId: string, data: {
@@ -305,7 +316,36 @@ export const authorityService = {
     accessProfileIds?: string[];
     permissionOverrides?: Array<{ permissionCode: string; effect: PermissionEffect; reason?: string }>;
   }) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    let user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      const emp = await prisma.employee.findUnique({
+        where: { id: userId },
+        include: { user: true }
+      });
+      if (emp?.user) {
+        user = emp.user;
+        userId = emp.user.id;
+      } else if (emp) {
+        const email = emp.personalEmail || `${(emp.employeeCode || "emp").toLowerCase()}@stems.secondtales.com`;
+        user = await prisma.user.findUnique({ where: { email } });
+        if (user) {
+          await prisma.employee.update({ where: { id: emp.id }, data: { userId: user.id } });
+          userId = user.id;
+        } else {
+          user = await prisma.user.create({
+            data: {
+              email,
+              passwordHash: "$2b$10$abcdefghijklmnopqrstuvwxyz123456",
+              role: (data.role as any) || Role.EMPLOYEE,
+              companyId: emp.companyId,
+              isActive: true
+            }
+          });
+          await prisma.employee.update({ where: { id: emp.id }, data: { userId: user.id } });
+          userId = user.id;
+        }
+      }
+    }
     if (!user) throw new ApiError(404, "User not found");
 
     if (data.role) {

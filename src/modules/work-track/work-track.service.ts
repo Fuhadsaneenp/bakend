@@ -1137,15 +1137,6 @@ export const workTrackService = {
         }
       });
 
-      // Status history for rework
-      await prisma.statusHistory.create({
-        data: {
-          workCardId: id,
-          status: "REWORK",
-          userId
-        }
-      });
-
       // Notify Designer
       if (card.assignedTo?.userId) {
         await prisma.notification.create({

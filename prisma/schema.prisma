@@ -730,7 +730,7 @@ model WorkCard {
   assignedBy    Employee?       @relation("CreatedWorkCards", fields: [assignedById], references: [id])
   status        String          // PENDING, IN_PROGRESS, FINISHED, OUT_TO_DELIVER, APPROVED, REWORK
   reworkCount   Int             @default(0)
-  files         String?         @db.Text // JSON string
+  files         String?         @db.LongText // JSON string with base64 deliverable previews
   pointsEarned  Float?          @default(0)
   ratings       Rating[]
   statusHistory StatusHistory[]

@@ -44,10 +44,10 @@ export const leaveAllocationService = {
 
   // Helper validation
   async validateLeaveBalance(employeeId: string, leaveType: string, startDate: Date, endDate: Date) {
-    const requestedDays = differenceInDays(new Date(endDate), new Date(startDate)) + 1;
+    const requestedDays = Math.max(1, differenceInDays(new Date(endDate), new Date(startDate)) + 1);
     const year = new Date(startDate).getFullYear();
 
-    const allocation = await prisma.leaveAllocation.findUnique({
+    let allocation = await prisma.leaveAllocation.findUnique({
       where: {
         employeeId_leaveType_year: {
           employeeId,
@@ -58,7 +58,40 @@ export const leaveAllocationService = {
     });
 
     if (!allocation) {
-      throw new ApiError(400, `No leave allocation set up for '${leaveType}' in year ${year}.`);
+      const employee = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { companyId: true }
+      });
+
+      let defaultMaxDays = 12;
+      if (employee?.companyId) {
+        const setting = await prisma.companySetting.findUnique({
+          where: {
+            companyId_key: {
+              companyId: employee.companyId,
+              key: "timeoff_types"
+            }
+          }
+        });
+        if (setting?.value && Array.isArray(setting.value)) {
+          const matchedType = (setting.value as any[]).find(
+            t => t?.name && (t.name.toLowerCase() === leaveType.toLowerCase() || leaveType.toLowerCase().includes(t.name.toLowerCase()))
+          );
+          if (matchedType?.allocated != null && !isNaN(Number(matchedType.allocated))) {
+            defaultMaxDays = Number(matchedType.allocated);
+          }
+        }
+      }
+
+      allocation = await prisma.leaveAllocation.create({
+        data: {
+          employeeId,
+          leaveType,
+          year,
+          maxDays: defaultMaxDays,
+          usedDays: 0.00
+        }
+      });
     }
 
     const remaining = Number(allocation.maxDays) - Number(allocation.usedDays);
@@ -73,10 +106,10 @@ export const leaveAllocationService = {
   },
 
   async recordLeaveUsage(employeeId: string, leaveType: string, startDate: Date, endDate: Date, isDeduct: boolean) {
-    const requestedDays = differenceInDays(new Date(endDate), new Date(startDate)) + 1;
+    const requestedDays = Math.max(1, differenceInDays(new Date(endDate), new Date(startDate)) + 1);
     const year = new Date(startDate).getFullYear();
 
-    const allocation = await prisma.leaveAllocation.findUnique({
+    let allocation = await prisma.leaveAllocation.findUnique({
       where: {
         employeeId_leaveType_year: {
           employeeId,
@@ -86,7 +119,42 @@ export const leaveAllocationService = {
       }
     });
 
-    if (!allocation) return;
+    if (!allocation) {
+      const employee = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { companyId: true }
+      });
+
+      let defaultMaxDays = 12;
+      if (employee?.companyId) {
+        const setting = await prisma.companySetting.findUnique({
+          where: {
+            companyId_key: {
+              companyId: employee.companyId,
+              key: "timeoff_types"
+            }
+          }
+        });
+        if (setting?.value && Array.isArray(setting.value)) {
+          const matchedType = (setting.value as any[]).find(
+            t => t?.name && (t.name.toLowerCase() === leaveType.toLowerCase() || leaveType.toLowerCase().includes(t.name.toLowerCase()))
+          );
+          if (matchedType?.allocated != null && !isNaN(Number(matchedType.allocated))) {
+            defaultMaxDays = Number(matchedType.allocated);
+          }
+        }
+      }
+
+      allocation = await prisma.leaveAllocation.create({
+        data: {
+          employeeId,
+          leaveType,
+          year,
+          maxDays: defaultMaxDays,
+          usedDays: 0.00
+        }
+      });
+    }
 
     const change = isDeduct ? requestedDays : -requestedDays;
     const nextUsedDays = Math.max(0, Number(allocation.usedDays) + change);

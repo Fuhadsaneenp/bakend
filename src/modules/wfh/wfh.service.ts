@@ -39,9 +39,37 @@ function formatRequestDateRange(startDate: Date, endDate: Date) {
 }
 
 function parseRequestType(reason: string) {
-  const match = reason.match(/^\[([^\]]+)\]/)?.[1] || "Request";
-  if (match === "WFH") return "Work From Home";
+  const match = reason.match(/^\[([^\]]+)\]/)?.[1]?.trim() || "Request";
+  const normalized = match.toLowerCase();
+  if (normalized === "wfh" || normalized === "work from home" || normalized === "work from home (wfh)" || normalized.includes("work from home")) {
+    return "Work From Home";
+  }
   return match;
+}
+
+function isLeaveAllocationRequired(requestType: string, reason: string): boolean {
+  const normalized = requestType.trim().toLowerCase();
+  if (
+    normalized === "work from home" ||
+    normalized === "wfh" ||
+    normalized === "work from home (wfh)" ||
+    normalized.includes("work from home")
+  ) {
+    return false;
+  }
+  if (normalized === "missed punch" || reason.startsWith("[Missed Punch]")) {
+    return false;
+  }
+  if (normalized === "shooting" || normalized.includes("shooting")) {
+    return false;
+  }
+  if (normalized === "unpaid leave" || normalized.includes("unpaid") || normalized.includes("lop")) {
+    return false;
+  }
+  if (normalized === "request") {
+    return false;
+  }
+  return true;
 }
 
 function parseMissedPunchTimes(reason: string) {
@@ -298,7 +326,7 @@ export const wfhService = {
     }
 
     const leaveType = parseRequestType(data.reason);
-    const isLeave = leaveType !== "Work From Home" && leaveType !== "Request" && !data.reason.startsWith("[Missed Punch]");
+    const isLeave = isLeaveAllocationRequired(leaveType, data.reason);
     if (isLeave) {
       await leaveAllocationService.validateLeaveBalance(
         employee.id,
@@ -461,7 +489,7 @@ export const wfhService = {
 
       // Handle leave balance allocation tracking
       const nextLeaveType = parseRequestType(request.reason);
-      const isNextLeave = nextLeaveType !== "Work From Home" && nextLeaveType !== "Request" && !request.reason.startsWith("[Missed Punch]");
+      const isNextLeave = isLeaveAllocationRequired(nextLeaveType, request.reason);
       
       if (isNextLeave) {
         if (request.status === ApprovalStatus.APPROVED && existing.status !== ApprovalStatus.APPROVED) {

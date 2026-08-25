@@ -740,6 +740,155 @@ async function main() {
     console.log(`Seeded employee: ${item.firstName} ${item.lastName} [${item.code}]`);
   }
 
+  // ─── 1.1 MEDBIOMATE COMPANY & EMPLOYEES (From Online Website www.medbiomate.com) ───
+  console.log("\nSeeding Medbiomate company and team...");
+  const medbiomateCompany = await prisma.company.upsert({
+    where: { id: "medbiomate-company" },
+    update: {
+      name: "Medbiomate",
+      legalName: "Medbiomate Healthcare Solutions LLC",
+      email: "info@medbiomate.com",
+      phone: "+918606799432",
+      overview: "Leading healthcare recruitment and job brokerage platform in GCC (UAE, Saudi Arabia, Qatar, Oman, Kuwait, Bahrain)."
+    },
+    create: {
+      id: "medbiomate-company",
+      name: "Medbiomate",
+      legalName: "Medbiomate Healthcare Solutions LLC",
+      email: "info@medbiomate.com",
+      phone: "+918606799432",
+      overview: "Leading healthcare recruitment and job brokerage platform in GCC (UAE, Saudi Arabia, Qatar, Oman, Kuwait, Bahrain)."
+    }
+  });
+
+  const medbiomateEmployeeDetails = [
+    {
+      code: "MB001",
+      firstName: "Dr. Farhan",
+      lastName: "K",
+      email: "farhan@medbiomate.com",
+      role: Role.MANAGER,
+      deptCode: "MB_OPS",
+      deptName: "Operations & Verification",
+      title: "Medical Director & Operations Lead",
+      gender: "Male",
+      phone: "+918606799432"
+    },
+    {
+      code: "MB002",
+      firstName: "Amina",
+      lastName: "Zahra",
+      email: "amina@medbiomate.com",
+      role: Role.EMPLOYEE,
+      deptCode: "MB_REC",
+      deptName: "Healthcare Recruitment",
+      title: "Healthcare Recruitment Specialist",
+      gender: "Female",
+      phone: "+971562613637"
+    },
+    {
+      code: "MB003",
+      firstName: "Muhammed",
+      lastName: "Bilal",
+      email: "bilal@medbiomate.com",
+      role: Role.EMPLOYEE,
+      deptCode: "MB_RCM",
+      deptName: "Medical Coding & RCM",
+      title: "RCM Lead & Medical Coder",
+      gender: "Male",
+      phone: "+918606799433"
+    },
+    {
+      code: "MB004",
+      firstName: "Rania",
+      lastName: "Mansoor",
+      email: "rania@medbiomate.com",
+      role: Role.EMPLOYEE,
+      deptCode: "MB_REL",
+      deptName: "Employer Relations",
+      title: "Healthcare Employer Relations Manager",
+      gender: "Female",
+      phone: "+971562613638"
+    },
+    {
+      code: "MB005",
+      firstName: "Zainab",
+      lastName: "Al-Hassan",
+      email: "zainab@medbiomate.com",
+      role: Role.EMPLOYEE,
+      deptCode: "MB_SPT",
+      deptName: "Candidate Support",
+      title: "Candidate Support Desk Specialist",
+      gender: "Female",
+      phone: "+918606799434"
+    },
+    {
+      code: "MB006",
+      firstName: "Sameer",
+      lastName: "Khan",
+      email: "sameer@medbiomate.com",
+      role: Role.EMPLOYEE,
+      deptCode: "MB_DATA",
+      deptName: "Data Entry & Verification",
+      title: "Healthcare Data Entry Operator",
+      gender: "Male",
+      phone: "+918606799435"
+    }
+  ];
+
+  for (const item of medbiomateEmployeeDetails) {
+    const department = await prisma.department.upsert({
+      where: { companyId_code: { companyId: medbiomateCompany.id, code: item.deptCode } },
+      update: {},
+      create: { companyId: medbiomateCompany.id, code: item.deptCode, name: item.deptName }
+    });
+
+    let designation = await prisma.designation.findFirst({
+      where: { departmentId: department.id, title: item.title }
+    });
+    if (!designation) {
+      designation = await prisma.designation.create({
+        data: { departmentId: department.id, title: item.title }
+      });
+    }
+
+    const user = await prisma.user.create({
+      data: {
+        companyId: medbiomateCompany.id,
+        email: item.email,
+        passwordHash,
+        role: item.role
+      }
+    });
+
+    const employee = await prisma.employee.create({
+      data: {
+        companyId: medbiomateCompany.id,
+        userId: user.id,
+        employeeCode: item.code,
+        firstName: item.firstName,
+        lastName: item.lastName,
+        phone: item.phone,
+        personalEmail: item.email,
+        gender: item.gender,
+        dateOfJoining: new Date("2026-06-08"),
+        departmentId: department.id,
+        designationId: designation.id,
+        salary: {
+          create: {
+            basic: 8500,
+            allowances: 1800,
+            deductions: 500,
+            effectiveFrom: new Date("2026-06-08")
+          }
+        }
+      }
+    });
+
+    createdEmployees.push(employee);
+    console.log(`Seeded Medbiomate employee: ${item.firstName} ${item.lastName} [${item.code}]`);
+  }
+
   // 6. Set Manager Relations (ST001 as manager for all others)
   const managerEmployee = createdEmployees.find(e => e.employeeCode === "ST001");
   if (managerEmployee) {

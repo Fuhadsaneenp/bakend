@@ -21,116 +21,57 @@ async function seedCrmAndTasks() {
   const rahul = employees.find(e => e.id !== akhil?.id) || akhil;
 
   // Comprehensive client service definitions
+  // Comprehensive real client service definitions
   const clientData = [
     {
-      name: "HealthFirst Clinics",
-      details: "Premier multi-specialty healthcare & wellness clinic (Dr. Amit Gupta)",
-      contacts: "+91 98765 00100 (amit@healthfirst.in)",
-      packageName: "SEO + Google Ads Retainer",
+      name: "SLF",
+      details: "3 Creative Posters · 1 Moment Marketing · 1 Ad Poster",
+      contacts: "+971 50 123 4567 (contact@slf.ae)",
+      packageName: "Creative & Ads Retainer (5 Deliverables)",
+      postersCommitted: 5,
+      videoSeo: "0 Videos",
+      digitalMarketingActivities: "Creative Posters (3), Moment Marketing (1), Ad Posters (1)",
+      accountManagerId: akhil?.id
+    },
+    {
+      name: "Doner Club",
+      details: "2 Moment Marketing · 2 Ad Posters · 9 Video Works",
+      contacts: "+971 52 987 6543 (marketing@donerclub.ae)",
+      packageName: "Omnichannel Growth Retainer (13 Deliverables)",
+      postersCommitted: 4,
+      videoSeo: "9 Video Works / Reels",
+      digitalMarketingActivities: "Video Works (9), Moment Marketing (2), Ad Posters (2)",
+      accountManagerId: akhil?.id
+    },
+    {
+      name: "Nizar Hospital",
+      details: "2 Ad Posters · 8 Video Works",
+      contacts: "+91 98460 33221 (info@nizarhospital.com)",
+      packageName: "Healthcare Awareness Retainer (10 Deliverables)",
+      postersCommitted: 2,
+      videoSeo: "8 Video Works / Reels",
+      digitalMarketingActivities: "Video Works (8), Ad Posters (2)",
+      accountManagerId: akhil?.id
+    },
+    {
+      name: "Salty Fresh",
+      details: "2 Moment Marketing · 5 Video Works",
+      contacts: "+971 55 443 3221 (hello@saltyfresh.com)",
+      packageName: "Brand Video & Social Retainer (7 Deliverables)",
+      postersCommitted: 2,
+      videoSeo: "5 Video Works / Reels",
+      digitalMarketingActivities: "Video Works (5), Moment Marketing (2)",
+      accountManagerId: rahul?.id
+    },
+    {
+      name: "Turbit",
+      details: "4 Video Works / Motion Graphics",
+      contacts: "+971 58 776 5544 (team@turbit.io)",
+      packageName: "Video Production Retainer (4 Deliverables)",
       postersCommitted: 0,
-      videoSeo: "10 Keyword Tracking, 150 Backlinks",
-      digitalMarketingActivities: "SEO, Keyword Ranking, Backlinks, Google Search Ads, PPC",
-      accountManagerId: akhil?.id
-    },
-    {
-      name: "Apex Dental & Implant Centre",
-      details: "Premier cosmetic dentistry & orthodontic clinic in Kochi (Dr. Anand)",
-      contacts: "+91 98470 11223 (dr.anand@apexdental.in)",
-      packageName: "Growth Package (SEO + 30 Posters + 8 Reels)",
-      postersCommitted: 30,
-      videoSeo: "Local SEO, 12 Keywords, Google Business Profile",
-      digitalMarketingActivities: "SEO, Keyword Ranking, Google Ads, Social Media Management, Performance Ads, Local SEO",
-      accountManagerId: akhil?.id
-    },
-    {
-      name: "Zenith Cloud Technologies",
-      details: "High-performance multi-cloud SaaS & DevOps platform (Siddharth Menon)",
-      contacts: "+91 98950 44332 (siddharth@zenithcloud.io)",
-      packageName: "Enterprise Tech SEO & Performance Retainer",
-      postersCommitted: 20,
-      videoSeo: "Technical SEO, 25 Keywords Ranking, Backlink Outreach",
-      digitalMarketingActivities: "SEO, Technical SEO, Backlink Sheet, Google Search Ads, PPC Campaigns, B2B Whitepapers",
-      accountManagerId: akhil?.id
-    },
-    {
-      name: "KiteWave Digital FinTech",
-      details: "Next-gen zero-fee neobank & cross-border payments app (Varun Nambiar)",
-      contacts: "+91 99955 66778 (varun@kitewave.finance)",
-      packageName: "FinTech Scale Suite (SEO + Paid Ads + Creatives)",
-      postersCommitted: 35,
-      videoSeo: "Fintech SEO, 20 Keywords Ranking, App Store Search",
-      digitalMarketingActivities: "SEO, Keyword Ranking, Google Ads, Meta Ads, App Store SEO, Motion Graphics",
-      accountManagerId: akhil?.id
-    },
-    {
-      name: "Bloomfield International School",
-      details: "CBSE & Cambridge affiliated residential campus & STEM academy (Fr. Mathew)",
-      contacts: "+91 94470 12345 (principal@bloomfieldschool.org)",
-      packageName: "Education Admissions SEO & Ads Suite",
-      postersCommitted: 20,
-      videoSeo: "Admissions Local SEO, 15 Keywords, Google Maps",
-      digitalMarketingActivities: "SEO, Local SEO, Keyword Ranking, Google Search Ads, Admissions Campaigns",
-      accountManagerId: akhil?.id
-    },
-    {
-      name: "SpiceRoute Heritage Resorts",
-      details: "Eco-luxury forest resort & Ayurvedic wellness retreat in Munnar (Nandini Warrier)",
-      contacts: "+91 94471 99887 (nandini@spicerouteresorts.com)",
-      packageName: "Hospitality Elite Suite (SEO + Social + Video)",
-      postersCommitted: 25,
-      videoSeo: "Travel & Resort SEO, Google Maps Ranking",
-      digitalMarketingActivities: "SEO, Tourism SEO, Local Search, Reels Production, Travel Influencer PR, Meta Ads",
-      accountManagerId: akhil?.id
-    },
-    {
-      name: "Stellar Fashion",
-      details: "Priyanka Malhotra",
-      contacts: "+91 87654 00200",
-      packageName: "Social Media + Design & Video",
-      postersCommitted: 12,
-      videoSeo: "4 Product Reels",
-      digitalMarketingActivities: "Social Media, Design & Video, Product Reels",
+      videoSeo: "4 Video Works / Reels",
+      digitalMarketingActivities: "Video Works (4)",
       accountManagerId: rahul?.id
-    },
-    {
-      name: "Luxe Aura Cosmetics",
-      details: "Luxury vegan skincare & personal care brand (Maya Nair)",
-      contacts: "+91 97455 33445 (maya@luxeaura.com)",
-      packageName: "Brand Starter Kit (Social + Packaging)",
-      postersCommitted: 20,
-      videoSeo: "4 Videos",
-      digitalMarketingActivities: "Meta Ads, Influencer PR Creatives, Brand Identity, Packaging Design",
-      accountManagerId: rahul?.id
-    },
-    {
-      name: "Urban Kraft Interiors",
-      details: "Modern bespoke architectural & interior design studio (Arjun K)",
-      contacts: "+91 99951 88776 (arjun@urbankraft.design)",
-      packageName: "Enterprise Visual Suite",
-      postersCommitted: 25,
-      videoSeo: "6 Videos",
-      digitalMarketingActivities: "Lead Generation Ads, Project Showcase Carousels",
-      accountManagerId: akhil?.id
-    },
-    {
-      name: "GreenRoots Organic Foods",
-      details: "Farm-to-table organic produce & cold-pressed oils (Sujith V)",
-      contacts: "+91 94460 55667 (sujith@greenrootsorganic.com)",
-      packageName: "Standard Social Suite",
-      postersCommitted: 15,
-      videoSeo: "2 Videos",
-      digitalMarketingActivities: "Product Photography Packaging, Weekly Social Packs",
-      accountManagerId: akhil?.id
-    },
-    {
-      name: "Nova Fitness & Crossfit Hub",
-      details: "High-intensity fitness, strength & MMA training academy (Karan Varma)",
-      contacts: "+91 97460 77665 (karan@novafitness.fit)",
-      packageName: "Fitness Growth Pack",
-      postersCommitted: 18,
-      videoSeo: "6 Videos",
-      digitalMarketingActivities: "Challenge Banners, Story Templates, Lead Gen",
-      accountManagerId: akhil?.id
     }
   ];
 

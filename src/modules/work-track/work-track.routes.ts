@@ -1,10 +1,40 @@
 import { Router } from "express";
+import multer from "multer";
 import { z } from "zod";
 import { requireAnyPermission, requireAuth, requirePermission } from "../../middleware/auth.js";
 import { ApiError } from "../../lib/errors.js";
 import { workTrackService } from "./work-track.service.js";
+import { prisma } from "../../lib/prisma.js";
+import { storageService } from "../../storage/storage.service.js";
 
 export const workTrackRouter = Router();
+
+const allowedWorkTrackImageMimeTypes = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp"
+]);
+
+const workTrackUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 2 * 1024 * 1024,
+    files: 1
+  },
+  fileFilter: (_req, file, callback) => {
+    if (!allowedWorkTrackImageMimeTypes.has(file.mimetype)) {
+      callback(new ApiError(400, "Only JPG, JPEG, PNG, or WebP files are allowed"));
+      return;
+    }
+    callback(null, true);
+  }
+});
+
+const sanitizeUploadFileName = (name: string) => name
+  .replace(/[^a-zA-Z0-9._-]/g, "_")
+  .replace(/_+/g, "_")
+  .slice(0, 120) || "deliverable.webp";
 
 workTrackRouter.use(requireAuth);
 
@@ -178,6 +208,33 @@ workTrackRouter.post("/cards", requirePermission("worktrack.task.create"), async
 workTrackRouter.get("/cards/:id", async (req, res, next) => {
   try {
     res.json(await workTrackService.getWorkCardDetails(req.params.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
+workTrackRouter.post("/cards/:id/files", requireAnyPermission(["worktrack.task.edit", "worktrack.file.upload", "worktrack.task.status.update"]), workTrackUpload.single("file"), async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    if (!req.file) throw new ApiError(400, "File is required");
+
+    const card = await prisma.workCard.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, companyId: true }
+    });
+    if (!card || card.companyId !== req.user.companyId) throw new ApiError(404, "Work Card not found");
+
+    const safeFileName = sanitizeUploadFileName(req.file.originalname);
+    const key = `companies/${req.user.companyId}/work-track/${card.id}/${Date.now()}-${safeFileName}`;
+    await storageService.putObject(key, req.file.buffer, req.file.mimetype);
+
+    res.status(201).json({
+      key,
+      fileUrl: storageService.publicUrl(key),
+      fileName: safeFileName,
+      mimeType: req.file.mimetype,
+      sizeKb: Math.max(1, Math.round(req.file.size / 1024))
+    });
   } catch (error) {
     next(error);
   }
