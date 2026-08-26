@@ -42,21 +42,30 @@ export const notificationService = {
           role: { in: [Role.SUPER_ADMIN, Role.HR_ADMIN] },
           ...(options.companyId ? { OR: [{ companyId: options.companyId }, { role: Role.SUPER_ADMIN }] } : {})
         },
-        select: { id: true }
+        select: { id: true, email: true }
       });
 
-      const targetIds = adminUsers
-        .map((u) => u.id)
-        .filter((id) => id && id !== options.excludeUserId);
+      const targetUsers = adminUsers.filter((u) => u.id && u.id !== options.excludeUserId);
+      if (targetUsers.length === 0) return [];
 
-      const uniqueIds = Array.from(new Set(targetIds));
-      if (uniqueIds.length === 0) return [];
+      const html = emailService.buildNotificationEmailHtml({
+        title: options.subject,
+        body: options.body,
+        actionUrl: "https://stems.secondtales.com/attendance",
+        actionText: "Open Attendance Dashboard",
+        category: "attendance"
+      });
 
-      return await Promise.all(
-        uniqueIds.map((userId) =>
-          notificationService.inApp(userId, options.subject, options.body, options.metadata)
+      await Promise.all([
+        ...targetUsers.map((u) =>
+          notificationService.inApp(u.id, options.subject, options.body, options.metadata)
+        ),
+        ...targetUsers.map((u) =>
+          u.email ? emailService.send({ to: u.email, subject: options.subject, html }).catch(() => {}) : Promise.resolve()
         )
-      );
+      ]);
+
+      return targetUsers;
     } catch (err) {
       console.error("[Notification] notifyAdmins error:", err);
       return [];
@@ -98,22 +107,41 @@ export const notificationService = {
 
       const users = await prisma.user.findMany({
         where: whereCondition,
-        select: { id: true }
+        select: { id: true, email: true }
       });
 
-      const allTargetIds = [
-        ...users.map((u) => u.id),
-        ...(options.extraUserIds || [])
-      ].filter((id) => Boolean(id) && id !== options.excludeUserId);
+      let extraUsers: { id: string; email: string }[] = [];
+      if (options.extraUserIds && options.extraUserIds.length > 0) {
+        extraUsers = await prisma.user.findMany({
+          where: { id: { in: options.extraUserIds } },
+          select: { id: true, email: true }
+        });
+      }
 
-      const uniqueIds = Array.from(new Set(allTargetIds));
-      if (uniqueIds.length === 0) return [];
-
-      return await Promise.all(
-        uniqueIds.map((userId) =>
-          notificationService.inApp(userId, options.subject, options.body, options.metadata)
-        )
+      const allUsers = [...users, ...extraUsers].filter(
+        (u, idx, arr) => u.id && u.id !== options.excludeUserId && arr.findIndex((x) => x.id === u.id) === idx
       );
+
+      if (allUsers.length === 0) return [];
+
+      const html = emailService.buildNotificationEmailHtml({
+        title: options.subject,
+        body: options.body,
+        actionUrl: "https://stems.secondtales.com/work-track",
+        actionText: "View in Work Track",
+        category: "task"
+      });
+
+      await Promise.all([
+        ...allUsers.map((u) =>
+          notificationService.inApp(u.id, options.subject, options.body, options.metadata)
+        ),
+        ...allUsers.map((u) =>
+          u.email ? emailService.send({ to: u.email, subject: options.subject, html }).catch(() => {}) : Promise.resolve()
+        )
+      ]);
+
+      return allUsers;
     } catch (err) {
       console.error("[Notification] notifyManagersAndCoordinators error:", err);
       return [];
@@ -173,7 +201,8 @@ export const notificationService = {
     const subject = `📋 New Task Assigned: ${options.taskTitle}`;
     const body = `You have been assigned a new task "${options.taskTitle}" by ${options.assignerName}.`;
 
-    return notificationService.inApp(options.assignedUserId, subject, body, {
+    // Send in-app notification
+    const inAppResult = await notificationService.inApp(options.assignedUserId, subject, body, {
       category: "task",
       action: "ASSIGNED",
       taskId: options.taskId,
@@ -181,6 +210,27 @@ export const notificationService = {
       assignerName: options.assignerName,
       ...options.metadata
     });
+
+    // Send email notification to the assigned user
+    try {
+      const assignedUser = await prisma.user.findUnique({
+        where: { id: options.assignedUserId },
+        select: { email: true, employee: { select: { firstName: true } } }
+      });
+      if (assignedUser?.email) {
+        const html = emailService.buildNotificationEmailHtml({
+          title: subject,
+          body,
+          recipientName: assignedUser.employee?.firstName,
+          actionUrl: "https://stems.secondtales.com/work-track",
+          actionText: "Open Task in Work Track",
+          category: "task"
+        });
+        emailService.send({ to: assignedUser.email, subject, html }).catch(() => {});
+      }
+    } catch {}
+
+    return inAppResult;
   },
 
   async notifyTaskUnderReview(options: {
