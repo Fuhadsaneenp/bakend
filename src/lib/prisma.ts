@@ -5,7 +5,7 @@ import { PrismaClient } from "@prisma/client";
 const require = createRequire(import.meta.url);
 let adapter: any = undefined;
 
-const DEFAULT_DB_URL = "mysql://u394546085_hrrec:48e65879a9574bfabdfbfa8e64c23f2b48e65879@srv1824.hstgr.io:3306/u394546085_stems_db";
+const DEFAULT_DB_URL = "mysql://u394546085_hrrec:48e65879a9574bfabdfbfa8e64c23f2b48e65879@srv1824.hstgr.io:3306/u394546085_hrrec";
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = DEFAULT_DB_URL;
 }
