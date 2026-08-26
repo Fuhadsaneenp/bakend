@@ -25,8 +25,10 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
   try {
     const { PrismaMariaDb } = require("@prisma/adapter-mariadb");
     const connectionUrl = new URL(databaseUrl);
+    // On Hostinger web server, connect directly to localhost MySQL
+    const host = !isDevelopment ? "localhost" : connectionUrl.hostname;
     adapter = new PrismaMariaDb({
-      host: connectionUrl.hostname,
+      host,
       port: Number(connectionUrl.port || 3306),
       user: decodeURIComponent(connectionUrl.username),
       password: decodeURIComponent(connectionUrl.password),
@@ -34,8 +36,8 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
       connectionLimit: 5,
       minimumIdle: 1,
       idleTimeout: 60,
-      connectTimeout: isDevelopment ? 5_000 : 15_000,
-      acquireTimeout: isDevelopment ? 5_000 : 20_000
+      connectTimeout: 5_000,
+      acquireTimeout: 10_000
     }, {
       onConnectionError: (error: { code?: string; errno?: number; sqlState?: string }) => {
         console.error("MySQL connection failed", {
