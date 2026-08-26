@@ -51,6 +51,14 @@ authRouter.post("/refresh", async (req, res, next) => {
   }
 });
 
+authRouter.post("/logout", requireAuth, async (req, res, next) => {
+  try {
+    res.json(await authService.logout(req.user!.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
 authRouter.get("/me/access", requireAuth, async (req, res, next) => {
   try {
     res.json(await permissionService.getAccessPayload(req.user!.id));

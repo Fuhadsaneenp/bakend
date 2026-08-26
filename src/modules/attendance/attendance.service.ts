@@ -3,6 +3,7 @@ import { differenceInMinutes } from "date-fns";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
 import type { AuthUser } from "../../middleware/auth.js";
+import { notificationService } from "../notifications/notification.service.js";
 
 const lateHour = 9;
 const standardWorkMinutes = 8 * 60;
@@ -155,6 +156,21 @@ export const attendanceService = {
     }
 
     await recalculateDraftPayrollForWorkDate(employee.companyId, workDate);
+
+    // Notify Super Admin and HR Admin of check-in
+    try {
+      const empName = `${employee.firstName} ${employee.lastName || ""}`.trim();
+      const timeStr = now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
+      notificationService.notifyAttendance({
+        companyId: employee.companyId,
+        employeeName: empName,
+        employeeUserId: userId,
+        type: "CHECK_IN",
+        timeStr,
+        metadata: { attendanceId: result.id, isLate: result.isLate }
+      }).catch((e) => console.error("[Attendance] Check-in notification error:", e));
+    } catch {}
+
     return result;
   },
 
@@ -183,6 +199,21 @@ export const attendanceService = {
       }
     });
     await recalculateDraftPayrollForWorkDate(employee.companyId, workDate);
+
+    // Notify Super Admin and HR Admin of check-out
+    try {
+      const empName = `${employee.firstName} ${employee.lastName || ""}`.trim();
+      const timeStr = now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
+      notificationService.notifyAttendance({
+        companyId: employee.companyId,
+        employeeName: empName,
+        employeeUserId: userId,
+        type: "CHECK_OUT",
+        timeStr,
+        metadata: { attendanceId: result.id, workMinutes: worked, isEarlyLeave }
+      }).catch((e) => console.error("[Attendance] Check-out notification error:", e));
+    } catch {}
+
     return result;
   },
 

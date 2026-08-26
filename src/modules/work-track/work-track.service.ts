@@ -6,6 +6,7 @@ import { startOfYear, endOfYear, startOfMonth, endOfMonth, differenceInHours, ad
 import { permissionService } from "../authority/permission.service.js";
 import { accessResolverService } from "../authority/access-resolver.service.js";
 import { scopeResolverService } from "../authority/scope-resolver.service.js";
+import { notificationService } from "../notifications/notification.service.js";
 
 const DEFAULT_SETTINGS = {
   pointValues: JSON.stringify({
@@ -749,21 +750,23 @@ export const workTrackService = {
       }
     });
 
-    // Send in-app notification if assigned
+    // Send in-app / push notification if assigned
     if (data.assignedToId) {
       const assignedEmployee = await prisma.employee.findUnique({
         where: { id: data.assignedToId },
         select: { userId: true }
       });
-      if (assignedEmployee) {
-        await prisma.notification.create({
-          data: {
-            userId: assignedEmployee.userId,
-            channel: "IN_APP",
-            subject: "New Work Card Assigned",
-            body: `You have been assigned to: ${card.workId} - ${card.title}`
-          }
-        });
+      if (assignedEmployee?.userId) {
+        const assignerName = creatorEmployee
+          ? `${creatorEmployee.firstName} ${creatorEmployee.lastName || ""}`.trim()
+          : "Manager";
+        notificationService.notifyTaskAssigned({
+          assignedUserId: assignedEmployee.userId,
+          assignerName,
+          taskTitle: card.title,
+          taskId: card.id,
+          metadata: { workId: card.workId, category: card.category }
+        }).catch((e) => console.error("[WorkTrack] Task assigned notification error:", e));
       }
     }
 
@@ -1125,10 +1128,32 @@ export const workTrackService = {
       });
     }
 
-    await prisma.workCard.update({
+    const updated = await prisma.workCard.update({
       where: { id },
       data: updateData
     });
+
+    if (data.assignedToId && data.assignedToId !== card.assignedToId) {
+      try {
+        const assignedEmployee = await prisma.employee.findUnique({
+          where: { id: data.assignedToId },
+          select: { userId: true }
+        });
+        if (assignedEmployee?.userId) {
+          const assignerRecord = await prisma.employee.findFirst({ where: { userId: data.userId } });
+          const assignerName = assignerRecord
+            ? `${assignerRecord.firstName} ${assignerRecord.lastName || ""}`.trim()
+            : "Manager";
+          notificationService.notifyTaskAssigned({
+            assignedUserId: assignedEmployee.userId,
+            assignerName,
+            taskTitle: card.title,
+            taskId: card.id,
+            metadata: { workId: card.workId, category: card.category }
+          }).catch(() => {});
+        }
+      } catch {}
+    }
 
     return this.getWorkCardDetails(id);
   },
@@ -1325,6 +1350,40 @@ export const workTrackService = {
           });
         }
       }
+
+      // Notify Managers and Coordinators of completion
+      try {
+        const empName = card.assignedTo
+          ? `${card.assignedTo.firstName} ${card.assignedTo.lastName || ""}`.trim()
+          : "Team Member";
+        notificationService.notifyTaskCompleted({
+          companyId: card.companyId,
+          taskTitle: card.title,
+          taskId: card.id,
+          employeeName: empName,
+          employeeUserId: userId
+        }).catch(() => {});
+      } catch {}
+    }
+
+    // Handle Under Review / Submission alert to managers & coordinators
+    if (
+      (newStatus === "OUT_TO_DELIVER" || newStatus === "WAITING_REVIEW" || newStatus === "IN_REVIEW") &&
+      prevStatus !== newStatus
+    ) {
+      try {
+        const empRecord = await prisma.employee.findFirst({ where: { userId } });
+        const empName = empRecord
+          ? `${empRecord.firstName} ${empRecord.lastName || ""}`.trim()
+          : "Employee";
+        notificationService.notifyTaskUnderReview({
+          companyId: card.companyId,
+          taskTitle: card.title,
+          taskId: card.id,
+          employeeName: empName,
+          employeeUserId: userId
+        }).catch(() => {});
+      } catch {}
     }
 
     return this.getWorkCardDetails(id);

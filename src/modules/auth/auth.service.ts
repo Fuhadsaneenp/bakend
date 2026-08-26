@@ -6,6 +6,7 @@ import { env } from "../../config/env.js";
 import { ApiError } from "../../lib/errors.js";
 import type { AuthUser } from "../../middleware/auth.js";
 import { emailService } from "../../integrations/email/email.service.js";
+import { notificationService } from "../notifications/notification.service.js";
 
 const signAccessToken = (payload: AuthUser) => jwt.sign(payload, env.JWT_ACCESS_SECRET, { expiresIn: env.ACCESS_TOKEN_TTL as any });
 const signRefreshToken = (payload: AuthUser) => jwt.sign(payload, env.JWT_REFRESH_SECRET, { expiresIn: env.REFRESH_TOKEN_TTL as any });
@@ -19,7 +20,10 @@ const resetRequestMessage = "If an account exists for this email, a password res
 
 export const authService = {
   async login(email: string, password: string) {
-    const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+    const user = await prisma.user.findUnique({
+      where: { email: email.trim().toLowerCase() },
+      include: { employee: { select: { firstName: true, lastName: true, employeeCode: true } } }
+    });
     if (!user || !user.isActive) throw new ApiError(401, "Invalid credentials");
 
     const valid = await bcrypt.compare(password, user.passwordHash);
@@ -29,7 +33,53 @@ export const authService = {
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
     await prisma.user.update({ where: { id: user.id }, data: { refreshHash: await bcrypt.hash(refreshToken, 10) } });
+
+    // Notify Super Admin and HR Admin of employee login
+    try {
+      const empName = user.employee
+        ? `${user.employee.firstName} ${user.employee.lastName || ""}`.trim()
+        : user.email.split("@")[0];
+      const nowStr = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
+
+      // Trigger attendance login notification to Admins only
+      notificationService.notifyAttendance({
+        companyId: user.companyId,
+        employeeName: empName,
+        employeeUserId: user.id,
+        type: "LOGIN",
+        timeStr: nowStr
+      }).catch((e) => console.error("[Auth] Attendance notification error:", e));
+    } catch (notifErr) {
+      console.error("[Auth] notifyAttendance failed:", notifErr);
+    }
+
     return { accessToken, refreshToken, user: payload };
+  },
+
+  async logout(userId: string) {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { employee: { select: { firstName: true, lastName: true } } }
+      });
+      if (user) {
+        const empName = user.employee
+          ? `${user.employee.firstName} ${user.employee.lastName || ""}`.trim()
+          : user.email.split("@")[0];
+        const nowStr = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
+
+        notificationService.notifyAttendance({
+          companyId: user.companyId,
+          employeeName: empName,
+          employeeUserId: user.id,
+          type: "LOGOUT",
+          timeStr: nowStr
+        }).catch(() => {});
+
+        await prisma.user.update({ where: { id: userId }, data: { refreshHash: null } });
+      }
+    } catch {}
+    return { ok: true };
   },
 
   async refresh(refreshToken: string) {
