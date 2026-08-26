@@ -16,20 +16,23 @@ async function start() {
     });
   }
 
-  void Promise.allSettled([
-    ensureBiometricSyncSchema(),
-    ensureShiftSchema()
-  ]).then((results) => {
-    results.forEach((result, index) => {
-      if (result.status === "rejected") {
-        const taskName = index === 0 ? "ensureBiometricSyncSchema" : "ensureShiftSchema";
-        console.error(`${taskName} failed after startup:`, result.reason);
-      }
+  try {
+    void Promise.allSettled([
+      ensureBiometricSyncSchema(),
+      ensureShiftSchema()
+    ]).then((results) => {
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          const taskName = index === 0 ? "ensureBiometricSyncSchema" : "ensureShiftSchema";
+          console.warn(`${taskName} warning after startup:`, result.reason);
+        }
+      });
     });
-  });
+  } catch (err) {
+    console.warn("Background schema sync skipped:", err);
+  }
 }
 
 start().catch((error) => {
-  console.error("Failed to start server:", error);
-  process.exit(1);
+  console.error("Server start error:", error);
 });

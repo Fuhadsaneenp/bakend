@@ -1,7 +1,9 @@
-import("./dist/src/server.js").catch(error => {
-  import("fs").then(fs => {
-    fs.writeFileSync("stderr.log", `Import Error: ${error}\n${error?.stack || ""}\n`, { flag: "a" });
-  }).catch(err => {
-    console.error("Failed to write to stderr.log:", err);
-  });
+import "./dist/src/server.js";
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Rejection:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
 });
