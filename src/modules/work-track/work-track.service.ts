@@ -244,13 +244,29 @@ function employeeMatchesWorkTrack(employee: {
   const title = (employee.designation?.title || "").toLowerCase();
   const department = (employee.department?.name || "").toLowerCase();
 
+  const isNonCreativeManagement =
+    title.includes("growth") ||
+    title.includes("sales") ||
+    title.includes("business") ||
+    title.includes("accountant") ||
+    title.includes("finance") ||
+    title.includes("hr ") ||
+    title === "hr" ||
+    title.includes("human resource") ||
+    title.includes("digital marketer") ||
+    title.includes("marketing manager") ||
+    title.includes("marketing head") ||
+    title.includes("growth head");
+
   const isVideoPerson = title.includes("video") || title.includes("motion") || title.includes("animat") || title.includes("editor") || title.includes("cinemat") || title.includes("colorist") || title.includes("videograph") || department.includes("video") || department.includes("production");
-  const isDesignPerson = title.includes("designer") || title.includes("graphic") || title.includes("ui/ux") || title.includes("ui design") || title.includes("brand") || title.includes("visual") || title.includes("illustrat") || (department.includes("design") && !isVideoPerson);
+  const isDesignPerson = title.includes("designer") || title.includes("graphic") || title.includes("ui/ux") || title.includes("ui design") || title.includes("brand") || title.includes("visual") || title.includes("illustrat") || (department.includes("design") && !isVideoPerson && !isNonCreativeManagement);
 
   if (track === "designer") {
+    if (isNonCreativeManagement && !title.includes("designer") && !title.includes("graphic")) return false;
     return isDesignPerson && !isVideoPerson;
   }
   if (track === "video-editor") {
+    if (isNonCreativeManagement && !title.includes("editor") && !title.includes("video")) return false;
     return isVideoPerson && !title.includes("graphic designer");
   }
   if (track === "seo") {
