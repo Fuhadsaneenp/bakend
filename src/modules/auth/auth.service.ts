@@ -34,23 +34,26 @@ export const authService = {
     const refreshToken = signRefreshToken(payload);
     await prisma.user.update({ where: { id: user.id }, data: { refreshHash: await bcrypt.hash(refreshToken, 10) } });
 
-    // Notify Super Admin and HR Admin of employee login
-    try {
-      const empName = user.employee
-        ? `${user.employee.firstName} ${user.employee.lastName || ""}`.trim()
-        : user.email.split("@")[0];
-      const nowStr = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
+    // Notify Super Admin and HR Admin of employee login (asynchronously in background, only for employees/managers)
+    if (user.role !== "SUPER_ADMIN" && user.role !== "HR_ADMIN") {
+      setImmediate(() => {
+        try {
+          const empName = user.employee
+            ? `${user.employee.firstName} ${user.employee.lastName || ""}`.trim()
+            : user.email.split("@")[0];
+          const nowStr = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
 
-      // Trigger attendance login notification to Admins only
-      notificationService.notifyAttendance({
-        companyId: user.companyId,
-        employeeName: empName,
-        employeeUserId: user.id,
-        type: "LOGIN",
-        timeStr: nowStr
-      }).catch((e) => console.error("[Auth] Attendance notification error:", e));
-    } catch (notifErr) {
-      console.error("[Auth] notifyAttendance failed:", notifErr);
+          notificationService.notifyAttendance({
+            companyId: user.companyId,
+            employeeName: empName,
+            employeeUserId: user.id,
+            type: "LOGIN",
+            timeStr: nowStr
+          }).catch((e) => console.error("[Auth] Attendance notification error:", e));
+        } catch (notifErr) {
+          console.error("[Auth] notifyAttendance failed:", notifErr);
+        }
+      });
     }
 
     return { accessToken, refreshToken, user: payload };
