@@ -30,7 +30,8 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
       host = "127.0.0.1";
     }
     adapter = new PrismaMariaDb({
-      host,
+      host: "127.0.0.1",
+      family: 4,
       port: Number(connectionUrl.port || 3306),
       user: decodeURIComponent(connectionUrl.username),
       password: decodeURIComponent(connectionUrl.password),
