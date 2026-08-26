@@ -983,7 +983,7 @@ async function main() {
       complexity: "MEDIUM",
       deadline: "2026-08-13",
       status: "PENDING",
-      clientName: "Clearpath Logistics"
+      clientName: "SLF"
     },
     {
       title: "TikTok Reel Edit",
@@ -993,7 +993,7 @@ async function main() {
       complexity: "COMPLEX",
       deadline: "2026-08-16",
       status: "IN_PROGRESS",
-      clientName: "Solstice Studios"
+      clientName: "Doner Club"
     },
     {
       title: "Google Ads Campaign Setup",
@@ -1003,7 +1003,7 @@ async function main() {
       complexity: "SIMPLE",
       deadline: "2026-08-17",
       status: "FINISHED",
-      clientName: "Apex Ventures"
+      clientName: "Nizar Hospital"
     },
     {
       title: "Brand Identity Deck",
@@ -1013,7 +1013,7 @@ async function main() {
       complexity: "MEDIUM",
       deadline: "2026-08-18",
       status: "OUT_TO_DELIVER",
-      clientName: "Apex Ventures"
+      clientName: "Salty Fresh"
     },
     {
       title: "Instagram Campaign Kit",
@@ -1023,7 +1023,7 @@ async function main() {
       complexity: "SIMPLE",
       deadline: "2026-08-20",
       status: "APPROVED",
-      clientName: "NovaBrands Co."
+      clientName: "Turbit"
     }
   ];
 
