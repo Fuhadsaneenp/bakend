@@ -5,7 +5,11 @@ import { PrismaClient } from "@prisma/client";
 const require = createRequire(import.meta.url);
 let adapter: any = undefined;
 
-const databaseUrl = process.env.DATABASE_URL ?? "";
+const DEFAULT_DB_URL = "mysql://u394546085_hrrec:48e65879a9574bfabdfbfa8e64c23f2b48e65879@srv1824.hstgr.io:3306/u394546085_stems_db";
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = DEFAULT_DB_URL;
+}
+const databaseUrl = process.env.DATABASE_URL;
 const isDevelopment = process.env.NODE_ENV !== "production";
 
 if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres://")) {
@@ -27,11 +31,11 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
       user: decodeURIComponent(connectionUrl.username),
       password: decodeURIComponent(connectionUrl.password),
       database: decodeURIComponent(connectionUrl.pathname.replace(/^\//, "")),
-      connectionLimit: 3,
+      connectionLimit: 5,
       minimumIdle: 1,
       idleTimeout: 60,
-      connectTimeout: isDevelopment ? 3_000 : 10_000,
-      acquireTimeout: isDevelopment ? 3_000 : 15_000
+      connectTimeout: isDevelopment ? 5_000 : 15_000,
+      acquireTimeout: isDevelopment ? 5_000 : 20_000
     }, {
       onConnectionError: (error: { code?: string; errno?: number; sqlState?: string }) => {
         console.error("MySQL connection failed", {
@@ -50,5 +54,6 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
 
 export const prisma = new PrismaClient({
   ...(adapter ? { adapter } : {}),
+  datasourceUrl: databaseUrl,
   log: isDevelopment ? ["query", "error", "warn"] : ["error"]
-});
+} as any);
