@@ -649,16 +649,17 @@ export const workTrackService = {
         if (explicitAllowed !== null) break;
       }
 
-      // Heads should not be in the designers board list
-      if (isHeadLevel) {
-        continue;
-      }
-
       if (explicitAllowed === true) {
+        // Explicit designer grant always wins, even for head-level users
         filtered.push(employee);
         continue;
       }
       if (explicitAllowed === false) {
+        continue;
+      }
+
+      // Heads should not be in the designers board list (only when no explicit grant)
+      if (isHeadLevel) {
         continue;
       }
 
