@@ -631,7 +631,7 @@ export const workTrackService = {
         );
       }
 
-      if (hasTrackAccess && !isPureCoordinator(employee)) {
+      if (hasTrackAccess && !isPureCoordinator(employee) && employeeMatchesWorkTrack(employee, track)) {
         filtered.push(employee);
         continue;
       }
