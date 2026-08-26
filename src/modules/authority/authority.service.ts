@@ -824,21 +824,25 @@ export const authorityService = {
 
   // ─── 8. USER TRACK & MODULE SETTINGS ───
   async getUserTrackSettings(companyId?: string | null) {
-    let resolvedCompanyId = companyId;
-    if (!resolvedCompanyId) {
-      const firstCompany = await prisma.company.findFirst();
-      resolvedCompanyId = firstCompany?.id || null;
+    let setting = null;
+    if (companyId) {
+      setting = await prisma.companySetting.findUnique({
+        where: {
+          companyId_key: {
+            companyId,
+            key: "authority_user_track_settings"
+          }
+        }
+      });
     }
-    if (!resolvedCompanyId) return { trackLevels: {}, moduleGrants: {}, actionGrants: {}, positionOverrides: {}, emsLevels: {} };
 
-    const setting = await prisma.companySetting.findUnique({
-      where: {
-        companyId_key: {
-          companyId: resolvedCompanyId,
+    if (!setting) {
+      setting = await prisma.companySetting.findFirst({
+        where: {
           key: "authority_user_track_settings"
         }
-      }
-    });
+      });
+    }
 
     if (!setting?.value) return { trackLevels: {}, moduleGrants: {}, actionGrants: {}, positionOverrides: {}, emsLevels: {} };
     try {
@@ -868,22 +872,27 @@ export const authorityService = {
       emsLevels: data.emsLevels !== undefined ? data.emsLevels : (existing.emsLevels || {})
     };
 
-    await prisma.companySetting.upsert({
-      where: {
-        companyId_key: {
-          companyId: resolvedCompanyId,
-          key: "authority_user_track_settings"
+    const allCompanies = await prisma.company.findMany({ select: { id: true } });
+    const targetCompanyIds = Array.from(new Set([resolvedCompanyId, ...allCompanies.map(c => c.id)].filter(Boolean))) as string[];
+
+    for (const cId of targetCompanyIds) {
+      await prisma.companySetting.upsert({
+        where: {
+          companyId_key: {
+            companyId: cId,
+            key: "authority_user_track_settings"
+          }
+        },
+        create: {
+          companyId: cId,
+          key: "authority_user_track_settings",
+          value: JSON.stringify(merged)
+        },
+        update: {
+          value: JSON.stringify(merged)
         }
-      },
-      create: {
-        companyId: resolvedCompanyId,
-        key: "authority_user_track_settings",
-        value: JSON.stringify(merged)
-      },
-      update: {
-        value: JSON.stringify(merged)
-      }
-    });
+      });
+    }
 
     return merged;
   }
