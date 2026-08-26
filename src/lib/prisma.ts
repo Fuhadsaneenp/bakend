@@ -5,7 +5,7 @@ import { PrismaClient } from "@prisma/client";
 const require = createRequire(import.meta.url);
 let adapter: any = undefined;
 
-const DEFAULT_DB_URL = "mysql://u394546085_hrrec:48e65879a9574bfabdfbfa8e64c23f2b48e65879@srv1824.hstgr.io:3306/u394546085_hrrec";
+const DEFAULT_DB_URL = "mysql://u394546085_hrrec:Hrrec2026Secure9@srv1824.hstgr.io:3306/u394546085_hrrec";
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = DEFAULT_DB_URL;
 }
@@ -25,13 +25,8 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
   try {
     const { PrismaMariaDb } = require("@prisma/adapter-mariadb");
     const connectionUrl = new URL(databaseUrl);
-    let host = connectionUrl.hostname;
-    if (host === "srv1824.hstgr.io" || host === "localhost") {
-      host = "127.0.0.1";
-    }
     adapter = new PrismaMariaDb({
-      host: "127.0.0.1",
-      family: 4,
+      host: connectionUrl.hostname,
       port: Number(connectionUrl.port || 3306),
       user: decodeURIComponent(connectionUrl.username),
       password: decodeURIComponent(connectionUrl.password),
@@ -39,8 +34,8 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
       connectionLimit: 5,
       minimumIdle: 1,
       idleTimeout: 60,
-      connectTimeout: 5_000,
-      acquireTimeout: 10_000
+      connectTimeout: 10_000,
+      acquireTimeout: 15_000
     }, {
       onConnectionError: (error: { code?: string; errno?: number; sqlState?: string }) => {
         console.error("MySQL connection failed", {
