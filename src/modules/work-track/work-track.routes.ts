@@ -36,6 +36,38 @@ const sanitizeUploadFileName = (name: string) => name
   .replace(/_+/g, "_")
   .slice(0, 120) || "deliverable.webp";
 
+const DATA_ENTRY_COMPANY_CATALOG_KEY = "data_entry_company_catalog_v1";
+
+function normalizeDataEntryCompanyRecord(raw: any, index: number) {
+  const name = String(raw?.name || raw?.company_name || raw?.company || "").trim();
+  if (!name) return null;
+
+  return {
+    id: raw?.id ?? index + 1,
+    name,
+    company_name: name,
+    category: String(raw?.category || "").trim(),
+    website: String(raw?.website || raw?.websiteUrl || "").trim(),
+    url: String(raw?.company_profile_url || raw?.url || raw?.website || "").trim(),
+    company_profile_url: String(raw?.company_profile_url || raw?.url || "").trim(),
+    source: String(raw?.source || "Medbiomate").trim(),
+    location: String(raw?.location || "").trim(),
+    address: String(raw?.address || "").trim(),
+    email: String(raw?.email || "").trim(),
+    phone: String(raw?.phone || "").trim()
+  };
+}
+
+async function resolveDataEntryCatalogCompanyId(companyId?: string | null) {
+  if (companyId) return companyId;
+  const company = await prisma.company.findFirst({ orderBy: { createdAt: "asc" } });
+  if (company) return company.id;
+  const created = await prisma.company.create({
+    data: { name: "Second Tales LLP", legalName: "Second Tales LLP" }
+  });
+  return created.id;
+}
+
 workTrackRouter.use(requireAuth);
 
 const dataEntrySheetRowSchema = z.object({
@@ -82,6 +114,66 @@ workTrackRouter.put("/data-entry-sheets", async (req, res, next) => {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const body = dataEntrySheetsSchema.parse(req.body);
     res.json(await workTrackService.upsertDataEntrySheets(req.user.companyId, body.sheets));
+  } catch (error) {
+    next(error);
+  }
+});
+
+workTrackRouter.get("/data-entry-company-catalog", async (req, res, next) => {
+  try {
+    const companyId = await resolveDataEntryCatalogCompanyId(req.user?.companyId);
+    const setting = await prisma.companySetting.findUnique({
+      where: {
+        companyId_key: {
+          companyId,
+          key: DATA_ENTRY_COMPANY_CATALOG_KEY
+        }
+      }
+    });
+
+    const companies = Array.isArray(setting?.value) ? setting.value : [];
+    res.json({ companies, count: companies.length, updatedAt: setting?.updatedAt ?? null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+workTrackRouter.put("/data-entry-company-catalog", async (req, res, next) => {
+  try {
+    const rawCompanies: any[] = Array.isArray(req.body?.companies) ? req.body.companies : [];
+    if (rawCompanies.length === 0) throw new ApiError(400, "Company catalog cannot be empty");
+    if (rawCompanies.length > 10000) throw new ApiError(400, "Company catalog is too large");
+
+    const seen = new Set<string>();
+    const companies = rawCompanies
+      .map(normalizeDataEntryCompanyRecord)
+      .filter((item): item is NonNullable<ReturnType<typeof normalizeDataEntryCompanyRecord>> => {
+        if (!item) return false;
+        const key = `${item.source.toLowerCase()}::${item.name.toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+    const companyId = await resolveDataEntryCatalogCompanyId(req.user?.companyId);
+    const setting = await prisma.companySetting.upsert({
+      where: {
+        companyId_key: {
+          companyId,
+          key: DATA_ENTRY_COMPANY_CATALOG_KEY
+        }
+      },
+      create: {
+        companyId,
+        key: DATA_ENTRY_COMPANY_CATALOG_KEY,
+        value: companies
+      },
+      update: {
+        value: companies
+      }
+    });
+
+    res.json({ success: true, count: companies.length, updatedAt: setting.updatedAt });
   } catch (error) {
     next(error);
   }
