@@ -576,18 +576,21 @@ export const workTrackService = {
         title.includes("ceo") ||
         title.includes("director");
 
-      let isHeadLevel = isSuperOrAdmin || isHeadTitle;
+      // Only use DB role and designation title to identify heads — never track-level/grant settings
+      const isHeadLevel = isSuperOrAdmin || isHeadTitle;
+
+      // Heads (Super Admin, non-creative management) are NEVER shown on the board
+      if (isHeadLevel) {
+        continue;
+      }
 
       // 1. Check Authority Settings explicitly
       let explicitAllowed: boolean | null = null;
       for (const k of lookupKeys) {
-        // Module grants check (overview-head)
+        // Module grants check (overview-designer)
         const userGrants = trackSettings.moduleGrants?.[k];
         if (userGrants) {
           for (const alias of trackAliases) {
-            if (userGrants[alias]?.["overview-head"] === true) {
-              isHeadLevel = true;
-            }
             if (userGrants[alias]?.["overview-designer"] === true) {
               explicitAllowed = true;
               break;
@@ -600,9 +603,6 @@ export const workTrackService = {
         if (userLevels) {
           for (const alias of trackAliases) {
             const lvl = userLevels[alias];
-            if (lvl === "head") {
-              isHeadLevel = true;
-            }
             if (lvl === "off") {
               explicitAllowed = false;
               break;
@@ -620,7 +620,6 @@ export const workTrackService = {
           if (track === "designer") {
             if (override.position === "DESIGNER" || override.roles?.includes("designer")) {
               explicitAllowed = true;
-              isHeadLevel = false;
               break;
             }
             if (override.position === "VIDEO_EDITOR" || override.roles?.includes("video-editor") || override.roles?.includes("video_editor")) {
@@ -631,7 +630,6 @@ export const workTrackService = {
           if (track === "video-editor") {
             if (override.position === "VIDEO_EDITOR" || override.roles?.includes("video-editor") || override.roles?.includes("video_editor")) {
               explicitAllowed = true;
-              isHeadLevel = false;
               break;
             }
             if (override.position === "DESIGNER" || override.roles?.includes("designer")) {
@@ -650,16 +648,10 @@ export const workTrackService = {
       }
 
       if (explicitAllowed === true) {
-        // Explicit designer grant always wins, even for head-level users
         filtered.push(employee);
         continue;
       }
       if (explicitAllowed === false) {
-        continue;
-      }
-
-      // Heads should not be in the designers board list (only when no explicit grant)
-      if (isHeadLevel) {
         continue;
       }
 
