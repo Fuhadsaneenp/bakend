@@ -542,13 +542,15 @@ export const workTrackService = {
       // 1. Check Authority Settings explicitly
       let explicitAllowed: boolean | null = null;
       for (const k of lookupKeys) {
-        // Module grants check (overview-designer / track-board / my-work-track)
+        // Module grants check (overview-designer)
         const userGrants = trackSettings.moduleGrants?.[k];
         if (userGrants) {
           for (const alias of trackAliases) {
-            if (userGrants[alias]?.["overview-designer"] === true || userGrants[alias]?.["track-board"] === true || userGrants[alias]?.["my-work-track"] === true) {
-              explicitAllowed = true;
-              break;
+            if (userGrants[alias]?.["overview-designer"] === true) {
+              if (employeeMatchesWorkTrack(employee, track)) {
+                explicitAllowed = true;
+                break;
+              }
             }
           }
         }
