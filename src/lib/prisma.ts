@@ -26,46 +26,26 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
     const { PrismaMariaDb } = require("@prisma/adapter-mariadb");
     const connectionUrl = new URL(databaseUrl);
     const rawPassword = decodeURIComponent(connectionUrl.password);
-    const password = (rawPassword === "48e65879a9574bfabdfbfa8e64c23f2b48e65879" || !rawPassword)
-      ? "Hrrec2026Secure9"
-      : rawPassword;
+    const password = (rawPassword && rawPassword !== "48e65879a9574bfabdfbfa8e64c23f2b48e65879")
+      ? rawPassword
+      : "Hrrec2026Secure9";
 
-    const fs = require("fs");
-    const possibleSockets = [
-      "/var/lib/mysql/mysql.sock",
-      "/var/run/mysqld/mysqld.sock",
-      "/tmp/mysql.sock",
-      "/var/run/mysql/mysql.sock"
-    ];
-    let detectedSocket: string | undefined = undefined;
-    for (const sock of possibleSockets) {
-      try {
-        if (fs.existsSync(sock)) {
-          detectedSocket = sock;
-          break;
-        }
-      } catch {}
-    }
+    const host = (connectionUrl.hostname === "srv1824.hstgr.io")
+      ? "193.203.184.196"
+      : connectionUrl.hostname;
 
-    const adapterConfig: any = {
+    adapter = new PrismaMariaDb({
+      host,
+      port: Number(connectionUrl.port || 3306),
       user: decodeURIComponent(connectionUrl.username) || "u394546085_hrrec",
-      password,
+      password: "Hrrec2026Secure9",
       database: decodeURIComponent(connectionUrl.pathname.replace(/^\//, "")) || "u394546085_hrrec",
       connectionLimit: 5,
       minimumIdle: 1,
       idleTimeout: 60,
       connectTimeout: 10_000,
       acquireTimeout: 15_000
-    };
-
-    if (detectedSocket) {
-      adapterConfig.socketPath = detectedSocket;
-    } else {
-      adapterConfig.host = connectionUrl.hostname;
-      adapterConfig.port = Number(connectionUrl.port || 3306);
-    }
-
-    adapter = new PrismaMariaDb(adapterConfig, {
+    }, {
       onConnectionError: (error: { code?: string; errno?: number; sqlState?: string }) => {
         console.error("MySQL connection failed", {
           code: error.code,
