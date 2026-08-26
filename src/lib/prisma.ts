@@ -25,12 +25,17 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
   try {
     const { PrismaMariaDb } = require("@prisma/adapter-mariadb");
     const connectionUrl = new URL(databaseUrl);
+    const rawPassword = decodeURIComponent(connectionUrl.password);
+    const password = (rawPassword === "48e65879a9574bfabdfbfa8e64c23f2b48e65879" || !rawPassword)
+      ? "Hrrec2026Secure9"
+      : rawPassword;
+
     adapter = new PrismaMariaDb({
       host: connectionUrl.hostname,
       port: Number(connectionUrl.port || 3306),
-      user: decodeURIComponent(connectionUrl.username),
-      password: decodeURIComponent(connectionUrl.password),
-      database: decodeURIComponent(connectionUrl.pathname.replace(/^\//, "")),
+      user: decodeURIComponent(connectionUrl.username) || "u394546085_hrrec",
+      password,
+      database: decodeURIComponent(connectionUrl.pathname.replace(/^\//, "")) || "u394546085_hrrec",
       connectionLimit: 5,
       minimumIdle: 1,
       idleTimeout: 60,
