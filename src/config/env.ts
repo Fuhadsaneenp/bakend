@@ -4,16 +4,16 @@ import { z } from "zod";
 dotenv.config();
 
 const envSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
   PORT: z.preprocess((val) => {
     if (typeof val === "string" && /^\d+$/.test(val)) return Number(val);
     return val;
   }, z.union([z.string(), z.number()])).default(4000),
-  APP_ORIGIN: z.string().url().default("http://localhost:3000"),
+  APP_ORIGIN: z.string().url().default("https://stems.secondtales.com"),
   ALLOWED_ORIGINS: z.string().optional(),
-  DATABASE_URL: z.string(),
-  JWT_ACCESS_SECRET: z.string().min(24),
-  JWT_REFRESH_SECRET: z.string().min(24),
+  DATABASE_URL: z.string().default("mysql://u394546085_hrrec:48e65879a9574bfabdfbfa8e64c23f2b48e65879@srv1824.hstgr.io:3306/u394546085_stems_db"),
+  JWT_ACCESS_SECRET: z.string().min(24).default("secondtales_jwt_access_super_secret_key_2026_prod_secure"),
+  JWT_REFRESH_SECRET: z.string().min(24).default("secondtales_jwt_refresh_super_secret_key_2026_prod_secure"),
   ACCESS_TOKEN_TTL: z.string().default("15m"),
   REFRESH_TOKEN_TTL: z.string().default("30d"),
   BIOMETRIC_API_KEY: z.string().optional(),
@@ -25,12 +25,12 @@ const envSchema = z.object({
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
-  SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().default(587),
-  SMTP_SECURE: z.preprocess((val) => val === true || val === "true" || val === "1", z.boolean()).default(false),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASS: z.string().optional(),
-  SMTP_FROM: z.string().default("Second Tales EMS <noreply@secondtales.com>"),
+  SMTP_HOST: z.string().default("smtp.hostinger.com"),
+  SMTP_PORT: z.coerce.number().default(465),
+  SMTP_SECURE: z.preprocess((val) => val === true || val === "true" || val === "1" || val === undefined, z.boolean()).default(true),
+  SMTP_USER: z.string().default("noreplay@secondtales.com"),
+  SMTP_PASS: z.string().default("~tx4iUO4eL$1"),
+  SMTP_FROM: z.string().default("Second Tales EMS <noreplay@secondtales.com>"),
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM: z.string().default("Second Tales EMS <onboarding@resend.dev>"),
   WHATSAPP_PROVIDER: z.enum(["meta", "twilio"]).default("meta"),
