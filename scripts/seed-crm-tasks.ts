@@ -75,11 +75,28 @@ async function seedCrmAndTasks() {
     }
   ];
 
-  const realClientNames = clientData.map(client => client.name);
+  const knownDummyClientNames = [
+    "Clearpath Logistics",
+    "Solstice Studios",
+    "Apex Ventures",
+    "NovaBrands Co.",
+    "Meridian Health",
+    "Pinnacle Group",
+    "Apex Dental & Implant Centre",
+    "Zenith Cloud Technologies",
+    "KiteWave Digital FinTech",
+    "Bloomfield International School",
+    "SpiceRoute Heritage Resorts",
+    "GreenRoots Organic Foods",
+    "Stellar Fashion",
+    "Urban Kraft Interiors",
+    "Nova Fitness & Crossfit Hub"
+  ];
+
   const staleClients = await prisma.client.findMany({
     where: {
       companyId: company.id,
-      name: { notIn: realClientNames }
+      name: { in: knownDummyClientNames }
     },
     select: { id: true, name: true }
   });
