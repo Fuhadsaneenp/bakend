@@ -200,34 +200,34 @@ const trackCoordinatorPermissionCodes: Record<string, string[]> = {
   "data-entry": ["data_entry.review.submit"]
 };
 
-function isCoordinatorOrHead(employee: {
+function isPureCoordinator(employee: {
   department?: { name?: string | null } | null;
   designation?: { title?: string | null } | null;
   role?: string | null;
   user?: { role?: string | null } | null;
+  assignedWorkCards?: any[] | null;
 }) {
   const title = (employee.designation?.title || "").toLowerCase();
-  const userRole = (employee.user?.role || employee.role || "").toUpperCase();
 
   const isCoord =
     title.includes("coordinator") ||
     title.includes("co-ordinator") ||
     title.includes("coordinat");
 
-  const isHead =
-    title.includes("head") ||
-    title.includes("lead") ||
-    title.includes("manager") ||
-    title.includes("director") ||
-    title.includes("supervisor") ||
-    title.includes("admin") ||
-    title.includes("chief") ||
-    title.includes("officer") ||
-    userRole === "SUPER_ADMIN" ||
-    userRole === "HR_ADMIN" ||
-    userRole === "ADMIN";
+  const isCreative =
+    title.includes("designer") ||
+    title.includes("design") ||
+    title.includes("graphic") ||
+    title.includes("video") ||
+    title.includes("editor") ||
+    title.includes("animat") ||
+    title.includes("ui") ||
+    title.includes("ux") ||
+    title.includes("art") ||
+    title.includes("creative");
 
-  return isCoord || isHead;
+  const hasCards = (employee.assignedWorkCards?.length || 0) > 0;
+  return isCoord && !isCreative && !hasCards;
 }
 
 function employeeMatchesWorkTrack(employee: {
@@ -235,9 +235,9 @@ function employeeMatchesWorkTrack(employee: {
   designation?: { title?: string | null } | null;
   role?: string | null;
   user?: { role?: string | null } | null;
+  assignedWorkCards?: any[] | null;
 }, track?: string) {
-  // If employee is naturally a coordinator or head, they should not match pure member track
-  if (isCoordinatorOrHead(employee)) {
+  if (isPureCoordinator(employee)) {
     return false;
   }
 
@@ -431,8 +431,7 @@ export const workTrackService = {
   async getDesigners(companyId: string, track?: string) {
     const employees = await prisma.employee.findMany({
       where: {
-        companyId,
-        user: { role: { in: [Role.EMPLOYEE, Role.MANAGER] } }
+        companyId
       },
       select: {
         id: true,
@@ -543,15 +542,11 @@ export const workTrackService = {
       // 1. Check Authority Settings explicitly
       let explicitAllowed: boolean | null = null;
       for (const k of lookupKeys) {
-        // Module grants check (overview-designer / overview-coordinator / overview-head)
+        // Module grants check (overview-designer / track-board / my-work-track)
         const userGrants = trackSettings.moduleGrants?.[k];
         if (userGrants) {
           for (const alias of trackAliases) {
-            if (userGrants[alias]?.["overview-head"] === true || userGrants[alias]?.["overview-coordinator"] === true) {
-              explicitAllowed = false;
-              break;
-            }
-            if (userGrants[alias]?.["overview-designer"] === true) {
+            if (userGrants[alias]?.["overview-designer"] === true || userGrants[alias]?.["track-board"] === true || userGrants[alias]?.["my-work-track"] === true) {
               explicitAllowed = true;
               break;
             }
@@ -564,13 +559,15 @@ export const workTrackService = {
         if (userLevels) {
           for (const alias of trackAliases) {
             const lvl = userLevels[alias];
-            if (lvl === "off" || lvl === "lead" || lvl === "head") {
+            if (lvl === "off") {
               explicitAllowed = false;
               break;
             }
-            if (lvl === "member") {
-              explicitAllowed = true;
-              break;
+            if (lvl === "member" || lvl === "lead" || lvl === "head") {
+              if (employeeMatchesWorkTrack(employee, track)) {
+                explicitAllowed = true;
+                break;
+              }
             }
           }
         }
@@ -579,9 +576,11 @@ export const workTrackService = {
         // Position overrides check
         const override = trackSettings.positionOverrides?.[k];
         if (override) {
-          if (override.position === "COORDINATOR" || override.position === "ADMIN" || override.position === "DEPT_HEAD") {
-            explicitAllowed = false;
-            break;
+          if (override.position === "COORDINATOR") {
+            if (isPureCoordinator(employee)) {
+              explicitAllowed = false;
+              break;
+            }
           }
           if (track === "designer") {
             if (override.position === "DESIGNER" || override.roles?.includes("designer")) {
@@ -603,7 +602,7 @@ export const workTrackService = {
               break;
             }
           }
-          if (override.position === "MEMBER" || override.roles?.includes("member")) {
+          if (override.position === "MEMBER" || override.roles?.includes("member") || override.roles?.includes("lead") || override.roles?.includes("head")) {
             explicitAllowed = employeeMatchesWorkTrack(employee, track);
             break;
           }
@@ -632,7 +631,7 @@ export const workTrackService = {
         );
       }
 
-      if (hasTrackAccess && !hasCoordinatorAccess && !isCoordinatorOrHead(employee)) {
+      if (hasTrackAccess && !isPureCoordinator(employee)) {
         filtered.push(employee);
         continue;
       }
