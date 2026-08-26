@@ -563,20 +563,56 @@ export const workTrackService = {
         fullName ? `employee-name:${fullName}` : ""
       ].filter(Boolean)));
 
+      const title = (employee.designation?.title || "").toLowerCase();
+      const userRole = (employee.user?.role || "").toUpperCase();
+      const isSuperOrAdmin = userRole === "SUPER_ADMIN" || userRole === "HR_ADMIN";
+      const isHeadTitle =
+        title.includes("growth head") ||
+        title.includes("marketing head") ||
+        title.includes("department head") ||
+        title.includes("dept head") ||
+        title.includes("head of") ||
+        title.includes("founder") ||
+        title.includes("ceo") ||
+        title.includes("director");
+
+      let isHeadLevel = isSuperOrAdmin || isHeadTitle;
+
       // 1. Check Authority Settings explicitly
       let explicitAllowed: boolean | null = null;
       for (const k of lookupKeys) {
-        // Module grants check (overview-designer)
+        // Module grants check (overview-head)
         const userGrants = trackSettings.moduleGrants?.[k];
         if (userGrants) {
           for (const alias of trackAliases) {
+            if (userGrants[alias]?.["overview-head"] === true) {
+              isHeadLevel = true;
+            }
             if (userGrants[alias]?.["overview-designer"] === true) {
               explicitAllowed = true;
               break;
             }
           }
         }
-        if (explicitAllowed !== null) break;
+
+        // Track levels check
+        const userLevels = trackSettings.trackLevels?.[k];
+        if (userLevels) {
+          for (const alias of trackAliases) {
+            const lvl = userLevels[alias];
+            if (lvl === "head") {
+              isHeadLevel = true;
+            }
+            if (lvl === "off") {
+              explicitAllowed = false;
+              break;
+            }
+            if (lvl === "member") {
+              explicitAllowed = true;
+              break;
+            }
+          }
+        }
 
         // Position overrides check
         const override = trackSettings.positionOverrides?.[k];
@@ -584,6 +620,7 @@ export const workTrackService = {
           if (track === "designer") {
             if (override.position === "DESIGNER" || override.roles?.includes("designer")) {
               explicitAllowed = true;
+              isHeadLevel = false;
               break;
             }
             if (override.position === "VIDEO_EDITOR" || override.roles?.includes("video-editor") || override.roles?.includes("video_editor")) {
@@ -594,6 +631,7 @@ export const workTrackService = {
           if (track === "video-editor") {
             if (override.position === "VIDEO_EDITOR" || override.roles?.includes("video-editor") || override.roles?.includes("video_editor")) {
               explicitAllowed = true;
+              isHeadLevel = false;
               break;
             }
             if (override.position === "DESIGNER" || override.roles?.includes("designer")) {
@@ -609,23 +647,11 @@ export const workTrackService = {
           }
         }
         if (explicitAllowed !== null) break;
+      }
 
-        // Track levels check
-        const userLevels = trackSettings.trackLevels?.[k];
-        if (userLevels) {
-          for (const alias of trackAliases) {
-            const lvl = userLevels[alias];
-            if (lvl === "off") {
-              explicitAllowed = false;
-              break;
-            }
-            if (lvl === "member") {
-              explicitAllowed = true;
-              break;
-            }
-          }
-        }
-        if (explicitAllowed !== null) break;
+      // Heads should not be in the designers board list
+      if (isHeadLevel) {
+        continue;
       }
 
       if (explicitAllowed === true) {
