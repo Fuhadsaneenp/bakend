@@ -54,6 +54,5 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
 
 export const prisma = new PrismaClient({
   ...(adapter ? { adapter } : {}),
-  datasourceUrl: databaseUrl,
   log: isDevelopment ? ["query", "error", "warn"] : ["error"]
-} as any);
+});
