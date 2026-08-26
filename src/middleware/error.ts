@@ -15,13 +15,6 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   }
 
   console.error(error);
-  const message = error instanceof Error ? error.message : "";
-  const cause = typeof error === "object" && error !== null && "cause" in error ? String((error as any).cause?.cause || (error as any).cause?.message || "") : "";
-  const combined = `${message}\n${cause}`.toLowerCase();
-  if (env.NODE_ENV !== "production" && (combined.includes("access denied for user") || combined.includes("pool timeout"))) {
-    return res.status(503).json({
-      message: "Local database connection failed. Check backend/.env DATABASE_URL credentials or database access."
-    });
-  }
-  return res.status(500).json({ message: "Internal server error" });
+  const message = error instanceof Error ? error.message : "Internal server error";
+  return res.status(500).json({ message, details: (error as any)?.details || (error as any)?.meta || undefined });
 };
