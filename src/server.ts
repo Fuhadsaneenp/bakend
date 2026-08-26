@@ -3,16 +3,18 @@ import { createApp } from "./app.js";
 import { ensureBiometricSyncSchema } from "./lib/biometricDeviceSync.js";
 import { ensureShiftSchema } from "./lib/ensureShiftSchema.js";
 
-async function start() {
-  const app = createApp();
+export const app = createApp();
 
-  if (typeof env.PORT === "number" || (typeof env.PORT === "string" && /^\d+$/.test(env.PORT))) {
-    app.listen(Number(env.PORT), "0.0.0.0", () => {
-      console.log(`HR SaaS API listening on port ${env.PORT}`);
+async function start() {
+  const port = process.env.PORT || env.PORT || 4000;
+
+  if (typeof port === "number" || (typeof port === "string" && /^\d+$/.test(port))) {
+    app.listen(Number(port), "0.0.0.0", () => {
+      console.log(`HR SaaS API listening on port ${port}`);
     });
   } else {
-    app.listen(env.PORT, () => {
-      console.log(`HR SaaS API listening on socket ${env.PORT}`);
+    app.listen(port, () => {
+      console.log(`HR SaaS API listening on socket ${port}`);
     });
   }
 

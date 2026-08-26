@@ -1,4 +1,5 @@
-import "./dist/src/server.js";
+import { app } from "./dist/src/server.js";
+export default app;
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
