@@ -93,16 +93,19 @@ async function seedCrmAndTasks() {
     "Nova Fitness & Crossfit Hub"
   ];
 
-  const staleClients = await prisma.client.findMany({
-    where: {
-      companyId: company.id,
-      name: { in: knownDummyClientNames }
-    },
-    select: { id: true, name: true }
-  });
+  const shouldPruneDummyClients = process.env.PRUNE_DUMMY_CLIENTS === "true";
+  const staleClients = shouldPruneDummyClients
+    ? await prisma.client.findMany({
+        where: {
+          companyId: company.id,
+          name: { in: knownDummyClientNames }
+        },
+        select: { id: true, name: true }
+      })
+    : [];
 
   const staleClientIds = staleClients.map(client => client.id);
-  if (staleClientIds.length > 0) {
+  if (shouldPruneDummyClients && staleClientIds.length > 0) {
     const staleCards = await prisma.workCard.findMany({
       where: { companyId: company.id, clientId: { in: staleClientIds } },
       select: { id: true }
@@ -128,6 +131,8 @@ async function seedCrmAndTasks() {
     await prisma.metaAdAccount.deleteMany({ where: { clientId: { in: staleClientIds } } });
     await prisma.client.deleteMany({ where: { id: { in: staleClientIds } } });
     console.log(`🧹 Removed stale dummy clients: ${staleClients.map(client => client.name).join(", ")}`);
+  } else if (!shouldPruneDummyClients) {
+    console.log("Skipping dummy client pruning. Set PRUNE_DUMMY_CLIENTS=true to remove known sample clients.");
   }
 
   for (const cData of clientData) {
