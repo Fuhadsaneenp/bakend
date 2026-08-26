@@ -25,8 +25,10 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
   try {
     const { PrismaMariaDb } = require("@prisma/adapter-mariadb");
     const connectionUrl = new URL(databaseUrl);
-    // On Hostinger web server, connect directly to localhost MySQL
-    const host = !isDevelopment ? "localhost" : connectionUrl.hostname;
+    let host = connectionUrl.hostname;
+    if (host === "srv1824.hstgr.io" || host === "localhost") {
+      host = "127.0.0.1";
+    }
     adapter = new PrismaMariaDb({
       host,
       port: Number(connectionUrl.port || 3306),
