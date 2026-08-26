@@ -35,22 +35,18 @@ YOUR ROLE & IDENTITY:
 FORMATTING & CONTENT RULES:
 1. ALWAYS make the main heading bold: ### **Employee Daily Task Allocation Report** (NEVER include square brackets [ ] around titles)
 2. ALWAYS make section titles bold: **Summary:**, **Detailed Report:**
-3. MANDATORY BOLDING: You MUST bold all employee names, roles, department names, client names, counts, deadlines, and key numbers throughout the text (e.g. **Akhil Ramesh**, **SEO Department**, **7 active tasks**, **5 in progress**, **4 delayed**, **Apex Dental**).
+3. MANDATORY BOLDING: You MUST bold all employee names, roles, department names, client names, counts, deadlines, and key numbers that appear in the live data.
 4. NO UNNECESSARY SECTIONS: Do NOT include "Insights:" or "Recommended Actions:" or "Recommendations:". ONLY provide the detailed report for what the user specifically asked.
 5. In bullet points, format items as: - **Category / Name / Department:** Detailed facts with **bold** highlights.
 6. Keep answers direct, accurate, and completely free of filler words.
+7. DATA ACCURACY: Use only records from FULL LIVE STEMS DATA. If a section has no records, say that no live records were found. Do not invent employees, clients, tasks, rankings, quotas, attendance, or percentages.
 
 MANDATORY BUSINESS REPORT STRUCTURE:
 
 ### **Descriptive Report Title**
 
 **Summary:**
-Out of **18 total company tasks** today, **5 tasks** are in progress, **8 tasks** completed, and **4 tasks** delayed.
-
-**Detailed Report:**
-- **Akhil Ramesh (SEO):** Actively working on **Admissions Open 2026–27 Lead Gen**, **Living Room Portfolio Showcase**, and **Monsoon Staycation 4K Video Reel** (**OVERLOADED with 7 active tasks**).
-- **Muhammed Swadique (Design):** Actively working on **UPI Cashback Campaign Static Ads** (**BALANCED** status).
-- **Completed Today:** **8 deliverables** completed across client campaigns.
+Use the exact live counts from FULL LIVE STEMS DATA.
 
 
 
@@ -158,6 +154,32 @@ function autoEnrichMarkdownBolding(text: string): string {
     .join("\n");
 }
 
+function containsPlaceholderOperationsData(text: string): boolean {
+  const lower = text.toLowerCase();
+  const blockedTerms = [
+    "apex realty",
+    "healthfirst clinics",
+    "zenith cloud",
+    "vanity living",
+    "kitewave fintech",
+    "spiceroute",
+    "rahul nair",
+    "sneha menon",
+    "devika pillai",
+    "naveen kumar",
+    "pooja mohan"
+  ];
+  const blockedPatterns = [
+    /\b88%\s+attendance\b/i,
+    /\b20%\s+task\s+completion\b/i,
+    /\b38\/48\s+keywords\b/i,
+    /\b79\.1%\s+page\s+1\b/i,
+    /\b12\s+active\s+client\s+retainers\b/i
+  ];
+
+  return blockedTerms.some((term) => lower.includes(term)) || blockedPatterns.some((pattern) => pattern.test(text));
+}
+
 export const aiService = {
   async processQuestion(
     user: UserContext,
@@ -166,6 +188,12 @@ export const aiService = {
     history: { role: "user" | "assistant"; text: string }[] = []
   ): Promise<AIResponsePayload> {
     const rawLower = question.toLowerCase().trim();
+    const isSeoRankingQuestion =
+      rawLower.includes("seo") ||
+      rawLower.includes("keyword") ||
+      rawLower.includes("ranking") ||
+      rawLower.includes("google position") ||
+      rawLower.includes("page 1");
 
     // ── 0. GREETINGS & IDENTITY (0ms LATENCY) ──
     if (rawLower.match(/^(hi|hello|hey|hellow|good morning|good afternoon|good evening|namaskaram|namaste|hai)$/i)) {
@@ -221,6 +249,27 @@ I am **Tale Buddy**, the AI Operations Assistant built by **Second Tales** to pr
       };
     }
 
+    if (isSeoRankingQuestion) {
+      return {
+        intent: "GENERAL_WORKPLACE_QUERY",
+        markdown: `### **SEO Keyword Rankings**
+
+**Summary:**
+No live SEO keyword ranking source is connected to Tale Buddy yet.
+
+**Detailed Report:**
+- **Keyword Rankings:** **0** live ranking records available
+- **Top 10 Keywords:** **0** live ranking records available
+- **Google Page 1 Rate:** **Not available**
+- **Data Safety:** No placeholder SEO clients, keywords, ranking counts, or traffic metrics were generated`,
+        suggestedFollowUps: [
+          "Show active clients",
+          "Show me today's company status.",
+          "Who is working on what today?"
+        ]
+      };
+    }
+
     // ── 1. RETRIEVE LIVE STEMS DATA CONTEXT ──
     const liveContext = await stemsContextService.getLiveContext(user);
 
@@ -228,7 +277,27 @@ I am **Tale Buddy**, the AI Operations Assistant built by **Second Tales** to pr
     const memory = operationsReasoningService.resolveIntentAndMemory(question, history, liveContext);
     const analysis = operationsReasoningService.computeOperationsAnalysis(liveContext);
 
-    // ── 3. GEMINI COO INTELLIGENCE ENGINE (PRIMARY) ──
+    const operationsIntents = new Set<ResolvedContextMemory["intentCategory"]>([
+      "COMPANY_DAILY_OVERVIEW",
+      "EMPLOYEE_DEEP_DIVE",
+      "TASK_INTELLIGENCE",
+      "WORKLOAD_AND_BOTTLENECK",
+      "PROJECT_CLIENT_REPORT",
+      "TEAM_DEPARTMENT_STATUS",
+      "ATTENDANCE_LEAVE_STATUS",
+      "DECISION_AND_RECOMMENDATIONS"
+    ]);
+
+    if (operationsIntents.has(memory.intentCategory)) {
+      const deterministicResponse = this.generateOperationsAnalystResponse(question, memory, liveContext, analysis, user);
+      return {
+        intent: "GENERAL_WORKPLACE_QUERY",
+        markdown: autoEnrichMarkdownBolding(deterministicResponse),
+        suggestedFollowUps: this.getSmartFollowUps(question, memory, liveContext)
+      };
+    }
+
+    // ── 3. GEMINI GENERAL INTELLIGENCE ENGINE ──
     if (geminiClient.isConfigured()) {
       try {
         const systemPrompt = buildOperationsAnalystPrompt(user, liveContext, memory, analysis, language);
@@ -240,7 +309,7 @@ I am **Tale Buddy**, the AI Operations Assistant built by **Second Tales** to pr
           temperature: 0.2
         });
 
-        if (geminiAnswer && geminiAnswer.trim().length > 20) {
+        if (geminiAnswer && geminiAnswer.trim().length > 20 && !containsPlaceholderOperationsData(geminiAnswer)) {
           return {
             intent: "GENERAL_WORKPLACE_QUERY",
             markdown: autoEnrichMarkdownBolding(geminiAnswer.trim()),
@@ -260,7 +329,7 @@ I am **Tale Buddy**, the AI Operations Assistant built by **Second Tales** to pr
           prompt: question,
           systemContext: systemPrompt
         });
-        if (llmAnswer && llmAnswer.trim().length > 20) {
+        if (llmAnswer && llmAnswer.trim().length > 20 && !containsPlaceholderOperationsData(llmAnswer)) {
           return {
             intent: "GENERAL_WORKPLACE_QUERY",
             markdown: autoEnrichMarkdownBolding(llmAnswer.trim()),
@@ -293,8 +362,19 @@ I am **Tale Buddy**, the AI Operations Assistant built by **Second Tales** to pr
 
     // ── A. INDIVIDUAL EMPLOYEE DEEP DIVE ──
     if (memory.targetEmployee) {
-      const emp = ctx.employeesDirectory.find(e => e.name.toLowerCase().includes(memory.targetEmployee!.toLowerCase())) || ctx.employeesDirectory[0];
-      const workloadInfo = ctx.tasks.employeeWorkload.find(w => w.name.toLowerCase().includes(emp.name.toLowerCase())) || { activeTasks: 1, completedTasks: 2, points: 15, status: "BALANCED" as const };
+      const emp = ctx.employeesDirectory.find(e => e.name.toLowerCase().includes(memory.targetEmployee!.toLowerCase()));
+      if (!emp) {
+        return `### **Employee Operations Report**
+
+**Summary:**
+No live employee record matched **${memory.targetEmployee}**.
+
+**Detailed Report:**
+- **Available Employee Records:** **${ctx.employeesDirectory.length}** active employee record(s) found in the local database.`;
+      }
+
+      const workloadInfo = ctx.tasks.employeeWorkload.find(w => w.name.toLowerCase().includes(emp.name.toLowerCase())) || { activeTasks: 0, completedTasks: 0, points: 0, status: "AVAILABLE" as const };
+      const activeTaskList = emp.activeTasks.length > 0 ? emp.activeTasks : ["No active assigned work found"];
       const isCompletingOnTime = workloadInfo.activeTasks < 3;
 
       if (q.includes("completing on time") || q.includes("on time")) {
@@ -305,7 +385,7 @@ I am **Tale Buddy**, the AI Operations Assistant built by **Second Tales** to pr
 
 **Detailed Report:**
 - **Employee Name & Role:** **${emp.name}** — **${emp.designation}** (**${emp.department} Department**)
-- **Active Assigned Deliverables:** ${emp.activeTasks.map(t => `**${t}**`).join(", ")}
+- **Active Assigned Deliverables:** ${activeTaskList.map(t => `**${t}**`).join(", ")}
 - **Workload Status:** **${workloadInfo.activeTasks} active tasks** (Team average is **${analysis.teamAverageTasks} tasks**)
 - **Attendance Today:** **${emp.todayStatus}**`;
       }
@@ -318,7 +398,7 @@ I am **Tale Buddy**, the AI Operations Assistant built by **Second Tales** to pr
 **Detailed Report:**
 - **Designation & Department:** **${emp.designation}** — **${emp.department}** (Reporting to **${emp.manager}**)
 - **Active Assigned Work:**
-${emp.activeTasks.map(t => `  - **${t}**`).join("\n")}
+${activeTaskList.map(t => `  - **${t}**`).join("\n")}
 - **Workload Classification:** **${workloadInfo.status}** (**${workloadInfo.activeTasks} tasks** vs team average **${analysis.teamAverageTasks}**)
 - **Productivity & On-Time SLA:** **${emp.productivityScore}%**
 - **Leave Balance:** **${emp.leaveBalance.casual} Casual**, **${emp.leaveBalance.sick} Sick**, **${emp.leaveBalance.earned} Earned Days**`;
@@ -334,7 +414,7 @@ ${emp.activeTasks.map(t => `  - **${t}**`).join("\n")}
         .filter(e => e.activeTasks.length > 0 && e.activeTasks[0] !== "Regular Operations & Queue Standby")
         .slice(0, 6)
         .map(e => `- **${e.name}** (**${e.department}**): ${e.activeTasks.map(t => `*${t}*`).join(", ")}`)
-        .join("\n");
+        .join("\n") || "- **No active assigned tasks found in live WorkTrack records.**";
 
       return `### **WorkTrack Deliverables & Pending Tasks Report**
 
@@ -352,31 +432,37 @@ ${inProgressList}
 
     // ── C. WORKLOAD & CAPACITY ──
     if (memory.intentCategory === "WORKLOAD_AND_BOTTLENECK" || q.includes("who can take a new task") || q.includes("highest workload") || q.includes("overloaded") || q.includes("less workload")) {
-      const workloadRanking = ctx.tasks.employeeWorkload.slice(0, 6).map(e => `- **${e.name}** (**${e.department}**): **${e.activeTasks} active tasks**, **${e.completedTasks} completed** [Status: **${e.status}**]`).join("\n");
+      const workloadRanking = ctx.tasks.employeeWorkload.slice(0, 6).map(e => `- **${e.name}** (**${e.department}**): **${e.activeTasks} active tasks**, **${e.completedTasks} completed** [Status: **${e.status}**]`).join("\n") || "- **No employee workload records found.**";
 
       return `### **Team Workload & Capacity Analysis**
 
 **Summary:**
-Company workload average is **${analysis.teamAverageTasks} active tasks per person**. **${ctx.tasks.highestWorkloadEmployee.name}** carries the highest workload (**${ctx.tasks.highestWorkloadEmployee.activeTasks} active tasks**), while **${ctx.tasks.availableEmployees.join(", ")}** have available bandwidth.
+Company workload average is **${analysis.teamAverageTasks} active tasks per person**. **${ctx.tasks.highestWorkloadEmployee.name}** carries the highest workload (**${ctx.tasks.highestWorkloadEmployee.activeTasks} active tasks**), while **${ctx.tasks.availableEmployees.join(", ") || "no available employees found"}** have available bandwidth.
 
 **Detailed Report:**
 - **Workload Distribution by Team Member:**
 ${workloadRanking}
 - **Overloaded Personnel (≥3 tasks):** **${ctx.tasks.overloadedEmployees.join(", ") || "None"}**
-- **Available Bandwidth (0–1 tasks):** **${ctx.tasks.availableEmployees.join(", ")}**`;
+- **Available Bandwidth (0–1 tasks):** **${ctx.tasks.availableEmployees.join(", ") || "None"}**`;
     }
 
     // ── D. PROJECT & CLIENT REPORT ──
-    if (memory.intentCategory === "PROJECT_CLIENT_REPORT" || memory.targetClient || q.includes("client update") || q.includes("vanity") || q.includes("apex")) {
+    if (memory.intentCategory === "PROJECT_CLIENT_REPORT" || memory.targetClient || q.includes("client update")) {
       const targetClient = memory.targetClient
         ? ctx.clients.activeClients.find(c => c.name.toLowerCase().includes(memory.targetClient!.toLowerCase()))
         : ctx.clients.activeClients[0];
 
       if (targetClient) {
+        const completedDeliverables = targetClient.postersDone + targetClient.videosDone;
+        const committedDeliverables = targetClient.postersCommitted + targetClient.videosCommitted;
+        const quotaSummary = committedDeliverables > 0
+          ? `${Math.round((completedDeliverables / committedDeliverables) * 100)}% monthly quota achieved`
+          : "No monthly quota recorded";
+
         return `### **Client Deliverables Report: ${targetClient.name}**
 
 **Summary:**
-**${targetClient.name}** is on the **${targetClient.package}** retainer. Deliverable completion is at **${targetClient.postersDone}/${targetClient.postersCommitted} Posters** and **${targetClient.videosDone}/${targetClient.videosCommitted} Videos** (**${Math.round((targetClient.postersDone + targetClient.videosDone) / (targetClient.postersCommitted + targetClient.videosCommitted) * 100)}% monthly quota achieved**).
+**${targetClient.name}** is on the **${targetClient.package}** retainer. Deliverable completion is at **${targetClient.postersDone}/${targetClient.postersCommitted} Posters** and **${targetClient.videosDone}/${targetClient.videosCommitted} Videos** (**${quotaSummary}**).
 
 **Detailed Report:**
 - **Client Name:** **${targetClient.name}**
@@ -387,11 +473,19 @@ ${workloadRanking}
 - **Pending Deliverables:** **${targetClient.pendingDeliverables} items**
 - **Delayed Items:** **${targetClient.delayedDeliverables} items**`;
       }
+
+      return `### **Client Deliverables Report**
+
+**Summary:**
+No live client record matched the request.
+
+**Detailed Report:**
+- **Active Client Records:** **${ctx.clients.totalClients}** client record(s) found in the local database.`;
     }
 
     // ── E. ATTENDANCE & LEAVE STATUS ──
     if (memory.intentCategory === "ATTENDANCE_LEAVE_STATUS" || q.includes("leave") || q.includes("attendance") || q.includes("who is present") || q.includes("who is on leave")) {
-      const presentList = ctx.attendance.presentEmployees.slice(0, 6).map(p => `- **${p.name}** (**${p.department}**) — Clock-in: **${p.checkInAt}**${p.isLate ? " ⚠️ (**Late**)" : ""}`).join("\n");
+      const presentList = ctx.attendance.presentEmployees.slice(0, 6).map(p => `- **${p.name}** (**${p.department}**) — Clock-in: **${p.checkInAt}**${p.isLate ? " (**Late**)" : ""}`).join("\n") || "- **No present punch records found for today.**";
       const leaveList = ctx.attendance.onLeaveEmployees.map(l => `- **${l.name}** — **${l.type}**`).join("\n") || "- **None (all active staff accounted for)**";
 
       return `### **Workforce Attendance & Leave Report**
@@ -406,10 +500,29 @@ ${presentList}
 ${leaveList}
 - **Remote Workers (WFH):** **${ctx.attendance.wfhEmployees.map(w => w.name).join(", ") || "None"}**
 - **Late Arrivals (>9:45 AM threshold):** **${ctx.attendance.lateArrivalsCount} employee(s)** (${ctx.attendance.lateCheckIns.map(l => `**${l.name}** at ${l.time}`).join(", ") || "None"})
-- **Leave Balances Remaining:** **8 Casual**, **5 Sick**, **15 Earned Days** per employee`;
+- **Leave Usage Leader This Year:** **${ctx.attendance.maxLeaveTakerMonth.name}** (${ctx.attendance.maxLeaveTakerMonth.daysTaken} day(s) used)`;
     }
 
     // ── F. DAILY COMPANY OVERVIEW (Default) ──
+    const activeClientList = ctx.clients.activeClients.length > 0
+      ? ctx.clients.activeClients.slice(0, 5).map(c => `**${c.name}**`).join(", ")
+      : "**No active clients found**";
+    const hasAnyLiveOperationsData = ctx.attendance.totalEmployees > 0 || ctx.tasks.totalTasks > 0 || ctx.clients.totalClients > 0;
+
+    if (!hasAnyLiveOperationsData) {
+      return `### **Daily Company Operations Overview**
+
+**Summary:**
+No live EMS records were available for this request, so Tale Buddy cannot calculate today's company status.
+
+**Detailed Report:**
+- **Active Workforce:** **0** live employee records available
+- **Task Pipeline:** **0** live WorkTrack records available
+- **Active Clients:** **0** live client records available
+- **SEO Rankings:** **No live SEO ranking source connected**
+- **Data Safety:** No placeholder clients, employees, attendance, task counts, or SEO rankings were generated`;
+    }
+
     return `### **Daily Company Operations Overview**
 
 **Summary:**
@@ -418,7 +531,7 @@ Second Tales operations are running at **${ctx.attendance.attendancePercentage}%
 **Detailed Report:**
 - **Active Workforce:** **${ctx.attendance.presentCount} present**, **${ctx.attendance.onLeaveCount} on leave**, **${ctx.attendance.wfhCount} remote (WFH)**
 - **Task Pipeline:** **${ctx.tasks.inProgressCount} in progress**, **${ctx.tasks.completedToday} completed today**, **${ctx.tasks.delayedCount} delayed**
-- **Active Clients (${ctx.clients.totalClients}):** **Apex Realty UAE**, **HealthFirst Clinics**, **Zenith Cloud**, **Vanity Living**, **KiteWave FinTech**
+- **Active Clients (${ctx.clients.totalClients}):** ${activeClientList}
 - **SEO Rankings:** **${ctx.departments.marketingSeo.top10Keywords}/${ctx.departments.marketingSeo.totalKeywords} keywords** on Google Page 1 (**${ctx.departments.marketingSeo.page1Rate}**)
 - **Workload Concentration:** **${ctx.tasks.highestWorkloadEmployee.name}** holds the highest load with **${ctx.tasks.highestWorkloadEmployee.activeTasks} active deliverables**`;
   },

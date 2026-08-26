@@ -2,44 +2,35 @@ import { UserContext, ExtractedEntities } from "./ai.types.js";
 
 export const reportGeneratorService = {
   generateClientReport(entities: ExtractedEntities, user: UserContext) {
-    const clientName = entities.clientName || "Apex Realty UAE";
+    const clientName = entities.clientName || "Selected Client";
     const month = entities.month || "Current Month (August 2026)";
 
     return {
-      title: `Executive Performance & Retainer Deliverable Report: ${clientName}`,
-      markdown: `### 📊 Monthly Performance & Deliverable Report: **${clientName}**
+      title: `Client Deliverable Report: ${clientName}`,
+      markdown: `### Monthly Performance & Deliverable Report: **${clientName}**
 **Period:** ${month} | **Prepared for:** ${user.name} (${user.role})
 
 ---
 
 #### 1. Executive Summary
-During this billing cycle, **${clientName}** achieved an **88% deliverable completion rate** with significant growth across organic search visibility, video social engagement, and paid lead generation. 
+This report generator no longer uses placeholder client metrics. Ask Tale Buddy for the active client status so it can answer from live WorkTrack and client records.
 
 ---
 
 #### 2. SEO & Organic Visibility
-* **Keyword Rankings:** 15 Target keywords tracked | **11 in Top 10 Google UAE** | **4 in Top 3**
-* **Top Keyword Win:** *"luxury apartments business bay"* climbed to **Rank #2** (+2 positions)
-* **Organic Traffic Growth:** **+24.6% MoM** organic search visitors
-* **Backlink Acquisition:** 14 high-authority property and UAE directory backlinks indexed
-* **Technical Health:** 98/100 Core Web Vitals score, 0 critical crawl errors
+* **Keyword Rankings:** No live SEO ranking source is connected to this local report helper.
+* **Organic Traffic Growth:** No live analytics source is connected to this local report helper.
 
 ---
 
 #### 3. Social Media & Content Production
-* **Visual Posters Committed:** 40 Posts | **34 Delivered & Approved** (6 in review)
-* **Video Production (Reels):** 20 Reels | **16 Finalized & Published** (4 in editing)
-* **Social Engagement:** **48,200+ Verified Views** across Instagram & TikTok reels
-* **Audience Growth:** +1,240 Net new followers with a 6.2% engagement rate
+* **Visual Posters:** Use live client and WorkTrack records.
+* **Video Production:** Use live client and WorkTrack records.
 
 ---
 
 #### 4. Paid Ads & Lead Acquisition (Meta & Google PPC)
-* **Ad Spend:** $3,500
-* **Qualified Leads Delivered:** **84 Buyer Inquiries** directly pushed to client CRM
-* **Cost Per Click (CPC):** $1.42 (down 12% from previous month)
-* **Cost Per Lead (CPL):** $41.60
-* **ROAS / Pipeline Value:** **4.2x ROAS** with 3 high-ticket villa bookings in pipeline
+* **Paid Ads Metrics:** No live ads source is connected to this local report helper.
 
 ---
 
@@ -47,16 +38,16 @@ During this billing cycle, **${clientName}** achieved an **88% deliverable compl
 
 | Deliverable Track | Monthly Quota | Completed | Pending Review | On-Time SLA |
 | :--- | :--- | :--- | :--- | :--- |
-| **Graphic Posters** | 40 Posts | **34 Posts** | 6 Posts | 🟢 95% |
-| **Video Reels** | 20 Reels | **16 Reels** | 4 Reels | 🟢 90% |
-| **SEO Focus Sheets** | 15 Keywords | **11 Top 10** | 4 Climbing | 🟢 100% |
-| **Paid Ad Creatives** | 8 Variations | **8 Live** | 0 Pending | 🟢 100% |
+| **Graphic Posters** | Live records required | Live records required | Live records required | Live records required |
+| **Video Reels** | Live records required | Live records required | Live records required | Live records required |
+| **SEO Focus Sheets** | Live source not connected | Live source not connected | Live source not connected | Live source not connected |
+| **Paid Ad Creatives** | Live source not connected | Live source not connected | Live source not connected | Live source not connected |
 
 ---
 
 #### 6. Key Recommendations & Next Steps
-1. **Expedite Client Review:** Client POC Tariq Al-Hashmi has 4 approved drafts awaiting final publishing sign-off.
-2. **Capitalize on Off-Plan Momentum:** Allocate 4 upcoming posters to promote the new Q4 Waterfront Villa launch.`
+1. **Use Live Status:** Ask "Show active clients" or "Show delayed client work" for current local database output.
+2. **Connect Missing Sources:** Connect SEO, ads, and social analytics before generating performance claims.`
     };
   },
 
@@ -65,13 +56,13 @@ During this billing cycle, **${clientName}** achieved an **88% deliverable compl
 
     return {
       title: `Employee Performance & Productivity Scorecard: ${empName}`,
-      markdown: `### 📈 Employee Performance Scorecard: **${empName}**
+      markdown: `### Employee Performance Scorecard: **${empName}**
 **Review Period:** Current Month | **Evaluation:** Senior Leadership
 
 ---
 
 #### 1. Performance Overview
-**${empName}** has maintained exceptional consistency, logging an overall productivity efficiency score of **94%** with high deliverable output and on-time turnarounds.
+This report helper no longer uses placeholder performance metrics. Use live attendance, WorkTrack, ratings, and points records before making performance claims.
 
 ---
 
@@ -79,35 +70,34 @@ During this billing cycle, **${clientName}** achieved an **88% deliverable compl
 
 | Metric | Target | Actual Score | Performance Tier |
 | :--- | :--- | :--- | :--- |
-| **Task Completion Rate** | 85% | **94%** | 🌟 Exceeds Expectations |
-| **On-Time Submissions** | 90% | **96%** | 🌟 Exceeds Expectations |
-| **Rework / Revision Rate** | < 10% | **4.8%** | 🟢 Optimal Quality |
-| **Attendance & Punctuality** | 90% | **92%** | 🟢 Consistent (09:28 AM avg) |
-| **Work Track Points** | 400 pts | **480 pts** | 🌟 Leaderboard Tier 1 |
+| **Task Completion Rate** | Live records required | Live records required | Live records required |
+| **On-Time Submissions** | Live records required | Live records required | Live records required |
+| **Rework / Revision Rate** | Live records required | Live records required | Live records required |
+| **Attendance & Punctuality** | Live records required | Live records required | Live records required |
+| **Work Track Points** | Live records required | Live records required | Live records required |
 
 ---
 
 #### 3. Strengths & Contributions
-* Strong execution speed on complex creative briefs with minimal client revision rounds.
-* Reliable team communication and proactive status updates during sprint reviews.
+* Live employee strengths require connected performance records.
 
 ---
 
 #### 4. Growth Recommendations
-* Mentor junior designers on standardizing layout templates for monthly retainers.`
+* Review live records before assigning recommendations.`
     };
   },
 
   generateProductivityReport(user: UserContext) {
     return {
       title: `Company-Wide Operations & Productivity Report`,
-      markdown: `### 🏢 Second Tales Operations & Productivity Report
+      markdown: `### Second Tales Operations & Productivity Report
 **Generated By:** STEMS AI Intelligence Engine | **Period:** Current Month
 
 ---
 
 #### 1. Operations Overview
-Company operations across all 6 departments are operating at **91% overall deliverable efficiency**, with **210 posters** and **105 video assets** actively tracked.
+This report helper no longer uses placeholder company productivity metrics. Use Tale Buddy's live company overview for local database counts.
 
 ---
 
@@ -115,17 +105,17 @@ Company operations across all 6 departments are operating at **91% overall deliv
 
 | Department | Active Staff | Completed Tasks | Pending Tasks | On-Time SLA |
 | :--- | :--- | :--- | :--- | :--- |
-| **Graphic Design** | 3 Staff | 114 Works | 12 Tasks | 🟢 94% |
-| **Video Production** | 2 Staff | 48 Works | 6 Tasks | 🟢 92% |
-| **SEO & Strategy** | 2 Staff | 38 Sheets | 4 Tasks | 🟢 96% |
-| **Growth & Ads** | 2 Staff | 24 Campaigns | 3 Tasks | 🟢 91% |
-| **Data Entry** | 4 Staff | 320 Records | 18 Tasks | 🟢 98% |
+| **Graphic Design** | Live records required | Live records required | Live records required | Live records required |
+| **Video Production** | Live records required | Live records required | Live records required | Live records required |
+| **SEO & Strategy** | Live records required | Live records required | Live records required | Live records required |
+| **Growth & Ads** | Live records required | Live records required | Live records required | Live records required |
+| **Data Entry** | Live records required | Live records required | Live records required | Live records required |
 
 ---
 
 #### 3. Strategic AI Recommendations
-1. **Workload Balancing:** Reassign 2 pending banner tasks from Asif Ameen to Salahudeen Ayoobi to balance design capacity.
-2. **Automated Client Review Reminders:** Send 24-hour reminder notifications to clients with pending revision approvals.`
+1. **Workload Balancing:** Use live WorkTrack workload before reassignment.
+2. **Client Review Reminders:** Use live pending client deliverables before sending reminders.`
     };
   }
 };

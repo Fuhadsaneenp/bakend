@@ -1,15 +1,6 @@
 import { AIIntent, ExtractedEntities } from "./ai.types.js";
 
-const CLIENT_NAMES = [
-  "HealthFirst Clinics",
-  "Apex Realty UAE",
-  "Zenith Cloud Technologies",
-  "KiteWave Digital FinTech",
-  "Bloomfield International School",
-  "SpiceRoute Heritage Resorts",
-  "Medbiomate",
-  "Trikonet"
-];
+const CLIENT_NAMES: string[] = [];
 
 const DEPARTMENTS = ["Design", "SEO", "Production", "Video", "Growth", "Development", "Data Entry", "Sales", "HR"];
 
@@ -43,7 +34,7 @@ export const intentEngine = {
       text.includes("productivity report") ||
       (text.includes("report") && (text.includes("create") || text.includes("make") || text.includes("download") || text.includes("give me")))
     ) {
-      if (entities.clientName || text.includes("client") || text.includes("apex") || text.includes("healthfirst")) {
+      if (entities.clientName || text.includes("client")) {
         return { intent: "GENERATE_CLIENT_REPORT", entities };
       }
       if (text.includes("performance") || entities.employeeName) {

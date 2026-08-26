@@ -1,191 +1,65 @@
 import { prisma } from "../../lib/prisma.js";
 import { UserContext, ExtractedEntities } from "./ai.types.js";
 
+const workingDaysElapsedThisMonth = (date = new Date()) => {
+  let count = 0;
+  for (let day = 1; day <= date.getDate(); day++) {
+    const cursor = new Date(date.getFullYear(), date.getMonth(), day);
+    const weekDay = cursor.getDay();
+    if (weekDay !== 0 && weekDay !== 6) count++;
+  }
+  return Math.max(1, count);
+};
+
+const formatTime = (value: Date | string | null | undefined) =>
+  value ? new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Not recorded";
+
 export const aiAnalyticsService = {
   getSEOKeywordRankings(entities: ExtractedEntities) {
-    const targetClient = entities.clientName || "All Clients";
-
-    const allKeywords = [
-      {
-        client: "HealthFirst Clinics",
-        keyword: "dental clinic calicut",
-        currentPosition: 1,
-        prevPosition: 3,
-        change: "+2 (Top 1 🏆)",
-        url: "https://healthfirstclinics.com/services/dental",
-        searchVolume: "2,400/mo",
-        status: "Rank #1"
-      },
-      {
-        client: "Apex Realty UAE",
-        keyword: "luxury apartments business bay",
-        currentPosition: 2,
-        prevPosition: 4,
-        change: "+2 (Climbing 🚀)",
-        url: "https://apexrealty.ae/properties/business-bay",
-        searchVolume: "3,600/mo",
-        status: "Top 3"
-      },
-      {
-        client: "HealthFirst Clinics",
-        keyword: "orthodontist calicut",
-        currentPosition: 2,
-        prevPosition: 7,
-        change: "+5 (Big Gain 📈)",
-        url: "https://healthfirstclinics.com/orthodontics",
-        searchVolume: "1,800/mo",
-        status: "Top 3"
-      },
-      {
-        client: "Apex Realty UAE",
-        keyword: "dubai off plan property investments",
-        currentPosition: 3,
-        prevPosition: 5,
-        change: "+2 (Top 3 🚀)",
-        url: "https://apexrealty.ae/off-plan-investments",
-        searchVolume: "5,100/mo",
-        status: "Top 3"
-      },
-      {
-        client: "Zenith Cloud Technologies",
-        keyword: "cloud migration services dubai",
-        currentPosition: 4,
-        prevPosition: 4,
-        change: "0 (Stable ⚡)",
-        url: "https://zenithcloud.tech/solutions/migration",
-        searchVolume: "1,200/mo",
-        status: "Top 5"
-      },
-      {
-        client: "Bloomfield International School",
-        keyword: "international school admissions calicut",
-        currentPosition: 5,
-        prevPosition: 8,
-        change: "+3 (Climbing 📈)",
-        url: "https://bloomfieldschool.edu.in/admissions",
-        searchVolume: "950/mo",
-        status: "Top 5"
-      },
-      {
-        client: "SpiceRoute Heritage Resorts",
-        keyword: "luxury heritage resort wayanad",
-        currentPosition: 6,
-        prevPosition: 9,
-        change: "+3 (Climbing 📈)",
-        url: "https://spicerouteresorts.com/wayanad-villas",
-        searchVolume: "1,600/mo",
-        status: "Top 10"
-      },
-      {
-        client: "KiteWave Digital FinTech",
-        keyword: "fintech payment gateway dubai",
-        currentPosition: 7,
-        prevPosition: 6,
-        change: "-1 (Minor drop ⚠️)",
-        url: "https://kitewave.io/payments",
-        searchVolume: "2,900/mo",
-        status: "Top 10"
-      }
-    ];
-
-    const filtered = entities.clientName
-      ? allKeywords.filter(k => k.client.toLowerCase().includes(entities.clientName!.toLowerCase()))
-      : allKeywords;
-
     return {
-      totalKeywordsTracked: 48,
-      top3Count: 16,
-      top10Count: 38,
-      improvedCount: 22,
-      droppedCount: 3,
-      stableCount: 23,
-      keywords: filtered
+      totalKeywordsTracked: 0,
+      top3Count: 0,
+      top10Count: 0,
+      improvedCount: 0,
+      droppedCount: 0,
+      stableCount: 0,
+      keywords: [],
+      message: entities.clientName
+        ? `No live SEO ranking source is connected for ${entities.clientName}.`
+        : "No live SEO ranking source is connected."
     };
   },
 
-  getActiveClientsList() {
-    return [
-      {
-        name: "HealthFirst Clinics",
-        industry: "Healthcare & Dental Care",
-        assignedTeam: "Design (Swadique), SEO (Shoukath)",
-        accountManager: "Fuhad Saneen",
-        activeServices: "Social Media, SEO, Content Marketing",
-        committedQuota: "30 Posters & 15 Videos / mo",
-        currentStatus: "🟢 On Track (28/30 Delivered)",
-        pendingItems: "2 Posters awaiting final client approval"
+  async getActiveClientsList() {
+    const clients = await prisma.client.findMany({
+      include: {
+        accountManager: true,
+        workCards: true
       },
-      {
-        name: "Apex Realty UAE",
-        industry: "Luxury Real Estate & Investments",
-        assignedTeam: "Design (Asif Ameen), Video (Shamil), SEO (Basith)",
-        accountManager: "Fuhad Saneen",
-        activeServices: "Full Suite Retainer (Design, Reels, SEO, PPC)",
-        committedQuota: "40 Posters & 20 Videos / mo",
-        currentStatus: "🟢 On Track (34/40 Delivered, 16/20 Videos)",
-        pendingItems: "6 Posters in revision, 4 Videos in final edit"
-      },
-      {
-        name: "Zenith Cloud Technologies",
-        industry: "Enterprise Cloud & DevOps",
-        assignedTeam: "Design (Ayoobi), SEO (Shoukath)",
-        accountManager: "Fuhad Saneen",
-        activeServices: "Brand Design, Technical SEO, Whitepapers",
-        committedQuota: "20 Posters & 8 Technical Carousels / mo",
-        currentStatus: "🟢 On Track (18/20 Delivered)",
-        pendingItems: "2 Case Study infographics scheduled"
-      },
-      {
-        name: "KiteWave Digital FinTech",
-        industry: "FinTech & Payment Solutions",
-        assignedTeam: "Design (Ayoobi), Growth (Sherin)",
-        accountManager: "Fuhad Saneen",
-        activeServices: "App UI Assets, Social Campaigns, Meta Ads",
-        committedQuota: "25 Posters & 10 Videos / mo",
-        currentStatus: "🟡 Review Needed (20/25 Delivered)",
-        pendingItems: "5 Banner designs awaiting client review"
-      },
-      {
-        name: "Bloomfield International School",
-        industry: "Education & K-12 Academy",
-        assignedTeam: "Design (Swadique), Video (Shamil)",
-        accountManager: "Fuhad Saneen",
-        activeServices: "Admissions Campaign, Social Media, School Reels",
-        committedQuota: "25 Posters & 12 Reels / mo",
-        currentStatus: "🟢 On Track (22/25 Delivered)",
-        pendingItems: "3 Event recap posts in design"
-      },
-      {
-        name: "SpiceRoute Heritage Resorts",
-        industry: "Hospitality & Luxury Tourism",
-        assignedTeam: "Design (Asif Ameen), Growth (Naseeha)",
-        accountManager: "Fuhad Saneen",
-        activeServices: "Visual Branding, Travel Reels, Google PPC",
-        committedQuota: "30 Posters & 15 Videos / mo",
-        currentStatus: "🟢 On Track (27/30 Delivered)",
-        pendingItems: "3 Seasonal promo reels scheduled"
-      },
-      {
-        name: "Medbiomate",
-        industry: "Medical Devices & HealthTech",
-        assignedTeam: "Design (Swadique), SEO (Basith)",
-        accountManager: "Fuhad Saneen",
-        activeServices: "Product Catalogues, SEO Sheets, LinkedIn Posts",
-        committedQuota: "20 Posters & 6 Carousels / mo",
-        currentStatus: "🟢 On Track (19/20 Delivered)",
-        pendingItems: "1 Medical brochure in final review"
-      },
-      {
-        name: "Trikonet",
-        industry: "Enterprise Telecommunications & IT",
-        assignedTeam: "Design (Ayoobi), SEO (Shoukath)",
-        accountManager: "Fuhad Saneen",
-        activeServices: "B2B Social Assets, Technical SEO, Sales Decks",
-        committedQuota: "20 Posters & 8 Decks / mo",
-        currentStatus: "🟢 On Track (18/20 Delivered)",
-        pendingItems: "2 Pitch decks awaiting client feedback"
-      }
-    ];
+      orderBy: { name: "asc" }
+    });
+
+    return clients.map((client) => {
+      const workCards = client.workCards || [];
+      const completed = workCards.filter((card: any) => ["APPROVED", "FINISHED"].includes(String(card.status || "").toUpperCase())).length;
+      const delayed = workCards.filter((card: any) => {
+        const isPastDeadline = card.deadline && new Date(card.deadline).getTime() < Date.now();
+        return isPastDeadline || String(card.status || "").toUpperCase() === "DELAYED";
+      }).length;
+
+      return {
+        name: client.name,
+        industry: client.details || "Not recorded",
+        assignedTeam: "Use WorkTrack assignments for live task owners",
+        accountManager: client.accountManager
+          ? [client.accountManager.firstName, client.accountManager.middleName, client.accountManager.lastName].filter(Boolean).join(" ")
+          : "Unassigned",
+        activeServices: client.digitalMarketingActivities || client.packageName || "Not recorded",
+        committedQuota: client.postersCommitted ? `${client.postersCommitted} posters / mo` : "Not recorded",
+        currentStatus: delayed > 0 ? `Attention needed (${delayed} delayed work card(s))` : "Active",
+        pendingItems: `${Math.max(0, workCards.length - completed)} pending work card(s)`
+      };
+    });
   },
 
   async getEmployeeAttendanceStats(user: UserContext) {
@@ -199,14 +73,14 @@ export const aiAnalyticsService = {
 
     if (!employeeId) {
       return {
-        workedDaysThisMonth: 18,
-        totalWorkingDays: 22,
-        attendancePercentage: 91,
-        lateArrivals: 1,
+        workedDaysThisMonth: 0,
+        totalWorkingDays: workingDaysElapsedThisMonth(now),
+        attendancePercentage: 0,
+        lateArrivals: 0,
         gracePeriodExceeded: 0,
-        averageCheckInTime: "09:28 AM",
-        prevMonthAttendancePercentage: 88,
-        improvementRate: "+3%",
+        averageCheckInTime: "Not recorded",
+        prevMonthAttendancePercentage: 0,
+        improvementRate: "0%",
         hasIssues: false
       };
     }
@@ -226,21 +100,31 @@ export const aiAnalyticsService = {
     });
 
     const workedDaysThisMonth = currentPunches.length;
-    const totalWorkingDays = 22;
-    const attendancePercentage = Math.min(100, Math.round((workedDaysThisMonth / (totalWorkingDays || 1)) * 100));
-    const lateArrivals = currentPunches.filter((p: any) => p.isLate || (p.checkInAt && new Date(p.checkInAt).getHours() >= 9 && new Date(p.checkInAt).getMinutes() > 45)).length;
+    const totalWorkingDays = workingDaysElapsedThisMonth(now);
+    const attendancePercentage = Math.min(100, Math.round((workedDaysThisMonth / totalWorkingDays) * 100));
+    const lateArrivals = currentPunches.filter((p: any) => {
+      if (p.isLate) return true;
+      if (!p.checkInAt) return false;
+      const checkIn = new Date(p.checkInAt);
+      return checkIn.getHours() > 9 || (checkIn.getHours() === 9 && checkIn.getMinutes() > 45);
+    }).length;
 
     const prevWorked = prevPunches.length;
-    const prevPercentage = Math.min(100, Math.round((prevWorked / 24) * 100));
+    const prevWorkingDays = workingDaysElapsedThisMonth(endOfPrevMonth);
+    const prevPercentage = Math.min(100, Math.round((prevWorked / prevWorkingDays) * 100));
+    const averageTimestamp = currentPunches
+      .map((p: any) => p.checkInAt ? new Date(p.checkInAt).getTime() : 0)
+      .filter(Boolean)
+      .reduce((sum: number, value: number, _index: number, arr: number[]) => sum + value / arr.length, 0);
 
     return {
-      workedDaysThisMonth: workedDaysThisMonth || 18,
+      workedDaysThisMonth,
       totalWorkingDays,
-      attendancePercentage: attendancePercentage || 91,
-      lateArrivals: lateArrivals || 1,
+      attendancePercentage,
+      lateArrivals,
       gracePeriodExceeded: Math.max(0, lateArrivals - 2),
-      averageCheckInTime: "09:28 AM",
-      prevMonthAttendancePercentage: prevPercentage || 88,
+      averageCheckInTime: averageTimestamp ? formatTime(new Date(averageTimestamp)) : "Not recorded",
+      prevMonthAttendancePercentage: prevPercentage,
       improvementRate: attendancePercentage >= prevPercentage ? `+${attendancePercentage - prevPercentage}%` : `-${prevPercentage - attendancePercentage}%`,
       hasIssues: lateArrivals >= 3
     };
@@ -251,111 +135,141 @@ export const aiAnalyticsService = {
 
     if (!employeeId) {
       return {
-        casualLeaveRemaining: 8,
-        casualLeaveTotal: 12,
-        sickLeaveRemaining: 5,
-        sickLeaveTotal: 7,
-        earnedLeaveRemaining: 15,
+        casualLeaveRemaining: 0,
+        casualLeaveTotal: 0,
+        sickLeaveRemaining: 0,
+        sickLeaveTotal: 0,
+        earnedLeaveRemaining: 0,
         pendingApprovalsCount: 0,
-        wfhDaysUsedThisMonth: 1,
-        wfhMonthlyQuota: 2
+        wfhDaysUsedThisMonth: 0,
+        wfhMonthlyQuota: 0
       };
     }
 
-    const wfhRequests = await prisma.wFHRequest.findMany({
-      where: { employeeId },
-      orderBy: { createdAt: "desc" },
-      take: 10
-    });
+    const [wfhRequests, leaveAllocations] = await Promise.all([
+      prisma.wFHRequest.findMany({
+        where: { employeeId },
+        orderBy: { createdAt: "desc" },
+        take: 10
+      }),
+      prisma.leaveAllocation.findMany({
+        where: { employeeId, year: new Date().getFullYear() }
+      })
+    ]);
 
-    const pendingApprovalsCount = wfhRequests.filter((l: any) => l.status === "PENDING").length;
+    const remainingFor = (type: string) => {
+      const allocation = leaveAllocations.find((item: any) => String(item.leaveType || "").toLowerCase().includes(type));
+      if (!allocation) return { remaining: 0, total: 0 };
+      return {
+        remaining: Math.max(0, Number(allocation.maxDays || 0) - Number(allocation.usedDays || 0)),
+        total: Number(allocation.maxDays || 0)
+      };
+    };
+    const casual = remainingFor("casual");
+    const sick = remainingFor("sick");
+    const earned = remainingFor("earned");
 
     return {
-      casualLeaveRemaining: 8,
-      casualLeaveTotal: 12,
-      sickLeaveRemaining: 5,
-      sickLeaveTotal: 7,
-      earnedLeaveRemaining: 15,
-      pendingApprovalsCount,
-      wfhDaysUsedThisMonth: 1,
-      wfhMonthlyQuota: 2,
+      casualLeaveRemaining: casual.remaining,
+      casualLeaveTotal: casual.total,
+      sickLeaveRemaining: sick.remaining,
+      sickLeaveTotal: sick.total,
+      earnedLeaveRemaining: earned.remaining,
+      pendingApprovalsCount: wfhRequests.filter((request: any) => request.status === "PENDING").length,
+      wfhDaysUsedThisMonth: wfhRequests.filter((request: any) => request.status === "APPROVED").length,
+      wfhMonthlyQuota: 0,
       recentRequests: wfhRequests.slice(0, 3)
     };
   },
 
   async getWorkTrackProductivityStats(user: UserContext) {
+    const where = user.employeeId ? { assignedToId: user.employeeId } : {};
+    const workCards = await prisma.workCard.findMany({ where });
+    const completedTasksCount = workCards.filter((card: any) => ["APPROVED", "FINISHED"].includes(String(card.status || "").toUpperCase())).length;
+    const overdueTasksCount = workCards.filter((card: any) =>
+      !["APPROVED", "FINISHED"].includes(String(card.status || "").toUpperCase()) &&
+      card.deadline &&
+      new Date(card.deadline).getTime() < Date.now()
+    ).length;
+    const reworkCount = workCards.filter((card: any) => String(card.status || "").toUpperCase() === "REWORK").length;
+    const totalPoints = workCards.reduce((sum: number, card: any) => sum + Number(card.pointsEarned || 0), 0);
+
     return {
-      assignedTasksCount: 14,
-      completedTasksCount: 12,
-      pendingTasksCount: 2,
-      overdueTasksCount: 0,
-      completionPercentage: 86,
-      workPoints: 480,
-      onTimeDeliveryRate: "94%",
-      reworkRate: "6%"
+      assignedTasksCount: workCards.length,
+      completedTasksCount,
+      pendingTasksCount: Math.max(0, workCards.length - completedTasksCount),
+      overdueTasksCount,
+      completionPercentage: workCards.length > 0 ? Math.round((completedTasksCount / workCards.length) * 100) : 0,
+      workPoints: totalPoints,
+      onTimeDeliveryRate: workCards.length > 0 ? `${Math.round(((workCards.length - overdueTasksCount) / workCards.length) * 100)}%` : "0%",
+      reworkRate: workCards.length > 0 ? `${Math.round((reworkCount / workCards.length) * 100)}%` : "0%"
     };
   },
 
   async getManagerTeamStats(user: UserContext, entities: ExtractedEntities) {
     const employees = await prisma.employee.findMany({
       where: { status: "ACTIVE" },
-      include: { department: true, designation: true }
+      include: { department: true, designation: true, assignedWorkCards: true }
     });
 
-    const targetDept = entities.departmentName || user.department || "Design";
-    const deptEmployees = employees.filter(e => (e.department?.name || "").toLowerCase().includes(targetDept.toLowerCase()));
+    const targetDept = entities.departmentName || user.department || "";
+    const deptEmployees = targetDept
+      ? employees.filter((employee) => (employee.department?.name || "").toLowerCase().includes(targetDept.toLowerCase()))
+      : employees;
+    const allTeamCards = deptEmployees.flatMap((employee: any) => employee.assignedWorkCards || []);
+    const completedDeliverables = allTeamCards.filter((card: any) => ["APPROVED", "FINISHED"].includes(String(card.status || "").toUpperCase())).length;
+    const overdueTasks = allTeamCards.filter((card: any) =>
+      !["APPROVED", "FINISHED"].includes(String(card.status || "").toUpperCase()) &&
+      card.deadline &&
+      new Date(card.deadline).getTime() < Date.now()
+    ).length;
 
     return {
-      departmentName: targetDept,
-      teamMembersCount: deptEmployees.length || 3,
-      totalPendingDeliverables: 14,
-      completedDeliverables: 38,
-      completionRate: "73%",
-      designers: [
-        {
-          name: "Asif Ameen MP",
-          role: "Senior Graphic Designer",
-          activeTasks: 12,
-          pendingTasks: 8,
-          overdueTasks: 1,
-          completedTasks: 26,
-          workCapacity: "⚠️ Overloaded (85% Capacity)"
-        },
-        {
-          name: "Muhammed Swadique",
-          role: "Graphic Designer",
-          activeTasks: 6,
-          pendingTasks: 4,
-          overdueTasks: 0,
-          completedTasks: 31,
-          workCapacity: "🟢 Optimal (60% Capacity)"
-        },
-        {
-          name: "Salahudeen Ayoobi",
-          role: "Creative Designer",
-          activeTasks: 3,
-          pendingTasks: 2,
-          overdueTasks: 0,
-          completedTasks: 28,
-          workCapacity: "🟢 Available Capacity (30% Capacity)"
-        }
-      ],
-      bottlenecks: "60% of open delays are currently awaiting client revision approvals rather than internal design execution."
+      departmentName: targetDept || "All Departments",
+      teamMembersCount: deptEmployees.length,
+      totalPendingDeliverables: Math.max(0, allTeamCards.length - completedDeliverables),
+      completedDeliverables,
+      completionRate: allTeamCards.length > 0 ? `${Math.round((completedDeliverables / allTeamCards.length) * 100)}%` : "0%",
+      designers: deptEmployees.map((employee: any) => {
+        const cards = employee.assignedWorkCards || [];
+        const completed = cards.filter((card: any) => ["APPROVED", "FINISHED"].includes(String(card.status || "").toUpperCase())).length;
+        const active = Math.max(0, cards.length - completed);
+        const overdue = cards.filter((card: any) =>
+          !["APPROVED", "FINISHED"].includes(String(card.status || "").toUpperCase()) &&
+          card.deadline &&
+          new Date(card.deadline).getTime() < Date.now()
+        ).length;
+        return {
+          name: [employee.firstName, employee.middleName, employee.lastName].filter(Boolean).join(" "),
+          role: employee.designation?.title || "Not recorded",
+          activeTasks: active,
+          pendingTasks: active,
+          overdueTasks: overdue,
+          completedTasks: completed,
+          workCapacity: active >= 3 ? "Overloaded" : active === 0 ? "Available" : "Balanced"
+        };
+      }),
+      bottlenecks: overdueTasks > 0 ? `${overdueTasks} overdue work card(s) found.` : "No overdue team work cards found."
     };
   },
 
   async getCompanyOverviewStats(user: UserContext) {
-    const totalEmployees = await prisma.employee.count({ where: { status: "ACTIVE" } });
-    const departmentsCount = await prisma.department.count();
+    const [totalEmployees, departmentsCount, activeClientsCount, workCards] = await Promise.all([
+      prisma.employee.count({ where: { status: "ACTIVE" } }),
+      prisma.department.count(),
+      prisma.client.count(),
+      prisma.workCard.findMany()
+    ]);
+    const completed = workCards.filter((card: any) => ["APPROVED", "FINISHED"].includes(String(card.status || "").toUpperCase())).length;
 
     return {
-      totalEmployees: totalEmployees || 12,
-      totalDepartments: departmentsCount || 6,
-      activeClientsCount: 8,
-      monthlyPostersCommitted: 210,
-      monthlyVideosCommitted: 105,
-      overallPunctualityRate: "92%",
-      workloadEfficiencyIndex: "88%"
+      totalEmployees,
+      totalDepartments: departmentsCount,
+      activeClientsCount,
+      monthlyPostersCommitted: 0,
+      monthlyVideosCommitted: 0,
+      overallPunctualityRate: "Use live attendance report",
+      workloadEfficiencyIndex: workCards.length > 0 ? `${Math.round((completed / workCards.length) * 100)}%` : "0%"
     };
   },
 
@@ -365,13 +279,10 @@ export const aiAnalyticsService = {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Get all active employees
     const allEmployees = await prisma.employee.findMany({
       where: { status: "ACTIVE" },
       include: { department: true }
     });
-
-    // Get today's attendance records
     const todayAttendance = await prisma.attendance.findMany({
       where: {
         workDate: { gte: today, lt: tomorrow }
@@ -379,25 +290,22 @@ export const aiAnalyticsService = {
       include: { employee: { include: { department: true } } }
     });
 
-    const presentIds = new Set(todayAttendance.map((a: any) => a.employeeId));
-    const totalActive = allEmployees.length || 12;
+    const presentIds = new Set(todayAttendance.map((attendance: any) => attendance.employeeId));
+    const totalActive = allEmployees.length;
     const presentCount = presentIds.size;
-    const absentCount = totalActive - presentCount;
-
-    // Late arrivals (check-in after 9:45 AM)
-    const lateArrivals = todayAttendance.filter((a: any) => {
-      if (!a.checkInAt) return false;
-      const ci = new Date(a.checkInAt);
-      return ci.getHours() > 9 || (ci.getHours() === 9 && ci.getMinutes() > 45);
+    const absentCount = Math.max(0, totalActive - presentCount);
+    const lateArrivals = todayAttendance.filter((attendance: any) => {
+      if (!attendance.checkInAt) return false;
+      const checkIn = new Date(attendance.checkInAt);
+      return checkIn.getHours() > 9 || (checkIn.getHours() === 9 && checkIn.getMinutes() > 45);
     });
 
-    // Department breakdown
     const deptMap: Record<string, { present: number; total: number }> = {};
-    for (const emp of allEmployees) {
-      const deptName = (emp as any).department?.name || "General";
+    for (const employee of allEmployees) {
+      const deptName = (employee as any).department?.name || "General";
       if (!deptMap[deptName]) deptMap[deptName] = { present: 0, total: 0 };
       deptMap[deptName].total++;
-      if (presentIds.has(emp.id)) deptMap[deptName].present++;
+      if (presentIds.has(employee.id)) deptMap[deptName].present++;
     }
 
     const deptSummary = Object.entries(deptMap)
@@ -406,13 +314,11 @@ export const aiAnalyticsService = {
 
     return {
       totalActive,
-      presentCount: presentCount || Math.floor(totalActive * 0.85),
-      absentCount: absentCount || Math.ceil(totalActive * 0.15),
+      presentCount,
+      absentCount,
       lateCount: lateArrivals.length,
-      attendanceRate: totalActive > 0
-        ? Math.round((presentCount / totalActive) * 100)
-        : 85,
-      deptSummary: deptSummary || "Design: 4/5, SEO: 3/3, Production: 5/6",
+      attendanceRate: totalActive > 0 ? Math.round((presentCount / totalActive) * 100) : 0,
+      deptSummary,
       date: today.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })
     };
   }

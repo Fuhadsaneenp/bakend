@@ -20,7 +20,7 @@ export const recommendationsEngine = {
           id: "rec-att-good",
           title: "Punctuality Rating Excellent",
           type: "success",
-          description: `Your attendance rate is ${analyticsData.attendancePercentage || 91}%, up ${analyticsData.improvementRate || "+3%"} from last month.`,
+          description: `Your attendance rate is ${analyticsData.attendancePercentage || 0}%, ${analyticsData.improvementRate || "0%"} from last month.`,
           impact: "Eligible for monthly consistency points.",
           suggestedAction: "Keep up the consistent check-in schedule."
         });
@@ -33,18 +33,18 @@ export const recommendationsEngine = {
         id: "rec-workload-imbalance",
         title: "Workload Distribution Opportunity",
         type: "warning",
-        description: "Asif Ameen currently has 8 active design tasks while Salahudeen Ayoobi has available capacity with 2 tasks.",
-        impact: "Redistributing 2 cards will balance sprint deadlines and prevent deliverable bottlenecks.",
-        suggestedAction: "Reassign 2 pending banner tasks from Asif to Salahudeen."
+        description: `Live team data shows ${analyticsData.totalPendingDeliverables || 0} pending deliverable(s).`,
+        impact: "Redistributing cards should be based on current WorkTrack assignments.",
+        suggestedAction: "Review live assignee workload before reassigning pending cards."
       });
 
       list.push({
         id: "rec-client-delays",
         title: "Client Approval Bottleneck Alert",
         type: "action",
-        description: "60% of open delays are caused by awaiting client feedback rather than internal execution.",
-        impact: "May delay final monthly publishing schedules if not expedited.",
-        suggestedAction: "Send automated follow-up reminders to client POCs via CRM."
+        description: analyticsData.bottlenecks || "No live client approval bottleneck detected.",
+        impact: "Only send reminders when live pending approvals exist.",
+        suggestedAction: "Check live delayed client work before sending reminders."
       });
     }
 

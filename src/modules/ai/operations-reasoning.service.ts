@@ -166,12 +166,17 @@ export const operationsReasoningService = {
     const attendanceHealth: "EXCELLENT" | "GOOD" | "ATTENTION_NEEDED" =
       attPct >= 90 ? "EXCELLENT" : attPct >= 75 ? "GOOD" : "ATTENTION_NEEDED";
 
-    let primaryBottleneck = "Workload concentration on lead visual designer (Rahul Nair) holding 3 concurrent priority tasks.";
+    let primaryBottleneck = "No current bottleneck detected from live WorkTrack records.";
     if (ctx.tasks.delayedCount > 0) {
       primaryBottleneck = `${ctx.tasks.delayedCount} deliverables delayed; highest bottleneck is on ${ctx.tasks.highestWorkloadEmployee.name} with ${ctx.tasks.highestWorkloadEmployee.activeTasks} active deliverables.`;
+    } else if (ctx.tasks.highestWorkloadEmployee.activeTasks > 0) {
+      primaryBottleneck = `${ctx.tasks.highestWorkloadEmployee.name} has the highest current workload with ${ctx.tasks.highestWorkloadEmployee.activeTasks} active deliverables.`;
     }
 
-    let recommendedImmediateAction = `Reallocate 1 task from ${ctx.tasks.highestWorkloadEmployee.name} to available capacity (${ctx.tasks.availableEmployees.slice(0, 2).join(", ")}).`;
+    let recommendedImmediateAction = "No immediate reassignment recommended from current live records.";
+    if (ctx.tasks.highestWorkloadEmployee.activeTasks > 0 && ctx.tasks.availableEmployees.length > 0) {
+      recommendedImmediateAction = `Reallocate 1 task from ${ctx.tasks.highestWorkloadEmployee.name} to available capacity (${ctx.tasks.availableEmployees.slice(0, 2).join(", ")}).`;
+    }
     if (ctx.tasks.reworkCount > 0) {
       recommendedImmediateAction = `Review and sign off on ${ctx.tasks.reworkCount} pending rework deliverable(s) in Design/Production queue.`;
     }

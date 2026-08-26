@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url);
 let adapter: any = undefined;
 
 const databaseUrl = process.env.DATABASE_URL ?? "";
+const isDevelopment = process.env.NODE_ENV !== "production";
 
 if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres://")) {
   try {
@@ -29,8 +30,8 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
       connectionLimit: 3,
       minimumIdle: 1,
       idleTimeout: 60,
-      connectTimeout: 10_000,
-      acquireTimeout: 15_000
+      connectTimeout: isDevelopment ? 3_000 : 10_000,
+      acquireTimeout: isDevelopment ? 3_000 : 15_000
     }, {
       onConnectionError: (error: { code?: string; errno?: number; sqlState?: string }) => {
         console.error("MySQL connection failed", {
@@ -49,5 +50,5 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
 
 export const prisma = new PrismaClient({
   ...(adapter ? { adapter } : {}),
-  log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"]
+  log: isDevelopment ? ["query", "error", "warn"] : ["error"]
 });

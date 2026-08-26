@@ -28,11 +28,10 @@ export const geminiClient = {
     const apiKey = this.getApiKey();
     if (!apiKey) return null;
 
-    // Ultra-fast lightweight models first for instant execution
     const models = [
+      "gemini-2.5-pro",
       "gemini-2.5-flash",
       "gemini-2.0-flash",
-      "gemini-3.5-flash-lite",
       "gemini-flash-latest"
     ];
 
@@ -98,9 +97,9 @@ export const geminiClient = {
     if (!apiKey) return null;
 
     const models = [
+      "gemini-2.5-pro",
       "gemini-2.5-flash",
       "gemini-2.0-flash",
-      "gemini-3.5-flash-lite",
       "gemini-flash-latest"
     ];
 

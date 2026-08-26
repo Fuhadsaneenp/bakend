@@ -57,8 +57,8 @@ async function resolveUserContext(req: any): Promise<UserContext> {
     employeeId: undefined,
     companyId: null,
     role: "SUPER_ADMIN",
-    name: "Fuhad Saneen",
-    email: "saneen@secondtales.com"
+    name: "Local Admin",
+    email: "local-admin@secondtales.local"
   };
 }
 
@@ -241,5 +241,4 @@ aiRouter.post("/voice-speak", async (req, res, next) => {
     next(error);
   }
 });
-
 
