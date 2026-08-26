@@ -4,9 +4,12 @@ import { z } from "zod";
 dotenv.config();
 
 const envSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
-  PORT: z.union([z.string(), z.number()]).default(4000),
-  APP_ORIGIN: z.string().url().default("https://stems.secondtales.com"),
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  PORT: z.preprocess((val) => {
+    if (typeof val === "string" && /^\d+$/.test(val)) return Number(val);
+    return val;
+  }, z.union([z.string(), z.number()])).default(4000),
+  APP_ORIGIN: z.string().url().default("http://localhost:3000"),
   ALLOWED_ORIGINS: z.string().optional(),
   DATABASE_URL: z.string().default("mysql://u394546085_hrrec:48e65879a9574bfabdfbfa8e64c23f2b48e65879@srv1824.hstgr.io:3306/u394546085_hrrec"),
   JWT_ACCESS_SECRET: z.string().min(24).default("secondtales_jwt_access_super_secret_key_2026_prod_secure"),
