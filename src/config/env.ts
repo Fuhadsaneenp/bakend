@@ -5,10 +5,7 @@ dotenv.config();
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
-  PORT: z.preprocess((val) => {
-    if (typeof val === "string" && /^\d+$/.test(val)) return Number(val);
-    return val;
-  }, z.union([z.string(), z.number()])).default(4000),
+  PORT: z.union([z.string(), z.number()]).default(4000),
   APP_ORIGIN: z.string().url().default("https://stems.secondtales.com"),
   ALLOWED_ORIGINS: z.string().optional(),
   DATABASE_URL: z.string().default("mysql://u394546085_hrrec:48e65879a9574bfabdfbfa8e64c23f2b48e65879@srv1824.hstgr.io:3306/u394546085_hrrec"),

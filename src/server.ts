@@ -6,9 +6,15 @@ import { ensureShiftSchema } from "./lib/ensureShiftSchema.js";
 async function start() {
   const app = createApp();
 
-  app.listen(env.PORT, "0.0.0.0", () => {
-    console.log(`HR SaaS API listening on http://localhost:${env.PORT}`);
-  });
+  if (typeof env.PORT === "number" || (typeof env.PORT === "string" && /^\d+$/.test(env.PORT))) {
+    app.listen(Number(env.PORT), "0.0.0.0", () => {
+      console.log(`HR SaaS API listening on port ${env.PORT}`);
+    });
+  } else {
+    app.listen(env.PORT, () => {
+      console.log(`HR SaaS API listening on socket ${env.PORT}`);
+    });
+  }
 
   void Promise.allSettled([
     ensureBiometricSyncSchema(),
