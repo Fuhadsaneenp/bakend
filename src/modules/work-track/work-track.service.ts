@@ -265,7 +265,7 @@ function employeeMatchesWorkTrack(employee: {
     title.includes("director");
 
   const isVideoPerson = title.includes("video") || title.includes("motion") || title.includes("animat") || title.includes("editor") || title.includes("cinemat") || title.includes("colorist") || title.includes("videograph") || department.includes("video") || department.includes("production");
-  const isDesignPerson = title.includes("designer") || title.includes("graphic") || title.includes("ui/ux") || title.includes("ui design") || title.includes("brand") || title.includes("visual") || title.includes("illustrat") || (department.includes("design") && !isVideoPerson && !isNonCreativeManagement);
+  const isDesignPerson = title.includes("designer") || title.includes("graphic") || title.includes("ui/ux") || title.includes("ui design") || title.includes("brand") || title.includes("visual") || title.includes("illustrat") || title.includes("creative") || (title.includes("design") && !isVideoPerson) || (department.includes("design") && !isVideoPerson && !isNonCreativeManagement);
 
   if (track === "designer") {
     if (isNonCreativeManagement && !title.includes("designer") && !title.includes("graphic")) return false;
@@ -585,9 +585,13 @@ export const workTrackService = {
       }
 
       // 1. Check Authority Settings explicitly
+      //    explicitDenied is ONLY set by position overrides (admin deliberately placed them on a different track).
+      //    overview-designer:false is a side-effect of track level "off" controlling what the person can SEE
+      //    in their own workspace — it must NOT hide them from the coordinator/head board.
       let explicitAllowed: boolean | null = null;
+      let explicitDenied = false; // Only set by position overrides, NOT by overview-designer:false
       for (const k of lookupKeys) {
-        // Module grants check (overview-designer)
+        // Module grants check (overview-designer:true = admin explicitly added non-designer to board)
         const userGrants = trackSettings.moduleGrants?.[k];
         if (userGrants) {
           for (const alias of trackAliases) {
@@ -595,16 +599,19 @@ export const workTrackService = {
               explicitAllowed = true;
               break;
             }
+            // NOTE: overview-designer:false is intentionally NOT setting explicitDenied here.
+            // It is automatically written as a side-effect of track level "off" and should not
+            // block natural designers from appearing on the coordinator/head team board.
           }
         }
 
-        // Track levels check
+        // Track levels check — "off" only blocks non-naturally-matched employees
         const userLevels = trackSettings.trackLevels?.[k];
         if (userLevels) {
           for (const alias of trackAliases) {
             const lvl = userLevels[alias];
-            if (lvl === "off") {
-              explicitAllowed = false;
+            if (lvl === "off" && explicitAllowed !== true) {
+              // Don't block; natural designation check below will still apply
               break;
             }
             if (lvl === "member") {
@@ -614,7 +621,7 @@ export const workTrackService = {
           }
         }
 
-        // Position overrides check
+        // Position overrides check — these ARE intentional explicit admin decisions
         const override = trackSettings.positionOverrides?.[k];
         if (override) {
           if (track === "designer") {
@@ -624,6 +631,7 @@ export const workTrackService = {
             }
             if (override.position === "VIDEO_EDITOR" || override.roles?.includes("video-editor") || override.roles?.includes("video_editor")) {
               explicitAllowed = false;
+              explicitDenied = true;
               break;
             }
           }
@@ -634,53 +642,57 @@ export const workTrackService = {
             }
             if (override.position === "DESIGNER" || override.roles?.includes("designer")) {
               explicitAllowed = false;
+              explicitDenied = true;
               break;
             }
           }
           if (override.position === "COORDINATOR") {
             if (isPureCoordinator(employee)) {
               explicitAllowed = false;
+              explicitDenied = true;
               break;
             }
           }
         }
-        if (explicitAllowed !== null) break;
+        if (explicitAllowed !== null || explicitDenied) break;
+      }
+
+      // Position-override explicit deny (admin deliberately placed them on a different track)
+      if (explicitDenied && explicitAllowed !== true) {
+        continue;
       }
 
       if (explicitAllowed === true) {
         filtered.push(employee);
         continue;
       }
-      if (explicitAllowed === false) {
+
+      // Natural designation match → ALWAYS include (even if track level is "off").
+      // This is the primary rule: any employee whose designation/department matches the track
+      // must appear on the coordinator/head board.
+      if (employeeMatchesWorkTrack(employee, track)) {
+        filtered.push(employee);
         continue;
       }
 
-      // 2. Check Permissions from DB / access payload
+      // 2. Check Permissions from DB / access payload (for non-naturally-matched people)
       let hasTrackAccess = false;
-      let hasCoordinatorAccess = false;
 
       if (employee.userId) {
         const access = await permissionService.getAccessPayload(employee.userId);
         hasTrackAccess = access.permissions.some(
           (permission) => permission.allowed && requiredCodes.includes(permission.code)
         );
-        hasCoordinatorAccess = access.permissions.some(
-          (permission) => permission.allowed && coordinatorCodes.includes(permission.code)
-        );
       }
 
-      if (hasTrackAccess && !isPureCoordinator(employee) && employeeMatchesWorkTrack(employee, track)) {
-        filtered.push(employee);
-        continue;
-      }
-
-      if (employeeMatchesWorkTrack(employee, track)) {
+      if (hasTrackAccess && !isPureCoordinator(employee)) {
         filtered.push(employee);
       }
     }
 
     return filtered;
   },
+
 
   async createWorkCard(companyId: string, creatorUserId: string, data: {
     clientId: string;
