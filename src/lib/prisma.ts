@@ -30,9 +30,24 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
       ? "Hrrec2026Secure9"
       : rawPassword;
 
-    adapter = new PrismaMariaDb({
-      host: connectionUrl.hostname,
-      port: Number(connectionUrl.port || 3306),
+    const fs = require("fs");
+    const possibleSockets = [
+      "/var/lib/mysql/mysql.sock",
+      "/var/run/mysqld/mysqld.sock",
+      "/tmp/mysql.sock",
+      "/var/run/mysql/mysql.sock"
+    ];
+    let detectedSocket: string | undefined = undefined;
+    for (const sock of possibleSockets) {
+      try {
+        if (fs.existsSync(sock)) {
+          detectedSocket = sock;
+          break;
+        }
+      } catch {}
+    }
+
+    const adapterConfig: any = {
       user: decodeURIComponent(connectionUrl.username) || "u394546085_hrrec",
       password,
       database: decodeURIComponent(connectionUrl.pathname.replace(/^\//, "")) || "u394546085_hrrec",
@@ -41,7 +56,16 @@ if (databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres:
       idleTimeout: 60,
       connectTimeout: 10_000,
       acquireTimeout: 15_000
-    }, {
+    };
+
+    if (detectedSocket) {
+      adapterConfig.socketPath = detectedSocket;
+    } else {
+      adapterConfig.host = connectionUrl.hostname;
+      adapterConfig.port = Number(connectionUrl.port || 3306);
+    }
+
+    adapter = new PrismaMariaDb(adapterConfig, {
       onConnectionError: (error: { code?: string; errno?: number; sqlState?: string }) => {
         console.error("MySQL connection failed", {
           code: error.code,
