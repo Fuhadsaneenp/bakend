@@ -903,67 +903,58 @@ async function main() {
     console.log("Set ST001 (Fuhad Saneen P K) as manager for all other employees.");
   }
 
-  // 7. Seed dummy clients matching Figma Site data
-  console.log("\nSeeding dummy clients...");
-  const dummyClientsData = [
+  // 7. Seed real CRM clients used by Work Track
+  console.log("\nSeeding real CRM clients...");
+  const realClientsData = [
     {
-      name: "Clearpath Logistics",
-      details: "Logistics · UAE & GCC",
-      contacts: "John Doe (john@clearpath.com)",
-      packageName: "Enterprise Growth Plan",
-      postersCommitted: 24,
-      videoSeo: "Full channel optimization & weekly upload",
-      digitalMarketingActivities: "Google Ads: $1000/mo spend, monthly SEO audit"
+      name: "SLF",
+      details: "Operations Team",
+      contacts: "Operations Team",
+      packageName: "Creative Posters (3) + Moment Marketing (1) + Ad Posters (1)",
+      postersCommitted: 5,
+      videoSeo: "0 Videos",
+      digitalMarketingActivities: "Creative Posters, Moment Marketing, Ad Posters"
     },
     {
-      name: "Solstice Studios",
-      details: "Media & Entertainment",
-      contacts: "Alice Rivera (alice@solstice.com)",
-      packageName: "Premium Branding",
-      postersCommitted: 12,
-      videoSeo: "YouTube SEO optimization",
-      digitalMarketingActivities: "Facebook & Instagram Reels campaign"
+      name: "Doner Club",
+      details: "Marketing Lead",
+      contacts: "Marketing Lead",
+      packageName: "Video Works + Moment Marketing + Ad Posters",
+      postersCommitted: 4,
+      videoSeo: "9 Video Works",
+      digitalMarketingActivities: "Video Works, Moment Marketing, Ad Posters"
     },
     {
-      name: "Apex Ventures",
-      details: "Finance & Venture Capital",
-      contacts: "Bob Vance (bob@apex.vc)",
-      packageName: "Standard Package",
-      postersCommitted: 8,
-      videoSeo: "None",
-      digitalMarketingActivities: "LinkedIn lead generation campaign"
+      name: "Nizar Hospital",
+      details: "Administration / Dr. Nizar",
+      contacts: "Administration / Dr. Nizar",
+      packageName: "Video Works + Ad Posters",
+      postersCommitted: 2,
+      videoSeo: "8 Video Works",
+      digitalMarketingActivities: "Video Works, Ad Posters"
     },
     {
-      name: "NovaBrands Co.",
-      details: "E-commerce & Retail",
-      contacts: "Jessica Taylor (jessica@novabrands.co)",
-      packageName: "Growth Package",
-      postersCommitted: 16,
-      videoSeo: "TikTok video SEO & tags optimization",
-      digitalMarketingActivities: "Google shopping ads, influencer marketing"
+      name: "Salty Fresh",
+      details: "Operations Manager",
+      contacts: "Operations Manager",
+      packageName: "Video Works + Moment Marketing",
+      postersCommitted: 2,
+      videoSeo: "5 Video Works",
+      digitalMarketingActivities: "Video Works, Moment Marketing"
     },
     {
-      name: "Meridian Health",
-      details: "Healthcare & Wellness",
-      contacts: "David Kim (david@meridian.com)",
-      packageName: "Starter Pack",
-      postersCommitted: 6,
-      videoSeo: "Basic channel setup",
-      digitalMarketingActivities: "SEO blog writing, local business listings"
-    },
-    {
-      name: "Pinnacle Group",
-      details: "Real Estate & Development",
-      contacts: "Sarah Connor (sarah@pinnacle.com)",
-      packageName: "Custom Branding",
-      postersCommitted: 20,
-      videoSeo: "Full channel optimization",
-      digitalMarketingActivities: "Virtual tour production, local SEO"
+      name: "Turbit",
+      details: "Product Lead",
+      contacts: "Product Lead",
+      packageName: "Video Works",
+      postersCommitted: 0,
+      videoSeo: "4 Video Works",
+      digitalMarketingActivities: "Video Works"
     }
   ];
 
   const seededClients = [];
-  for (const clientItem of dummyClientsData) {
+  for (const clientItem of realClientsData) {
     const client = await prisma.client.create({
       data: {
         companyId: "seed-company",

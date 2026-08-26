@@ -893,6 +893,81 @@ export const workTrackService = {
     return prisma.workCard.delete({ where: { id } });
   },
 
+  async clearAllTasks(companyId: string, userId: string, track?: string) {
+    const actor = await accessResolverService.getUserAccessContext(userId);
+    const userRoleStr = String(actor.user.role || "").toUpperCase();
+    const isSuperAdmin = userRoleStr === "SUPER_ADMIN" || Boolean((actor.user as any).impersonatedBy);
+    if (!isSuperAdmin) {
+      throw new ApiError(403, "Only Super Admin can clear all tasks.");
+    }
+
+    const whereClause: any = { companyId };
+    if (track && track !== "all") {
+      const normalized = track.toLowerCase().replace(/-/g, "_");
+      whereClause.OR = [
+        { category: { equals: track, mode: "insensitive" } },
+        { category: { equals: normalized, mode: "insensitive" } },
+        { category: { contains: track, mode: "insensitive" } }
+      ];
+    }
+
+    const targetCards = await prisma.workCard.findMany({
+      where: whereClause,
+      select: { id: true }
+    });
+
+    const cardIds = targetCards.map(c => c.id);
+    if (cardIds.length > 0) {
+      await prisma.statusHistory.deleteMany({ where: { workCardId: { in: cardIds } } });
+      await prisma.reworkLog.deleteMany({ where: { workCardId: { in: cardIds } } });
+      await prisma.comment.deleteMany({ where: { workCardId: { in: cardIds } } });
+      await prisma.rating.deleteMany({ where: { workCardId: { in: cardIds } } });
+      await prisma.pointsLedger.updateMany({
+        where: { workCardId: { in: cardIds } },
+        data: { workCardId: null }
+      });
+      await prisma.workCard.deleteMany({ where: { id: { in: cardIds } } });
+    }
+
+    return { success: true, count: cardIds.length };
+  },
+
+  async clearAllWorkHistory(companyId: string, userId: string, track?: string) {
+    const actor = await accessResolverService.getUserAccessContext(userId);
+    const userRoleStr = String(actor.user.role || "").toUpperCase();
+    const isSuperAdmin = userRoleStr === "SUPER_ADMIN" || Boolean((actor.user as any).impersonatedBy);
+    if (!isSuperAdmin) {
+      throw new ApiError(403, "Only Super Admin can clear work history.");
+    }
+
+    const whereClause: any = { companyId };
+    if (track && track !== "all") {
+      const normalized = track.toLowerCase().replace(/-/g, "_");
+      whereClause.OR = [
+        { category: { equals: track, mode: "insensitive" } },
+        { category: { equals: normalized, mode: "insensitive" } },
+        { category: { contains: track, mode: "insensitive" } }
+      ];
+    }
+
+    const targetCards = await prisma.workCard.findMany({
+      where: whereClause,
+      select: { id: true }
+    });
+
+    const cardIds = targetCards.map(c => c.id);
+    if (cardIds.length > 0) {
+      await prisma.statusHistory.deleteMany({ where: { workCardId: { in: cardIds } } });
+      await prisma.reworkLog.deleteMany({ where: { workCardId: { in: cardIds } } });
+      await prisma.workCard.updateMany({
+        where: { id: { in: cardIds } },
+        data: { reworkCount: 0, status: "PENDING" }
+      });
+    }
+
+    return { success: true, count: cardIds.length };
+  },
+
   async updateWorkCardFields(companyId: string, id: string, data: {
     userId: string,
     priority?: string;

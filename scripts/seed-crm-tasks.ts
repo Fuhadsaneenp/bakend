@@ -20,8 +20,8 @@ async function seedCrmAndTasks() {
 
   const rahul = employees.find(e => e.id !== akhil?.id) || akhil;
 
-  // Comprehensive client service definitions
-  // Comprehensive real client service definitions
+  // CRM is the source of truth for Work Track clients.
+  // Keep live data limited to the real active CRM clients below.
   const clientData = [
     {
       name: "SLF",
@@ -74,6 +74,44 @@ async function seedCrmAndTasks() {
       accountManagerId: rahul?.id
     }
   ];
+
+  const realClientNames = clientData.map(client => client.name);
+  const staleClients = await prisma.client.findMany({
+    where: {
+      companyId: company.id,
+      name: { notIn: realClientNames }
+    },
+    select: { id: true, name: true }
+  });
+
+  const staleClientIds = staleClients.map(client => client.id);
+  if (staleClientIds.length > 0) {
+    const staleCards = await prisma.workCard.findMany({
+      where: { companyId: company.id, clientId: { in: staleClientIds } },
+      select: { id: true }
+    });
+    const staleCardIds = staleCards.map(card => card.id);
+
+    if (staleCardIds.length > 0) {
+      await prisma.statusHistory.deleteMany({ where: { workCardId: { in: staleCardIds } } });
+      await prisma.reworkLog.deleteMany({ where: { workCardId: { in: staleCardIds } } });
+      await prisma.comment.deleteMany({ where: { workCardId: { in: staleCardIds } } });
+      await prisma.rating.deleteMany({ where: { workCardId: { in: staleCardIds } } });
+      await prisma.pointsLedger.updateMany({
+        where: { workCardId: { in: staleCardIds } },
+        data: { workCardId: null }
+      });
+      await prisma.workCard.deleteMany({ where: { id: { in: staleCardIds } } });
+    }
+
+    await prisma.specialDay.deleteMany({ where: { clientId: { in: staleClientIds } } });
+    await prisma.metaDailyInsight.deleteMany({ where: { clientId: { in: staleClientIds } } });
+    await prisma.metaLead.deleteMany({ where: { clientId: { in: staleClientIds } } });
+    await prisma.metaCampaign.deleteMany({ where: { clientId: { in: staleClientIds } } });
+    await prisma.metaAdAccount.deleteMany({ where: { clientId: { in: staleClientIds } } });
+    await prisma.client.deleteMany({ where: { id: { in: staleClientIds } } });
+    console.log(`🧹 Removed stale dummy clients: ${staleClients.map(client => client.name).join(", ")}`);
+  }
 
   for (const cData of clientData) {
     const existing = await prisma.client.findFirst({

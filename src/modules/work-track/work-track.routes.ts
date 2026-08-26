@@ -378,6 +378,26 @@ workTrackRouter.delete("/cards/:id", async (req, res, next) => {
   }
 });
 
+workTrackRouter.delete("/admin/clear-tasks", async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const track = typeof req.query.track === "string" ? req.query.track : undefined;
+    res.json(await workTrackService.clearAllTasks(req.user.companyId, req.user.id, track));
+  } catch (error) {
+    next(error);
+  }
+});
+
+workTrackRouter.delete("/admin/clear-history", async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const track = typeof req.query.track === "string" ? req.query.track : undefined;
+    res.json(await workTrackService.clearAllWorkHistory(req.user.companyId, req.user.id, track));
+  } catch (error) {
+    next(error);
+  }
+});
+
 workTrackRouter.post("/cards/:id/comments", requirePermission("worktrack.comment.create"), async (req, res, next) => {
   try {
     const body = z.object({
