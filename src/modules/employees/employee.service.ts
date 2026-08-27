@@ -127,13 +127,15 @@ export const employeeService = {
   },
 
   async listForUser(user: AuthUser, requestedCompanyId?: string) {
-    const isAdminScope = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
+    const currentEmployee = await prisma.employee.findUnique({ where: { userId: user.id } });
+    const isHrHead = Boolean(currentEmployee?.isHrHead);
+    const isAdminScope = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN || isHrHead;
     const targetCompanyId = isAdminScope
-      ? requestedCompanyId
-      : user.companyId || undefined;
+      ? (requestedCompanyId || user.companyId || undefined)
+      : (user.companyId || undefined);
 
     if (isAdminScope) {
-      const where = targetCompanyId ? { companyId: targetCompanyId } : undefined;
+      const where = targetCompanyId ? { companyId: targetCompanyId } : (user.companyId ? { companyId: user.companyId } : undefined);
       const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
       const todayUtc = new Date(todayKolkataStr);
       const todayStart = getKolkataStartOfDay(new Date());
@@ -160,8 +162,6 @@ export const employeeService = {
     }
 
     if (!targetCompanyId) return [];
-
-    const currentEmployee = await prisma.employee.findUnique({ where: { userId: user.id } });
     if (!currentEmployee) return [];
 
     if (user.role === Role.MANAGER || user.role === Role.EMPLOYEE) {
