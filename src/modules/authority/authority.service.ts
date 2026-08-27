@@ -353,6 +353,17 @@ export const authorityService = {
         where: { id: userId },
         data: { role: data.role }
       });
+      if (data.role === Role.HR_ADMIN || data.role === Role.SUPER_ADMIN) {
+        await prisma.employee.updateMany({
+          where: { userId },
+          data: { isHrHead: true }
+        });
+      } else if (data.role === Role.EMPLOYEE) {
+        await prisma.employee.updateMany({
+          where: { userId },
+          data: { isHrHead: false }
+        });
+      }
     }
 
     if (data.accessProfileIds !== undefined) {

@@ -104,35 +104,39 @@ export const notificationService = {
     metadata?: Record<string, unknown>;
     excludeUserId?: string;
     extraUserIds?: string[];
+    targetedOnly?: boolean;
   }) {
     try {
-      // Find all managers, HR admins, Super Admins, and employees with Manager/Coordinator/Lead titles
-      const whereCondition: any = {
-        isActive: true,
-        OR: [
-          { role: { in: [Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER] } },
-          {
-            employee: {
-              OR: [
-                { designation: { title: { contains: "Manager" } } },
-                { designation: { title: { contains: "Coordinator" } } },
-                { designation: { title: { contains: "Head" } } },
-                { designation: { title: { contains: "Lead" } } },
-                { isHrHead: true }
-              ]
+      let users: { id: string; email: string | null }[] = [];
+
+      if (!options.targetedOnly) {
+        // Find track reviewers only when a caller explicitly wants a broad reviewer alert.
+        const whereCondition: any = {
+          isActive: true,
+          OR: [
+            { role: { in: [Role.SUPER_ADMIN, Role.HR_ADMIN] } },
+            {
+              employee: {
+                OR: [
+                  { designation: { title: { contains: "Coordinator" } } },
+                  { designation: { title: { contains: "Head" } } },
+                  { designation: { title: { contains: "Lead" } } },
+                  { isHrHead: true }
+                ]
+              }
             }
-          }
-        ]
-      };
+          ]
+        };
 
-      if (options.companyId) {
-        whereCondition.AND = [{ OR: [{ companyId: options.companyId }, { role: Role.SUPER_ADMIN }] }];
+        if (options.companyId) {
+          whereCondition.AND = [{ OR: [{ companyId: options.companyId }, { role: Role.SUPER_ADMIN }] }];
+        }
+
+        users = await prisma.user.findMany({
+          where: whereCondition,
+          select: { id: true, email: true }
+        });
       }
-
-      const users = await prisma.user.findMany({
-        where: whereCondition,
-        select: { id: true, email: true }
-      });
 
       let extraUsers: { id: string; email: string }[] = [];
       if (options.extraUserIds && options.extraUserIds.length > 0) {
@@ -354,6 +358,7 @@ export const notificationService = {
     taskId: string;
     employeeName: string;
     employeeUserId?: string;
+    reviewerUserIds?: string[];
     metadata?: Record<string, unknown>;
   }) {
     const subject = `🔍 Task Under Review: ${options.taskTitle}`;
@@ -364,6 +369,8 @@ export const notificationService = {
       subject,
       body,
       excludeUserId: options.employeeUserId,
+      extraUserIds: options.reviewerUserIds || [],
+      targetedOnly: true,
       metadata: {
         category: "task",
         action: "UNDER_REVIEW",
@@ -393,6 +400,7 @@ export const notificationService = {
       body,
       excludeUserId: options.employeeUserId,
       extraUserIds: options.creatorUserId ? [options.creatorUserId] : [],
+      targetedOnly: true,
       metadata: {
         category: "task",
         action: "COMPLETED",

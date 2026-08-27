@@ -1043,7 +1043,7 @@ export const workTrackService = {
 
     const actor = await accessResolverService.getUserAccessContext(data.userId);
     const userRoleStr = String(actor.user.role || "").toUpperCase();
-    const isCompanyAdmin = userRoleStr === "SUPER_ADMIN" || userRoleStr === "COMPANY_ADMIN" || userRoleStr === "HR_MANAGER";
+    const isCompanyAdmin = userRoleStr === "SUPER_ADMIN" || userRoleStr === "HR_ADMIN" || userRoleStr === "ADMIN" || userRoleStr === "COMPANY_ADMIN" || userRoleStr === "HR_MANAGER";
 
     let isCoordinator = isCompanyAdmin;
     if (!isCoordinator && actor.employee?.id) {
@@ -1167,7 +1167,7 @@ export const workTrackService = {
   }) {
     const card = await prisma.workCard.findUnique({
       where: { id },
-      include: { assignedTo: true, client: true }
+      include: { assignedTo: true, assignedBy: true, client: true }
     });
     if (!card) throw notFound("Work Card");
 
@@ -1185,7 +1185,7 @@ export const workTrackService = {
     const prevStatus = card.status;
 
     const userRoleStr = String(actor.user.role || "").toUpperCase();
-    const isHeadOrAdminRole = userRoleStr === "SUPER_ADMIN" || userRoleStr === "COMPANY_ADMIN" || userRoleStr === "HR_MANAGER";
+    const isHeadOrAdminRole = userRoleStr === "SUPER_ADMIN" || userRoleStr === "HR_ADMIN" || userRoleStr === "ADMIN" || userRoleStr === "COMPANY_ADMIN" || userRoleStr === "HR_MANAGER";
 
     let isHead = isHeadOrAdminRole;
     let isCoordinator = isHeadOrAdminRole;
@@ -1361,14 +1361,15 @@ export const workTrackService = {
           taskTitle: card.title,
           taskId: card.id,
           employeeName: empName,
-          employeeUserId: userId
+          employeeUserId: userId,
+          creatorUserId: card.assignedBy?.userId || null
         }).catch(() => {});
       } catch {}
     }
 
-    // Handle Under Review / Submission alert to managers & coordinators
+    // Handle Under Review / Submission alert for the person who created/reviews the card.
     if (
-      (newStatus === "OUT_TO_DELIVER" || newStatus === "WAITING_REVIEW" || newStatus === "IN_REVIEW") &&
+      (newStatus === "WAITING" || newStatus === "OUT_TO_DELIVER" || newStatus === "WAITING_REVIEW" || newStatus === "IN_REVIEW") &&
       prevStatus !== newStatus
     ) {
       try {
@@ -1381,7 +1382,8 @@ export const workTrackService = {
           taskTitle: card.title,
           taskId: card.id,
           employeeName: empName,
-          employeeUserId: userId
+          employeeUserId: userId,
+          reviewerUserIds: card.assignedBy?.userId ? [card.assignedBy.userId] : []
         }).catch(() => {});
       } catch {}
     }
