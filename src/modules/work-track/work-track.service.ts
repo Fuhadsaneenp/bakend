@@ -52,6 +52,29 @@ const REVIEW_ALLOWED_STATUSES = ["PENDING", "WAITING", "OUT_TO_DELIVER", "IN_PRO
 const APPROVAL_ALLOWED_STATUSES = ["PENDING", "APPROVED", "REWORK", "WAITING", "OUT_TO_DELIVER", "IN_PROGRESS"];
 const DATA_ENTRY_SHEETS_SETTING_KEY = "worktrack_data_entry_sheets_v1";
 
+function getAuthorityTrackAliases(track?: string | null) {
+  const normalized = String(track || "").toLowerCase().replace(/_/g, "-");
+  if (!normalized) return ["design", "designer", "video", "video-editor", "seo", "performance", "performance-marketing", "data_entry", "data-entry", "dev", "development"];
+  if (normalized === "designer" || normalized === "design") return ["design", "designer"];
+  if (normalized === "video-editor" || normalized === "video") return ["video", "video-editor"];
+  if (normalized === "performance-marketing" || normalized === "performance" || normalized === "meta-ads" || normalized === "google-ads") {
+    return ["performance", "performance-marketing", "meta-ads", "google-ads"];
+  }
+  if (normalized === "data-entry" || normalized === "data_entry") return ["data_entry", "data-entry"];
+  if (normalized === "development" || normalized === "dev") return ["dev", "development"];
+  return [normalized, normalized.replace(/-/g, "_")];
+}
+
+function inferAuthorityTrackFromCard(card: { category?: string | null; client?: { name?: string | null } | null }) {
+  const category = String(card.category || "").toLowerCase();
+  if (category.includes("video") || category.includes("reel") || category.includes("motion") || category.includes("animation") || category.includes("shoot")) return "video-editor";
+  if (category.includes("seo") || category.includes("keyword") || category.includes("backlink")) return "seo";
+  if (category.includes("meta") || category.includes("google") || category.includes("ads") || category.includes("campaign") || category.includes("performance")) return "performance-marketing";
+  if (category.includes("data") || category.includes("entry") || category.includes("sheet")) return "data-entry";
+  if (category.includes("dev") || category.includes("website") || category.includes("web") || category.includes("app")) return "development";
+  return "designer";
+}
+
 type DataEntrySheetRow = {
   count: number;
   category: string;
@@ -911,6 +934,69 @@ export const workTrackService = {
       // Allow if user is creator or assigned
       if (card.assignedById === actor.employee.id || card.assignedToId === actor.employee.id) {
         canDelete = true;
+      }
+
+      if (!canDelete) {
+        const fullActorEmployee = await prisma.employee.findUnique({
+          where: { id: actor.employee.id },
+          select: { id: true, firstName: true, middleName: true, lastName: true, personalEmail: true, userId: true }
+        });
+        const actorName = formatFullName(fullActorEmployee || {}).trim().toLowerCase();
+        const actorEmail = String(actor.user.email || fullActorEmployee?.personalEmail || "").trim().toLowerCase();
+        const lookupKeys = Array.from(new Set([
+          actor.employee.id,
+          actor.user.id,
+          fullActorEmployee?.userId,
+          actorEmail,
+          actorName,
+          actorEmail ? `email:${actorEmail}` : "",
+          actorName ? `employee-name:${actorName}` : ""
+        ].filter((value): value is string => Boolean(value))));
+        const trackAliases = getAuthorityTrackAliases(inferAuthorityTrackFromCard(card as any));
+
+        try {
+          const trackSetting = await prisma.companySetting.findUnique({
+            where: {
+              companyId_key: {
+                companyId,
+                key: "authority_user_track_settings"
+              }
+            }
+          });
+          const trackSettings = trackSetting?.value
+            ? (typeof trackSetting.value === "string" ? JSON.parse(trackSetting.value) : trackSetting.value) as {
+              trackLevels?: Record<string, any>;
+              moduleGrants?: Record<string, any>;
+              actionGrants?: Record<string, any>;
+              positionOverrides?: Record<string, any>;
+            }
+            : {};
+
+          canDelete = lookupKeys.some((key) => {
+            const levels = trackSettings.trackLevels?.[key];
+            const modules = trackSettings.moduleGrants?.[key];
+            const actions = trackSettings.actionGrants?.[key];
+            const override = trackSettings.positionOverrides?.[key];
+
+            const hasHeadOrLeadLevel = trackAliases.some((alias) => {
+              const level = levels?.[alias];
+              return level === "head" || level === "lead";
+            });
+            const hasManagerModule = trackAliases.some((alias) => {
+              const grants = modules?.[alias] || {};
+              return grants["overview-head"] === true || grants["overview-coordinator"] === true || grants["track-board"] === true || grants["team-work-track"] === true;
+            });
+            const hasDeleteAction = trackAliases.some((alias) => {
+              const grants = actions?.[alias] || {};
+              return grants["worktrack.task.delete"] === true || grants["task.delete"] === true || grants.delete === true;
+            });
+            const hasHeadOverride = override?.position === "DEPT_HEAD" || override?.position === "ADMIN" || override?.position === "COORDINATOR" || override?.roles?.includes("head") || override?.roles?.includes("coordinator");
+
+            return hasHeadOrLeadLevel || hasManagerModule || hasDeleteAction || hasHeadOverride;
+          });
+        } catch {
+          canDelete = false;
+        }
       }
 
       if (!canDelete) {
