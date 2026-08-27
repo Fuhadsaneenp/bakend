@@ -34,22 +34,23 @@ export const authService = {
     const refreshToken = signRefreshToken(payload);
     await prisma.user.update({ where: { id: user.id }, data: { refreshHash: await bcrypt.hash(refreshToken, 10) } });
 
-    // Notify Super Admin and HR Admin of employee login (asynchronously in background, only for employees/managers)
-    if (user.role !== "SUPER_ADMIN" && user.role !== "HR_ADMIN") {
-      setImmediate(() => {
+    // Notify Super Admin and HR Admin of login in background
+    if (user.role !== "SUPER_ADMIN") {
+      setImmediate(async () => {
         try {
           const empName = user.employee
             ? `${user.employee.firstName} ${user.employee.lastName || ""}`.trim()
             : user.email.split("@")[0];
           const nowStr = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
 
-          notificationService.notifyAttendance({
+          await notificationService.notifyAttendance({
             companyId: user.companyId,
             employeeName: empName,
             employeeUserId: user.id,
             type: "LOGIN",
             timeStr: nowStr
-          }).catch((e) => console.error("[Auth] Attendance notification error:", e));
+          });
+          console.log(`[Auth] Dispatched login notification for ${empName} (${user.email})`);
         } catch (notifErr) {
           console.error("[Auth] notifyAttendance failed:", notifErr);
         }
@@ -65,22 +66,29 @@ export const authService = {
         where: { id: userId },
         include: { employee: { select: { firstName: true, lastName: true } } }
       });
-      if (user) {
+      if (user && user.role !== "SUPER_ADMIN") {
         const empName = user.employee
           ? `${user.employee.firstName} ${user.employee.lastName || ""}`.trim()
           : user.email.split("@")[0];
         const nowStr = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
 
-        notificationService.notifyAttendance({
-          companyId: user.companyId,
-          employeeName: empName,
-          employeeUserId: user.id,
-          type: "LOGOUT",
-          timeStr: nowStr
-        }).catch(() => {});
-
-        await prisma.user.update({ where: { id: userId }, data: { refreshHash: null } });
+        setImmediate(async () => {
+          try {
+            await notificationService.notifyAttendance({
+              companyId: user.companyId,
+              employeeName: empName,
+              employeeUserId: user.id,
+              type: "LOGOUT",
+              timeStr: nowStr
+            });
+            console.log(`[Auth] Dispatched logout notification for ${empName} (${user.email})`);
+          } catch (e) {
+            console.error("[Auth] Logout notification error:", e);
+          }
+        });
       }
+
+      await prisma.user.update({ where: { id: userId }, data: { refreshHash: null } });
     } catch {}
     return { ok: true };
   },

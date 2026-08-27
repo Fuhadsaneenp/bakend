@@ -39,8 +39,7 @@ export const notificationService = {
       const adminUsers = await prisma.user.findMany({
         where: {
           isActive: true,
-          role: { in: [Role.SUPER_ADMIN, Role.HR_ADMIN] },
-          ...(options.companyId ? { OR: [{ companyId: options.companyId }, { role: Role.SUPER_ADMIN }] } : {})
+          role: { in: [Role.SUPER_ADMIN, Role.HR_ADMIN] }
         },
         select: { id: true, email: true }
       });

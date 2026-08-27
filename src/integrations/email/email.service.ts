@@ -16,19 +16,28 @@ const sanitizeAttachmentName = (value: string) => value
   .replace(/\s+/g, "-")
   .slice(0, 120) || "attachment";
 
-const transporter = env.SMTP_HOST
-  ? nodemailer.createTransport({
-      host: env.SMTP_HOST,
-      port: env.SMTP_PORT,
-      secure: env.SMTP_PORT === 465 || env.SMTP_SECURE === true,
-      auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
-      tls: {
-        rejectUnauthorized: false
-      },
-      disableFileAccess: true,
-      disableUrlAccess: true
-    })
-  : null;
+const smtpUser = (env.SMTP_USER && env.SMTP_USER.includes("secondtales.com"))
+  ? env.SMTP_USER
+  : "noreplay@secondtales.com";
+
+const smtpPass = (env.SMTP_PASS && env.SMTP_PASS.length > 5)
+  ? env.SMTP_PASS
+  : "~tx4iUO4eL$1";
+
+const smtpHost = env.SMTP_HOST || "smtp.hostinger.com";
+const smtpPort = Number(env.SMTP_PORT || 465);
+
+const transporter = nodemailer.createTransport({
+  host: smtpHost,
+  port: smtpPort,
+  secure: smtpPort === 465 || env.SMTP_SECURE === true,
+  auth: { user: smtpUser, pass: smtpPass },
+  tls: {
+    rejectUnauthorized: false
+  },
+  disableFileAccess: true,
+  disableUrlAccess: true
+});
 
 async function sendViaResend(input: EmailInput) {
   const response = await fetch("https://api.resend.com/emails", {
@@ -60,9 +69,9 @@ async function sendViaResend(input: EmailInput) {
 
 export const emailService = {
   async send(input: EmailInput) {
-    if (transporter && env.SMTP_HOST) {
+    if (transporter) {
       try {
-        const fromAddress = env.SMTP_FROM || (env.SMTP_USER ? `Second Tales <${env.SMTP_USER}>` : "Second Tales <no-reply@secondtales.com>");
+        const fromAddress = env.SMTP_FROM || `Second Tales EMS <${smtpUser}>`;
         const info = await transporter.sendMail({
           from: rejectHeaderValue(cleanAddress(fromAddress), "from address"),
           to: rejectHeaderValue(cleanAddress(input.to), "recipient address"),
@@ -75,6 +84,7 @@ export const emailService = {
           disableFileAccess: true,
           disableUrlAccess: true
         });
+        console.log(`[EmailService] Successfully sent email to ${input.to} (MessageId: ${info.messageId})`);
         return { providerMessageId: info.messageId, delivered: true, provider: "smtp" };
       } catch (smtpErr) {
         console.error("[EmailService] Hostinger SMTP failed, falling back if possible:", smtpErr);
