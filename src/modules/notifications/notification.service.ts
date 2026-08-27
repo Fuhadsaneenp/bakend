@@ -34,13 +34,23 @@ export const notificationService = {
     body: string;
     metadata?: Record<string, unknown>;
     excludeUserId?: string;
+    inApp?: boolean;
   }) {
     try {
+      const adminWhere: any = {
+        isActive: true,
+        role: { in: [Role.SUPER_ADMIN, Role.HR_ADMIN] }
+      };
+
+      if (options.companyId) {
+        adminWhere.OR = [
+          { role: Role.SUPER_ADMIN },
+          { role: Role.HR_ADMIN, companyId: options.companyId }
+        ];
+      }
+
       const adminUsers = await prisma.user.findMany({
-        where: {
-          isActive: true,
-          role: { in: [Role.SUPER_ADMIN, Role.HR_ADMIN] }
-        },
+        where: adminWhere,
         select: { id: true, email: true }
       });
 
@@ -66,11 +76,13 @@ export const notificationService = {
           )
       );
 
-      await Promise.all(
-        targetUsers.map((u) =>
-          notificationService.inApp(u.id, options.subject, options.body, options.metadata)
+      if (options.inApp !== false) {
+        await Promise.all(
+          targetUsers.map((u) =>
+            notificationService.inApp(u.id, options.subject, options.body, options.metadata)
+          )
         )
-      );
+      }
 
       const failedEmailCount = emailResults.filter((result) => !result.delivered).length;
       if (failedEmailCount > 0) {
@@ -282,6 +294,7 @@ export const notificationService = {
       subject,
       body,
       excludeUserId: options.employeeUserId,
+      inApp: false,
       metadata: {
         category: "attendance",
         type: options.type,
