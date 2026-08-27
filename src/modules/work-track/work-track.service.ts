@@ -722,28 +722,26 @@ export const workTrackService = {
     const year = new Date().getFullYear();
     const prefix = `ST-${year}-`;
 
+    // Fetch recent cards by descending ID without SQL LIKE / collation operations
     const recentCards = await prisma.workCard.findMany({
-      where: {
-        workId: {
-          startsWith: prefix
-        }
-      },
       select: {
         workId: true
       },
       orderBy: {
-        workId: "desc"
+        id: "desc"
       },
-      take: 100
+      take: 500
     });
 
     let maxNum = 0;
     for (const c of recentCards) {
-      const match = c.workId.match(new RegExp(`^ST-${year}-(\\d+)`));
-      if (match && match[1]) {
-        const num = parseInt(match[1], 10);
-        if (!isNaN(num) && num > maxNum) {
-          maxNum = num;
+      if (c.workId && c.workId.startsWith(prefix)) {
+        const match = c.workId.match(new RegExp(`^ST-${year}-(\\d+)`));
+        if (match && match[1]) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) {
+            maxNum = num;
+          }
         }
       }
     }
@@ -751,7 +749,7 @@ export const workTrackService = {
     let nextNum = maxNum + 1;
     let candidate = `${prefix}${String(nextNum).padStart(4, "0")}`;
 
-    while (await prisma.workCard.findUnique({ where: { workId: candidate }, select: { id: true } })) {
+    while (await prisma.workCard.findFirst({ where: { workId: candidate }, select: { id: true } })) {
       nextNum++;
       candidate = `${prefix}${String(nextNum).padStart(4, "0")}`;
     }
