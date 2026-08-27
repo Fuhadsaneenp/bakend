@@ -281,7 +281,7 @@ export const dashboardService = {
             take: 1
           }
         },
-        orderBy: { createdAt: "desc" }
+        orderBy: [{ employeeCode: "asc" }, { createdAt: "asc" }]
       }),
       prisma.employee.count({ where: { status: "TERMINATED" } }),
       getAttendanceStats({}),
@@ -356,7 +356,11 @@ export const dashboardService = {
       };
     }
 
-    if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
+    if (user.role === Role.SUPER_ADMIN) {
+      return this.allCompanies();
+    }
+
+    if (user.role === Role.HR_ADMIN) {
       return user.companyId ? this.company(user.companyId) : this.allCompanies();
     }
 

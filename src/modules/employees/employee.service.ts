@@ -100,13 +100,13 @@ const defaultLetterBody = (type: LetterType, employeeName: string) => {
 };
 
 export const employeeService = {
-  list(companyId: string) {
+  list(companyId?: string) {
     const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
     const todayUtc = new Date(todayKolkataStr);
     const todayStart = getKolkataStartOfDay(new Date());
 
     return prisma.employee.findMany({
-      where: { companyId },
+      where: companyId ? { companyId } : undefined,
       include: {
         ...employeeProfileFields,
         attendance: {
@@ -122,20 +122,23 @@ export const employeeService = {
           take: 1
         }
       },
-      orderBy: { createdAt: "desc" }
+      orderBy: [{ employeeCode: "asc" }, { createdAt: "asc" }]
     });
   },
 
   async listForUser(user: AuthUser, requestedCompanyId?: string) {
     const currentEmployee = await prisma.employee.findUnique({ where: { userId: user.id } });
     const isHrHead = Boolean(currentEmployee?.isHrHead);
-    const isAdminScope = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN || isHrHead;
-    const targetCompanyId = isAdminScope
-      ? (requestedCompanyId || user.companyId || undefined)
-      : (user.companyId || undefined);
+    const isSuperAdmin = user.role === Role.SUPER_ADMIN;
+    const isHrAdmin = user.role === Role.HR_ADMIN;
+    const isAdminScope = isSuperAdmin || isHrAdmin || isHrHead;
+
+    const targetCompanyId = (isSuperAdmin || isHrAdmin)
+      ? (requestedCompanyId || undefined)
+      : (requestedCompanyId || user.companyId || undefined);
 
     if (isAdminScope) {
-      const where = targetCompanyId ? { companyId: targetCompanyId } : (user.companyId ? { companyId: user.companyId } : undefined);
+      const where = targetCompanyId ? { companyId: targetCompanyId } : undefined;
       const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
       const todayUtc = new Date(todayKolkataStr);
       const todayStart = getKolkataStartOfDay(new Date());
@@ -157,7 +160,7 @@ export const employeeService = {
             take: 1
           }
         },
-        orderBy: { createdAt: "desc" }
+        orderBy: [{ employeeCode: "asc" }, { createdAt: "asc" }]
       });
     }
 
@@ -187,7 +190,7 @@ export const employeeService = {
             take: 1
           }
         },
-        orderBy: { createdAt: "desc" }
+        orderBy: [{ employeeCode: "asc" }, { createdAt: "asc" }]
       });
 
       return list.map((emp) => {
@@ -317,8 +320,9 @@ export const employeeService = {
   },
 
   async updateStatus(user: AuthUser, employeeId: string, status: "ACTIVE" | "INACTIVE" | "TERMINATED") {
+    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
+      where: isFullAdmin ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
     });
     if (!employee) throw notFound("Employee");
     const updatedEmployee = await prisma.employee.update({ where: { id: employeeId }, data: { status } });
@@ -363,8 +367,9 @@ export const employeeService = {
     taxId?: string | null;
     salary?: { basic: number; allowances: number; deductions: number; effectiveFrom: string };
   }) {
+    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: user.role === Role.SUPER_ADMIN ? { id } : { id, companyId: user.companyId || undefined }
+      where: isFullAdmin ? { id } : { id, companyId: user.companyId || undefined }
     });
     if (!employee) throw notFound("Employee not found");
 
@@ -451,7 +456,7 @@ export const employeeService = {
   },
 
   async assertSelfOrHr(user: AuthUser, employeeId: string) {
-    if (user.role === Role.SUPER_ADMIN) {
+    if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
       const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
       if (!employee) throw notFound("Employee");
       return employee;
@@ -512,9 +517,9 @@ export const employeeService = {
 
   async verifyDocument(user: AuthUser, documentId: string, status: "UPLOADED" | "VERIFIED" | "REJECTED", notes?: string) {
     if (!isHrRole(user.role)) throw new ApiError(403, "Insufficient permissions");
-    if (user.role !== Role.SUPER_ADMIN && !user.companyId) throw new ApiError(403, "Insufficient permissions");
+    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
     const document = await prisma.employeeDocument.findFirst({
-      where: user.role === Role.SUPER_ADMIN ? { id: documentId } : { id: documentId, employee: { companyId: user.companyId || undefined } }
+      where: isFullAdmin ? { id: documentId } : { id: documentId, employee: { companyId: user.companyId || undefined } }
     });
     if (!document) throw notFound("Document");
 
@@ -534,9 +539,9 @@ export const employeeService = {
 
   async deleteDocument(user: AuthUser, documentId: string) {
     if (!isHrRole(user.role)) throw new ApiError(403, "Insufficient permissions");
-    if (user.role !== Role.SUPER_ADMIN && !user.companyId) throw new ApiError(403, "Insufficient permissions");
+    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
     const document = await prisma.employeeDocument.findFirst({
-      where: user.role === Role.SUPER_ADMIN ? { id: documentId } : { id: documentId, employee: { companyId: user.companyId || undefined } }
+      where: isFullAdmin ? { id: documentId } : { id: documentId, employee: { companyId: user.companyId || undefined } }
     });
     if (!document) throw notFound("Document");
 
@@ -547,8 +552,9 @@ export const employeeService = {
 
   async deleteEmployee(user: AuthUser, employeeId: string, confirmation: string) {
     if (confirmation !== "CONFIRM") throw new ApiError(400, "Type CONFIRM to delete this employee");
+    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
+      where: isFullAdmin ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
     });
     if (!employee) throw notFound("Employee");
 
@@ -588,8 +594,9 @@ export const employeeService = {
   },
 
   async queueDeviceSync(user: AuthUser, employeeId: string) {
+    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
+      where: isFullAdmin ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
     });
     if (!employee) throw notFound("Employee");
 
@@ -614,8 +621,9 @@ export const employeeService = {
   },
 
   async queueDeviceTemplateDownload(user: AuthUser, employeeId: string) {
+    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
+      where: isFullAdmin ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
     });
     if (!employee) throw notFound("Employee");
 
@@ -642,8 +650,9 @@ export const employeeService = {
   },
 
   async generateLetter(user: AuthUser, employeeId: string, userId: string, data: { type: LetterType; title?: string; body?: string }) {
+    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined },
+      where: isFullAdmin ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined },
       include: { company: true }
     });
     if (!employee) throw notFound("Employee");
@@ -691,8 +700,9 @@ export const employeeService = {
   },
 
   async getByIdForUser(employeeId: string, user: AuthUser) {
+    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: user.role === Role.SUPER_ADMIN ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined },
+      where: isFullAdmin ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined },
       include: employeeProfileFields
     });
     if (!employee) throw notFound("Employee");

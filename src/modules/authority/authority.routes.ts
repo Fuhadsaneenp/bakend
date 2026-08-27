@@ -112,7 +112,8 @@ authorityRouter.get("/permissions", requirePermission("settings.authority.view")
 // ─── 2. ACCESS PROFILES ───
 authorityRouter.get("/profiles", requirePermission("settings.authority.view"), async (req, res, next) => {
   try {
-    res.json(await authorityService.listProfiles(req.user?.companyId || null));
+    const isGlobal = req.user?.role === Role.SUPER_ADMIN || req.user?.role === Role.HR_ADMIN;
+    res.json(await authorityService.listProfiles(isGlobal ? null : req.user?.companyId || null));
   } catch (error) {
     next(error);
   }
@@ -172,7 +173,8 @@ authorityRouter.delete("/profiles/:id", requirePermission("settings.authority.ma
 authorityRouter.get("/users", requirePermission("settings.authority.view"), async (req, res, next) => {
   try {
     const search = typeof req.query.search === "string" ? req.query.search : undefined;
-    const companyId = req.user?.role === Role.SUPER_ADMIN ? null : req.user?.companyId || null;
+    const isGlobal = req.user?.role === Role.SUPER_ADMIN || req.user?.role === Role.HR_ADMIN;
+    const companyId = isGlobal ? null : req.user?.companyId || null;
     res.json(await authorityService.listUsersWithAccess(companyId, search));
   } catch (error) {
     next(error);

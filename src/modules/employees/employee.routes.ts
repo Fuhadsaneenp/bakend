@@ -185,7 +185,8 @@ employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (r
       }).optional()
     }).parse(req.body);
 
-    const targetCompanyId = req.user!.role === Role.SUPER_ADMIN ? (body.companyId || req.user!.companyId) : req.user!.companyId;
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const targetCompanyId = isFullAdmin ? (body.companyId || req.user!.companyId) : req.user!.companyId;
     if (!targetCompanyId) throw new ApiError(400, "Company context required");
 
     const employee = await employeeService.onboard(targetCompanyId, body);
@@ -364,8 +365,9 @@ employeeRouter.post("/:id/exit", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), 
       exitRemarks: z.string().optional()
     }).parse(req.body);
 
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: req.user!.role === Role.SUPER_ADMIN ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
     });
     if (!employee) throw new ApiError(404, "Employee not found");
 
@@ -388,15 +390,16 @@ employeeRouter.post("/:id/exit", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), 
 
 employeeRouter.patch("/:id/settlement", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && !req.user!.companyId) {
       throw new ApiError(400, "Company context required");
     }
     const body = z.object({
       settlementStatus: z.enum(["PENDING", "SETTLED"])
     }).parse(req.body);
 
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: req.user!.role === Role.SUPER_ADMIN ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
     });
     if (!employee) throw new ApiError(404, "Employee not found");
 

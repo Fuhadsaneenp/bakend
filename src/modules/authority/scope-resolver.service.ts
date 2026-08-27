@@ -17,7 +17,7 @@ async function matchesScope(
   permission: EffectivePermission,
   input: ScopeCheckInput
 ) {
-  if (actor.user.role === "SUPER_ADMIN") return true;
+  if (actor.user.role === "SUPER_ADMIN" || actor.user.role === "HR_ADMIN") return true;
   if (!permission.scopes.length) return permission.allowed;
 
   for (const scope of permission.scopes) {

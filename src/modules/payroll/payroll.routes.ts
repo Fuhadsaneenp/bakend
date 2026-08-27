@@ -75,10 +75,10 @@ payrollRouter.post("/generate", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), a
 
 payrollRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
     const body = z.object({ status: z.enum(["DRAFT", "APPROVED", "PAID"]) }).parse(req.body);
     const run = await prisma.payrollRun.findFirst({
-      where: { id: req.params.id, companyId: req.user.companyId }
+      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
     });
     if (!run) throw new ApiError(404, "Payroll run not found");
 
@@ -96,7 +96,9 @@ payrollRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN)
 
 payrollRouter.patch("/payslips/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const payslip = await prisma.payslip.findUnique({ where: { id: req.params.id }, include: { payrollRun: true } });
+    if (!payslip) throw new ApiError(404, "Payslip not found");
+
     const body = z.object({
       payableDays: z.number().min(0),
       basic: z.number().min(0),
@@ -107,7 +109,7 @@ payrollRouter.patch("/payslips/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMI
       noticePay: z.number().optional()
     }).parse(req.body);
 
-    const result = await payrollService.updatePayslip(req.user.companyId, req.params.id, body);
+    const result = await payrollService.updatePayslip(payslip.payrollRun.companyId, req.params.id, body);
     res.json(result);
   } catch (error) {
     next(error);
@@ -116,8 +118,10 @@ payrollRouter.patch("/payslips/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMI
 
 payrollRouter.delete("/payslips/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    const result = await payrollService.skipPayslip(req.user.companyId, req.params.id);
+    const payslip = await prisma.payslip.findUnique({ where: { id: req.params.id }, include: { payrollRun: true } });
+    if (!payslip) throw new ApiError(404, "Payslip not found");
+
+    const result = await payrollService.skipPayslip(payslip.payrollRun.companyId, req.params.id);
     res.json(result);
   } catch (error) {
     next(error);
@@ -143,8 +147,9 @@ payrollRouter.post("/runs/:id/send-all", requireRoles(Role.SUPER_ADMIN, Role.HR_
 payrollRouter.delete("/runs/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const runId = req.params.id;
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
     const run = await prisma.payrollRun.findFirst({
-      where: req.user!.role === Role.SUPER_ADMIN ? { id: runId } : { id: runId, companyId: req.user!.companyId || undefined }
+      where: isFullAdmin ? { id: runId } : { id: runId, companyId: req.user!.companyId || undefined }
     });
     if (!run) throw new ApiError(404, "Payroll run not found");
 

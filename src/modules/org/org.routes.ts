@@ -24,7 +24,7 @@ orgRouter.get("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Ro
     if (!company) {
       throw new ApiError(404, "Company not found");
     }
-    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.companyId !== company.id) {
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && req.user!.companyId !== company.id) {
       throw new ApiError(403, "Insufficient permissions");
     }
     res.json(company);
@@ -33,7 +33,7 @@ orgRouter.get("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Ro
   }
 });
 
-orgRouter.post("/companies", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+orgRouter.post("/companies", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
   try {
     const body = z.object({
       name: z.string(),
@@ -51,7 +51,7 @@ orgRouter.post("/companies", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
   }
 });
 
-orgRouter.patch("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+orgRouter.patch("/companies/:id", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
   try {
     const body = z.object({
       name: z.string().optional(),
@@ -69,7 +69,7 @@ orgRouter.patch("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN),
   }
 });
 
-orgRouter.delete("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+orgRouter.delete("/companies/:id", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
   try {
     res.json(await orgService.deleteCompany(req.params.id));
   } catch (error) {
@@ -92,7 +92,8 @@ const officeBody = z.object({
 orgRouter.get("/offices", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
     const requestedCompanyId = typeof req.query.companyId === "string" ? req.query.companyId : undefined;
-    const companyId = req.user!.role === Role.SUPER_ADMIN ? requestedCompanyId : req.user!.companyId || undefined;
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const companyId = isFullAdmin ? requestedCompanyId : req.user!.companyId || undefined;
     res.json(await orgService.offices(companyId));
   } catch (error) {
     next(error);
@@ -102,7 +103,8 @@ orgRouter.get("/offices", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MAN
 orgRouter.post("/offices", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const body = officeBody.parse(req.body);
-    const companyId = req.user!.role === Role.SUPER_ADMIN ? body.companyId || req.user!.companyId : req.user!.companyId;
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const companyId = isFullAdmin ? (body.companyId || req.user!.companyId) : req.user!.companyId;
     if (!companyId) throw new ApiError(400, "Company context required");
     const { companyId: _companyId, ...data } = body;
     res.status(201).json(await orgService.createOffice(companyId, data));
@@ -115,7 +117,8 @@ orgRouter.patch("/offices/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), a
   try {
     const office = await prisma.office.findUnique({ where: { id: req.params.id } });
     if (!office) throw new ApiError(404, "Office not found");
-    if (req.user!.role !== Role.SUPER_ADMIN && office.companyId !== req.user!.companyId) {
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    if (!isFullAdmin && office.companyId !== req.user!.companyId) {
       throw new ApiError(403, "Insufficient permissions");
     }
     const data = officeBody.omit({ companyId: true }).partial().parse(req.body);
@@ -129,7 +132,8 @@ orgRouter.delete("/offices/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), 
   try {
     const office = await prisma.office.findUnique({ where: { id: req.params.id } });
     if (!office) throw new ApiError(404, "Office not found");
-    if (req.user!.role !== Role.SUPER_ADMIN && office.companyId !== req.user!.companyId) {
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    if (!isFullAdmin && office.companyId !== req.user!.companyId) {
       throw new ApiError(403, "Insufficient permissions");
     }
     res.json(await orgService.deleteOffice(office.id));
