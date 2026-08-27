@@ -16,28 +16,22 @@ const sanitizeAttachmentName = (value: string) => value
   .replace(/\s+/g, "-")
   .slice(0, 120) || "attachment";
 
-const smtpUser = (env.SMTP_USER && env.SMTP_USER.includes("secondtales.com"))
-  ? env.SMTP_USER
-  : "noreplay@secondtales.com";
+const hasSmtpConfig = Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);
+const smtpPort = Number(env.SMTP_PORT || 587);
 
-const smtpPass = (env.SMTP_PASS && env.SMTP_PASS.length > 5)
-  ? env.SMTP_PASS
-  : "~tx4iUO4eL$1";
-
-const smtpHost = env.SMTP_HOST || "smtp.hostinger.com";
-const smtpPort = Number(env.SMTP_PORT || 465);
-
-const transporter = nodemailer.createTransport({
-  host: smtpHost,
-  port: smtpPort,
-  secure: smtpPort === 465 || env.SMTP_SECURE === true,
-  auth: { user: smtpUser, pass: smtpPass },
-  tls: {
-    rejectUnauthorized: false
-  },
-  disableFileAccess: true,
-  disableUrlAccess: true
-});
+const transporter = hasSmtpConfig
+  ? nodemailer.createTransport({
+      host: env.SMTP_HOST,
+      port: smtpPort,
+      secure: smtpPort === 465 || env.SMTP_SECURE === true,
+      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+      tls: {
+        rejectUnauthorized: false
+      },
+      disableFileAccess: true,
+      disableUrlAccess: true
+    })
+  : null;
 
 async function sendViaResend(input: EmailInput) {
   const response = await fetch("https://api.resend.com/emails", {
@@ -71,7 +65,7 @@ export const emailService = {
   async send(input: EmailInput) {
     if (transporter) {
       try {
-        const fromAddress = env.SMTP_FROM || `Second Tales EMS <${smtpUser}>`;
+        const fromAddress = env.SMTP_FROM || `Second Tales EMS <${env.SMTP_USER}>`;
         const info = await transporter.sendMail({
           from: rejectHeaderValue(cleanAddress(fromAddress), "from address"),
           to: rejectHeaderValue(cleanAddress(input.to), "recipient address"),
@@ -99,7 +93,7 @@ export const emailService = {
       return sendViaResend(input);
     }
 
-    console.info("[email:dry-run]", input.to, input.subject);
+    console.warn("[email:dry-run] No SMTP or Resend provider configured.", input.to, input.subject);
     return { providerMessageId: "dry-run", delivered: false };
   },
 

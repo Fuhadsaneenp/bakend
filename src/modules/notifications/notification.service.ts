@@ -55,14 +55,27 @@ export const notificationService = {
         category: "attendance"
       });
 
-      await Promise.all([
-        ...targetUsers.map((u) =>
+      const emailResults = await Promise.all(
+        targetUsers
+          .filter((u) => Boolean(u.email))
+          .map((u) =>
+            emailService.send({ to: u.email, subject: options.subject, html }).catch((error) => {
+              console.error(`[Notification] Admin email failed for ${u.email}:`, error);
+              return { providerMessageId: "failed", delivered: false, provider: "unknown" };
+            })
+          )
+      );
+
+      await Promise.all(
+        targetUsers.map((u) =>
           notificationService.inApp(u.id, options.subject, options.body, options.metadata)
-        ),
-        ...targetUsers.map((u) =>
-          u.email ? emailService.send({ to: u.email, subject: options.subject, html }).catch(() => {}) : Promise.resolve()
         )
-      ]);
+      );
+
+      const failedEmailCount = emailResults.filter((result) => !result.delivered).length;
+      if (failedEmailCount > 0) {
+        console.warn(`[Notification] ${failedEmailCount} admin attendance email(s) were not delivered.`);
+      }
 
       return targetUsers;
     } catch (err) {
@@ -136,7 +149,10 @@ export const notificationService = {
           notificationService.inApp(u.id, options.subject, options.body, options.metadata)
         ),
         ...allUsers.map((u) =>
-          u.email ? emailService.send({ to: u.email, subject: options.subject, html }).catch(() => {}) : Promise.resolve()
+          u.email ? emailService.send({ to: u.email, subject: options.subject, html }).catch((error) => {
+            console.error(`[Notification] Task email failed for ${u.email}:`, error);
+            return null;
+          }) : Promise.resolve()
         )
       ]);
 
