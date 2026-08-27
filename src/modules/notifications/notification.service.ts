@@ -147,31 +147,118 @@ export const notificationService = {
     }
   },
 
+  async getSettings(companyId?: string | null) {
+    const defaultSettings = {
+      emailPunchAlerts: true,
+      emailLoginAlerts: true,
+      emailTaskAlerts: true,
+      emailPayslipAlerts: true,
+      waLeaveAlerts: true,
+      waPunchAlerts: true,
+      waDailySummary: false,
+      waDeviceAlerts: true
+    };
+
+    try {
+      let setting = null;
+      if (companyId) {
+        setting = await prisma.companySetting.findUnique({
+          where: { companyId_key: { companyId, key: "NOTIFICATION_PREFERENCES" } }
+        });
+      }
+      if (!setting) {
+        setting = await prisma.companySetting.findFirst({
+          where: { key: "NOTIFICATION_PREFERENCES" }
+        });
+      }
+      if (setting && setting.value && typeof setting.value === "object") {
+        return { ...defaultSettings, ...(setting.value as any) };
+      }
+    } catch (e) {
+      console.error("[Notification] getSettings error:", e);
+    }
+    return defaultSettings;
+  },
+
+  async updateSettings(companyId: string | null | undefined, newValues: Record<string, any>) {
+    const current = await this.getSettings(companyId);
+    const merged = { ...current, ...newValues };
+
+    try {
+      let targetCompanyId = companyId;
+      if (!targetCompanyId) {
+        const firstComp = await prisma.company.findFirst({ select: { id: true } });
+        targetCompanyId = firstComp?.id || null;
+      }
+
+      if (targetCompanyId) {
+        await prisma.companySetting.upsert({
+          where: { companyId_key: { companyId: targetCompanyId, key: "NOTIFICATION_PREFERENCES" } },
+          create: { companyId: targetCompanyId, key: "NOTIFICATION_PREFERENCES", value: merged },
+          update: { value: merged }
+        });
+      }
+    } catch (e) {
+      console.error("[Notification] updateSettings error:", e);
+    }
+    return merged;
+  },
+
   async notifyAttendance(options: {
     companyId?: string | null;
     employeeName: string;
-    type: "LOGIN" | "LOGOUT" | "CHECK_IN" | "CHECK_OUT";
+    type: "LOGIN" | "LOGOUT" | "CHECK_IN" | "CHECK_OUT" | "PUNCH_IN" | "PUNCH_OUT";
     timeStr: string;
     employeeUserId: string;
     metadata?: Record<string, unknown>;
   }) {
+    const settings = await this.getSettings(options.companyId);
+
+    // Check if notifications for this type are disabled in settings
+    const isLoginLogout = options.type === "LOGIN" || options.type === "LOGOUT";
+    const isPunch = options.type === "PUNCH_IN" || options.type === "PUNCH_OUT" || options.type === "CHECK_IN" || options.type === "CHECK_OUT";
+
+    if (isLoginLogout && settings.emailLoginAlerts === false) {
+      console.log(`[Notification] Login/Logout alerts disabled in settings, skipping email for ${options.employeeName}`);
+      return [];
+    }
+
+    if (isPunch && settings.emailPunchAlerts === false) {
+      console.log(`[Notification] Punch alerts disabled in settings, skipping email for ${options.employeeName}`);
+      return [];
+    }
+
     const actionLabels: Record<string, string> = {
-      LOGIN: "logged into the system",
-      LOGOUT: "logged out",
-      CHECK_IN: "checked in (Punch In)",
-      CHECK_OUT: "checked out (Punch Out)"
+      LOGIN: "logged into the web portal",
+      LOGOUT: "logged out of the web portal",
+      CHECK_IN: "checked in (Web Attendance)",
+      CHECK_OUT: "checked out (Web Attendance)",
+      PUNCH_IN: "punched in on Biometric Device",
+      PUNCH_OUT: "punched out on Biometric Device"
     };
 
     const actionTitle: Record<string, string> = {
       LOGIN: "Employee Login Alert",
       LOGOUT: "Employee Logout Alert",
-      CHECK_IN: "Employee Check-in Alert",
-      CHECK_OUT: "Employee Check-out Alert"
+      CHECK_IN: "Web Attendance Check-In Alert",
+      CHECK_OUT: "Web Attendance Check-Out Alert",
+      PUNCH_IN: "Biometric Punch-In Alert",
+      PUNCH_OUT: "Biometric Punch-Out Alert"
+    };
+
+    const actionIcons: Record<string, string> = {
+      LOGIN: "🟢",
+      LOGOUT: "🔴",
+      CHECK_IN: "🟢",
+      CHECK_OUT: "🔴",
+      PUNCH_IN: "⏰",
+      PUNCH_OUT: "⏰"
     };
 
     const actionText = actionLabels[options.type] || "updated attendance";
     const title = actionTitle[options.type] || "Attendance Update";
-    const subject = `🟢 ${title}: ${options.employeeName}`;
+    const icon = actionIcons[options.type] || "🔔";
+    const subject = `${icon} ${title}: ${options.employeeName}`;
     const body = `${options.employeeName} ${actionText} at ${options.timeStr}.`;
 
     return notificationService.notifyAdmins({

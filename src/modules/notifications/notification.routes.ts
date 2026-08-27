@@ -8,6 +8,24 @@ import { notificationService } from "./notification.service.js";
 export const notificationRouter = Router();
 notificationRouter.use(requireAuth);
 
+notificationRouter.get("/settings", async (req, res, next) => {
+  try {
+    const settings = await notificationService.getSettings(req.user?.companyId);
+    res.json(settings);
+  } catch (error) {
+    next(error);
+  }
+});
+
+notificationRouter.patch("/settings", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const updated = await notificationService.updateSettings(req.user?.companyId, req.body);
+    res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
 notificationRouter.get("/", async (req, res, next) => {
   try {
     res.json(await prisma.notification.findMany({ where: { userId: req.user!.id }, orderBy: { createdAt: "desc" }, take: 50 }));
