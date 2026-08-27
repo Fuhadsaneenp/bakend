@@ -718,6 +718,47 @@ export const workTrackService = {
   },
 
 
+  async generateNextWorkId(): Promise<string> {
+    const year = new Date().getFullYear();
+    const prefix = `ST-${year}-`;
+
+    const recentCards = await prisma.workCard.findMany({
+      where: {
+        workId: {
+          startsWith: prefix
+        }
+      },
+      select: {
+        workId: true
+      },
+      orderBy: {
+        workId: "desc"
+      },
+      take: 100
+    });
+
+    let maxNum = 0;
+    for (const c of recentCards) {
+      const match = c.workId.match(new RegExp(`^ST-${year}-(\\d+)`));
+      if (match && match[1]) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    }
+
+    let nextNum = maxNum + 1;
+    let candidate = `${prefix}${String(nextNum).padStart(4, "0")}`;
+
+    while (await prisma.workCard.findUnique({ where: { workId: candidate }, select: { id: true } })) {
+      nextNum++;
+      candidate = `${prefix}${String(nextNum).padStart(4, "0")}`;
+    }
+
+    return candidate;
+  },
+
   async createWorkCard(companyId: string, creatorUserId: string, data: {
     clientId: string;
     title: string;
@@ -729,18 +770,7 @@ export const workTrackService = {
     assignedToId?: string;
     createdAt?: string;
   }) {
-    // Generate sequential workId e.g. ST-2026-0001
-    const year = new Date().getFullYear();
-    const start = startOfYear(new Date());
-    const end = endOfYear(new Date());
-    const count = await prisma.workCard.count({
-      where: {
-        companyId,
-        createdAt: { gte: start, lte: end }
-      }
-    });
-
-    const workId = `ST-${year}-${String(count + 1).padStart(4, "0")}`;
+    const workId = await this.generateNextWorkId();
 
     const creatorEmployee = await prisma.employee.findFirst({
       where: { userId: creatorUserId, companyId }
@@ -1740,17 +1770,7 @@ export const workTrackService = {
         });
       }
 
-      // Generate sequential workId e.g. ST-2026-0001
-      const year = new Date().getFullYear();
-      const start = startOfYear(new Date());
-      const end = endOfYear(new Date());
-      const count = await prisma.workCard.count({
-        where: {
-          companyId,
-          createdAt: { gte: start, lte: end }
-        }
-      });
-      const workId = `ST-${year}-${String(count + 1).padStart(4, "0")}`;
+      const workId = await this.generateNextWorkId();
 
       const card = await prisma.workCard.create({
         data: {
