@@ -13,6 +13,7 @@ import { performanceRouter } from "../modules/performance/performance.routes.js"
 import { lifecycleRouter } from "../modules/lifecycle/lifecycle.routes.js";
 import { recruitmentRouter } from "../modules/recruitment/recruitment.routes.js";
 import { authorityRouter } from "../modules/authority/authority.routes.js";
+import { crmRouter } from "../modules/crm/crm.routes.js";
 import { aiRouter } from "../modules/ai/ai.routes.js";
 import { env } from "../config/env.js";
 import { exec } from "child_process";
@@ -177,6 +178,7 @@ apiRouter.use("/work-track", workTrackRouter);
 apiRouter.use("/performance", performanceRouter);
 apiRouter.use("/lifecycle", lifecycleRouter);
 apiRouter.use("/recruitment", recruitmentRouter);
+apiRouter.use("/crm", crmRouter);
 apiRouter.use("/ai", aiRouter);
 apiRouter.use("/whatsapp/webhook", whatsappWebhookRouter);
 apiRouter.use("/", orgRouter);
