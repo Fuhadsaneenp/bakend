@@ -144,12 +144,101 @@ function normalizeDataEntrySheets(value: unknown): DataEntrySheetMap {
   );
 }
 
-async function readDataEntrySheets(companyId: string) {
-  const setting = await prisma.companySetting.findUnique({
-    where: { companyId_key: { companyId, key: DATA_ENTRY_SHEETS_SETTING_KEY } }
+function hasDataEntryRowContent(row?: DataEntrySheetRow) {
+  if (!row) return false;
+  return Boolean(
+    String(row.companyName || "").trim() ||
+    String(row.category || "").trim() ||
+    String(row.sourceUrl || "").trim() ||
+    String(row.jobCount || "").trim() ||
+    String(row.employeeName || "").trim() ||
+    String(row.platformName || "").trim() ||
+    String(row.platform || "").trim() ||
+    String(row.jobTitle || "").trim() ||
+    String(row.notes || "").trim() ||
+    row.status === "Uploaded" ||
+    row.status === "In Progress"
+  );
+}
+
+function getDataEntryRowTimestamp(row?: DataEntrySheetRow) {
+  if (!row) return 0;
+  const parsed = new Date(row.updatedAt || row.uploadedAt || "").getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function inferDataEntrySheetTypeFromKey(key: string): "Jobs" | "Employer" | "SMM" {
+  const [, sheet] = key.split("-");
+  return sheet === "Employer" || sheet === "SMM" ? sheet : "Jobs";
+}
+
+function calculateDataEntrySheetTotalCount(rows: DataEntrySheetRow[] = [], key = "") {
+  const sheet = inferDataEntrySheetTypeFromKey(key);
+  if (sheet !== "Jobs") {
+    return rows.filter((row) => row.companyName?.trim() || row.category?.trim() || row.sourceUrl?.trim()).length;
+  }
+
+  return rows.reduce((total, row) => {
+    if (!hasDataEntryRowContent(row)) return total;
+    const numericCount = Number(row.jobCount);
+    if (Number.isFinite(numericCount) && numericCount >= 0) return total + numericCount;
+    if (row.categoryCounts && typeof row.categoryCounts === "object") {
+      const categoryTotal = Object.values(row.categoryCounts).reduce((sum, count) => sum + (Number(count) || 0), 0);
+      if (categoryTotal > 0) return total + categoryTotal;
+    }
+    return total + 1;
+  }, 0);
+}
+
+function chooseBestDataEntryRows(key: string, candidates: DataEntrySheetRow[][]) {
+  return candidates
+    .filter((rows) => Array.isArray(rows))
+    .reduce<DataEntrySheetRow[] | undefined>((best, candidate) => {
+      if (!best) return candidate;
+
+      const bestTotal = calculateDataEntrySheetTotalCount(best, key);
+      const candidateTotal = calculateDataEntrySheetTotalCount(candidate, key);
+      if (candidateTotal !== bestTotal) return candidateTotal > bestTotal ? candidate : best;
+
+      const bestFilled = best.filter(hasDataEntryRowContent).length;
+      const candidateFilled = candidate.filter(hasDataEntryRowContent).length;
+      if (candidateFilled !== bestFilled) return candidateFilled > bestFilled ? candidate : best;
+
+      const bestTimestamp = Math.max(...best.map(getDataEntryRowTimestamp), 0);
+      const candidateTimestamp = Math.max(...candidate.map(getDataEntryRowTimestamp), 0);
+      return candidateTimestamp >= bestTimestamp ? candidate : best;
+    }, undefined) || [];
+}
+
+function mergeDataEntrySheetMaps(...maps: DataEntrySheetMap[]) {
+  const grouped = new Map<string, DataEntrySheetRow[][]>();
+  maps.forEach((map) => {
+    Object.entries(map).forEach(([key, rows]) => {
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)?.push(rows);
+    });
   });
 
-  return normalizeDataEntrySheets(setting?.value);
+  const merged: DataEntrySheetMap = {};
+  grouped.forEach((rowsList, key) => {
+    merged[key] = chooseBestDataEntryRows(key, rowsList);
+  });
+  return merged;
+}
+
+async function readDataEntrySheets(companyId: string) {
+  const settings = await prisma.companySetting.findMany({
+    where: { key: DATA_ENTRY_SHEETS_SETTING_KEY },
+    orderBy: [{ companyId: "asc" }, { updatedAt: "asc" }]
+  });
+
+  const companySetting = settings.find((setting) => setting.companyId === companyId);
+  const otherSettings = settings.filter((setting) => setting.companyId !== companyId);
+
+  return mergeDataEntrySheetMaps(
+    ...otherSettings.map((setting) => normalizeDataEntrySheets(setting.value)),
+    normalizeDataEntrySheets(companySetting?.value)
+  );
 }
 
 const META_RESULT_ACTION_TYPES = [
@@ -459,20 +548,30 @@ export const workTrackService = {
         }
       }
 
-      next[key] = mergedRows;
+      next[key] = chooseBestDataEntryRows(key, [existingRows, incomingRows, mergedRows]);
     }
 
-    await prisma.companySetting.upsert({
-      where: { companyId_key: { companyId, key: DATA_ENTRY_SHEETS_SETTING_KEY } },
-      create: {
-        companyId,
-        key: DATA_ENTRY_SHEETS_SETTING_KEY,
-        value: next as Prisma.InputJsonValue
-      },
-      update: {
-        value: next as Prisma.InputJsonValue
-      }
+    const existingSettingCompanyIds = await prisma.companySetting.findMany({
+      where: { key: DATA_ENTRY_SHEETS_SETTING_KEY },
+      select: { companyId: true }
     });
+    const companyIdsToSync = Array.from(new Set([companyId, ...existingSettingCompanyIds.map((setting) => setting.companyId)]));
+
+    await prisma.$transaction(
+      companyIdsToSync.map((targetCompanyId) =>
+        prisma.companySetting.upsert({
+          where: { companyId_key: { companyId: targetCompanyId, key: DATA_ENTRY_SHEETS_SETTING_KEY } },
+          create: {
+            companyId: targetCompanyId,
+            key: DATA_ENTRY_SHEETS_SETTING_KEY,
+            value: next as Prisma.InputJsonValue
+          },
+          update: {
+            value: next as Prisma.InputJsonValue
+          }
+        })
+      )
+    );
 
     return next;
   },
