@@ -196,17 +196,19 @@ function chooseBestDataEntryRows(key: string, candidates: DataEntrySheetRow[][])
     .reduce<DataEntrySheetRow[] | undefined>((best, candidate) => {
       if (!best) return candidate;
 
-      const bestTotal = calculateDataEntrySheetTotalCount(best, key);
-      const candidateTotal = calculateDataEntrySheetTotalCount(candidate, key);
-      if (candidateTotal !== bestTotal) return candidateTotal > bestTotal ? candidate : best;
+      const bestTimestamp = Math.max(...best.map(getDataEntryRowTimestamp), 0);
+      const candidateTimestamp = Math.max(...candidate.map(getDataEntryRowTimestamp), 0);
+      if (candidateTimestamp !== bestTimestamp) {
+        return candidateTimestamp > bestTimestamp ? candidate : best;
+      }
 
       const bestFilled = best.filter(hasDataEntryRowContent).length;
       const candidateFilled = candidate.filter(hasDataEntryRowContent).length;
       if (candidateFilled !== bestFilled) return candidateFilled > bestFilled ? candidate : best;
 
-      const bestTimestamp = Math.max(...best.map(getDataEntryRowTimestamp), 0);
-      const candidateTimestamp = Math.max(...candidate.map(getDataEntryRowTimestamp), 0);
-      return candidateTimestamp >= bestTimestamp ? candidate : best;
+      const bestTotal = calculateDataEntrySheetTotalCount(best, key);
+      const candidateTotal = calculateDataEntrySheetTotalCount(candidate, key);
+      return candidateTotal >= bestTotal ? candidate : best;
     }, undefined) || [];
 }
 
