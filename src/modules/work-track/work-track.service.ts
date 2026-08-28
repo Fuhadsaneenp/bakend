@@ -80,10 +80,19 @@ type DataEntrySheetRow = {
   category: string;
   companyName?: string;
   jobCount?: number | string;
+  categoryCounts?: Record<string, number>;
   employeeName?: string;
   platformName?: string;
+  platform?: string;
   sourceUrl: string;
   status: string;
+  jobTitle?: string;
+  notes?: string;
+  date?: string;
+  uploadedAt?: string;
+  uploadedBy?: string;
+  updatedAt?: string;
+  [key: string]: any;
 };
 
 type DataEntrySheetMap = Record<string, DataEntrySheetRow[]>;
@@ -91,16 +100,38 @@ type DataEntrySheetMap = Record<string, DataEntrySheetRow[]>;
 function normalizeDataEntryRows(rows: unknown): DataEntrySheetRow[] {
   if (!Array.isArray(rows)) return [];
 
-  return rows.map((row: any, index) => ({
-    count: Number.isFinite(Number(row?.count)) ? Number(row.count) : index + 1,
-    category: typeof row?.category === "string" ? row.category : "",
-    companyName: typeof row?.companyName === "string" ? row.companyName : (typeof row?.company === "string" ? row.company : ""),
-    jobCount: row?.jobCount !== undefined && row?.jobCount !== null ? (Number.isFinite(Number(row.jobCount)) ? Number(row.jobCount) : String(row.jobCount)) : "",
-    employeeName: typeof row?.employeeName === "string" ? row.employeeName : (typeof row?.employee === "string" ? row.employee : ""),
-    platformName: typeof row?.platformName === "string" ? row.platformName : (typeof row?.platform === "string" ? row.platform : ""),
-    sourceUrl: typeof row?.sourceUrl === "string" ? row.sourceUrl : "",
-    status: typeof row?.status === "string" ? row.status : "Not Uploaded"
-  }));
+  return rows.map((row: any, index) => {
+    const rawCategoryCounts = row?.categoryCounts;
+    let categoryCounts: Record<string, number> | undefined = undefined;
+    if (rawCategoryCounts && typeof rawCategoryCounts === "object" && !Array.isArray(rawCategoryCounts)) {
+      categoryCounts = {};
+      for (const [cat, cnt] of Object.entries(rawCategoryCounts)) {
+        if (typeof cat === "string" && Number.isFinite(Number(cnt))) {
+          categoryCounts[cat] = Number(cnt);
+        }
+      }
+    }
+
+    return {
+      ...row,
+      count: Number.isFinite(Number(row?.count)) ? Number(row.count) : index + 1,
+      category: typeof row?.category === "string" ? row.category : "",
+      companyName: typeof row?.companyName === "string" ? row.companyName : (typeof row?.company === "string" ? row.company : ""),
+      jobCount: row?.jobCount !== undefined && row?.jobCount !== null ? (Number.isFinite(Number(row.jobCount)) ? Number(row.jobCount) : String(row.jobCount)) : "",
+      categoryCounts,
+      employeeName: typeof row?.employeeName === "string" ? row.employeeName : (typeof row?.employee === "string" ? row.employee : ""),
+      platformName: typeof row?.platformName === "string" ? row.platformName : (typeof row?.platform === "string" ? row.platform : ""),
+      platform: typeof row?.platform === "string" ? row.platform : (typeof row?.platformName === "string" ? row.platformName : ""),
+      sourceUrl: typeof row?.sourceUrl === "string" ? row.sourceUrl : "",
+      status: typeof row?.status === "string" ? row.status : "Not Uploaded",
+      jobTitle: typeof row?.jobTitle === "string" ? row.jobTitle : (typeof row?.title === "string" ? row.title : ""),
+      notes: typeof row?.notes === "string" ? row.notes : "",
+      date: typeof row?.date === "string" ? row.date : "",
+      uploadedAt: typeof row?.uploadedAt === "string" ? row.uploadedAt : undefined,
+      uploadedBy: typeof row?.uploadedBy === "string" ? row.uploadedBy : undefined,
+      updatedAt: typeof row?.updatedAt === "string" ? row.updatedAt : undefined
+    };
+  });
 }
 
 function normalizeDataEntrySheets(value: unknown): DataEntrySheetMap {
@@ -397,7 +428,39 @@ export const workTrackService = {
   async upsertDataEntrySheets(companyId: string, sheets: DataEntrySheetMap) {
     const existing = await readDataEntrySheets(companyId);
     const incoming = normalizeDataEntrySheets(sheets);
-    const next = { ...existing, ...incoming };
+    const next: DataEntrySheetMap = { ...existing };
+
+    for (const [key, incomingRows] of Object.entries(incoming)) {
+      const existingRows = existing[key] || [];
+      const maxLength = Math.max(existingRows.length, incomingRows.length);
+      const mergedRows: DataEntrySheetRow[] = [];
+
+      for (let i = 0; i < maxLength; i++) {
+        const ex = existingRows[i];
+        const inc = incomingRows[i];
+        if (!ex) {
+          if (inc) mergedRows.push(inc);
+          continue;
+        }
+        if (!inc) {
+          if (ex) mergedRows.push(ex);
+          continue;
+        }
+
+        const incTs = inc.updatedAt ? new Date(inc.updatedAt).getTime() : (inc.uploadedAt ? new Date(inc.uploadedAt).getTime() : 0);
+        const exTs = ex.updatedAt ? new Date(ex.updatedAt).getTime() : (ex.uploadedAt ? new Date(ex.uploadedAt).getTime() : 0);
+
+        if (incTs && exTs) {
+          mergedRows.push(incTs >= exTs ? { ...ex, ...inc } : { ...inc, ...ex });
+        } else if (inc.category || inc.sourceUrl || inc.companyName || (inc.jobCount !== undefined && inc.jobCount !== "")) {
+          mergedRows.push({ ...ex, ...inc });
+        } else {
+          mergedRows.push({ ...inc, ...ex });
+        }
+      }
+
+      next[key] = mergedRows;
+    }
 
     await prisma.companySetting.upsert({
       where: { companyId_key: { companyId, key: DATA_ENTRY_SHEETS_SETTING_KEY } },
