@@ -268,6 +268,7 @@ export const employeeService = {
           firstName: data.firstName,
           middleName: (data as any).middleName || null,
           lastName: data.lastName,
+          displayName: (data as any).displayName || null,
           phone: data.phone,
           personalEmail: data.personalEmail,
           dateOfJoining: new Date(data.dateOfJoining),
@@ -395,6 +396,7 @@ export const employeeService = {
           firstName: data.firstName,
           middleName: (data as any).middleName !== undefined ? (data as any).middleName : undefined,
           lastName: data.lastName,
+          displayName: (data as any).displayName !== undefined ? (data as any).displayName : undefined,
           phone: data.phone,
           personalEmail: data.personalEmail,
           companyId: data.companyId ? data.companyId : undefined,
@@ -746,6 +748,7 @@ export const employeeService = {
       where: { id: employee.id },
       data: {
         firstName: data.firstName,
+        displayName: (data as any).displayName !== undefined ? (data as any).displayName : undefined,
         lastName: data.lastName,
         phone: data.phone,
         personalEmail: data.personalEmail,

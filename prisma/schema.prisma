@@ -225,6 +225,7 @@ model Employee {
   firstName      String
   middleName     String?
   lastName       String
+  displayName    String?
   phone          String?
   personalEmail  String?
   dateOfBirth    DateTime?

@@ -40,6 +40,7 @@ employeeRouter.use(requireAuth);
 
 const profileFieldsSchema = {
   middleName: z.string().optional().nullable(),
+  displayName: z.string().optional().nullable(),
   dateOfBirth: z.string().optional(),
   gender: z.string().optional(),
   addressLine1: z.string().optional(),
@@ -58,6 +59,7 @@ const profileFieldsSchema = {
 
 const nullableProfileFieldsSchema = {
   middleName: z.string().optional().nullable(),
+  displayName: z.string().optional().nullable(),
   dateOfBirth: z.string().optional().nullable(),
   gender: z.string().optional().nullable(),
   addressLine1: z.string().optional().nullable(),
