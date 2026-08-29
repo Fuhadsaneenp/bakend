@@ -1,16 +1,34 @@
 export function formatFullName(
-  emp?: { firstName?: string | null; middleName?: string | null; lastName?: string | null; displayName?: string | null; name?: string | null; fullName?: string | null; employee?: any; user?: any; id?: string | null; userId?: string | null } | null | any
+  emp?: {
+    firstName?: string | null;
+    middleName?: string | null;
+    lastName?: string | null;
+    displayName?: string | null;
+    name?: string | null;
+    fullName?: string | null;
+    employee?: any;
+    user?: any;
+    id?: string | null;
+    userId?: string | null;
+  } | null | any
 ): string {
   if (!emp) return "";
   if (typeof emp === "string") return emp.trim();
 
-  const target = emp.employee || emp.user || emp;
-  if (target.displayName && String(target.displayName).trim()) {
-    return String(target.displayName).trim();
+  // Check displayName on any level
+  const displayName = emp.displayName || emp.employee?.displayName || emp.user?.employee?.displayName || emp.user?.displayName;
+  if (displayName && String(displayName).trim()) {
+    return String(displayName).trim();
   }
-  if (emp.displayName && String(emp.displayName).trim()) {
-    return String(emp.displayName).trim();
-  }
+
+  // Extract names from emp, or emp.employee, or emp.user.employee, or emp.user
+  const target = (emp.firstName || emp.middleName || emp.lastName || emp.name || emp.fullName)
+    ? emp
+    : (emp.employee?.firstName || emp.employee?.middleName || emp.employee?.lastName || emp.employee?.name || emp.employee?.fullName)
+      ? emp.employee
+      : (emp.user?.employee?.firstName || emp.user?.employee?.middleName || emp.user?.employee?.lastName)
+        ? emp.user.employee
+        : (emp.user || emp);
 
   const first = target.firstName ? String(target.firstName).trim() : "";
   const middle = target.middleName ? String(target.middleName).trim() : "";
@@ -18,9 +36,10 @@ export function formatFullName(
   const combined = [first, middle, last].filter(Boolean).join(" ");
   if (combined) return combined;
 
-  if (target.fullName) return String(target.fullName).trim();
-  if (target.name) return String(target.name).trim();
-  if (emp.fullName) return String(emp.fullName).trim();
-  if (emp.name) return String(emp.name).trim();
+  const fallbackName = target.fullName || target.name || emp.fullName || emp.name || target.user?.email || emp.email;
+  if (fallbackName && String(fallbackName).trim()) {
+    return String(fallbackName).trim();
+  }
+
   return "";
 }
