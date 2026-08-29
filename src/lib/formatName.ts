@@ -2,9 +2,6 @@ export function formatFullName(emp?: { firstName?: string | null; middleName?: s
   if (!emp) return "";
   if (typeof emp === "string") return emp.trim();
   const target = emp.employee || emp.user || emp;
-  if (target.displayName && String(target.displayName).trim()) return String(target.displayName).trim();
-  if (emp.displayName && String(emp.displayName).trim()) return String(emp.displayName).trim();
-
   const first = target.firstName ? String(target.firstName).trim() : "";
   const middle = target.middleName ? String(target.middleName).trim() : "";
   const last = target.lastName && String(target.lastName).trim() !== "-" ? String(target.lastName).trim() : "";
