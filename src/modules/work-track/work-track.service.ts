@@ -1339,6 +1339,7 @@ export const workTrackService = {
     deadline?: string;
     createdAt?: string;
     files?: string;
+    videoDuration?: string;
   }) {
     const card = await prisma.workCard.findUnique({ where: { id } });
     if (!card || card.companyId !== companyId) throw notFound("Work Card");
@@ -1427,6 +1428,16 @@ export const workTrackService = {
     if (data.createdAt !== undefined) updateData.createdAt = new Date(data.createdAt);
     if (data.files !== undefined) updateData.files = data.files;
 
+    if (data.videoDuration && !data.files && card.files) {
+      try {
+        const parsed = JSON.parse(card.files);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          parsed[0].videoDuration = data.videoDuration.trim();
+          updateData.files = JSON.stringify(parsed);
+        }
+      } catch {}
+    }
+
     if (data.status && data.status.toUpperCase() !== previousStatus) {
       await prisma.statusHistory.create({
         data: {
@@ -1473,6 +1484,7 @@ export const workTrackService = {
     reworkComment?: string;
     rulingType?: "designer_fault" | "client_delay" | "none";
     finalFileUrl?: string;
+    videoDuration?: string;
   }) {
     const card = await prisma.workCard.findUnique({
       where: { id },
@@ -1548,8 +1560,16 @@ export const workTrackService = {
     if (data.finalFileUrl) {
       // Append final files
       let filesList = card.files ? JSON.parse(card.files) : [];
-      filesList.push({ url: data.finalFileUrl, name: "final_output_" + Date.now(), type: "final" });
+      filesList.push({ url: data.finalFileUrl, name: "final_output_" + Date.now(), type: "final", videoDuration: data.videoDuration?.trim() });
       updateData.files = JSON.stringify(filesList);
+    } else if (data.videoDuration) {
+      try {
+        let filesList = card.files ? JSON.parse(card.files) : [];
+        if (Array.isArray(filesList) && filesList.length > 0) {
+          filesList[0].videoDuration = data.videoDuration.trim();
+          updateData.files = JSON.stringify(filesList);
+        }
+      } catch {}
     }
 
     if (newStatus === "FINISHED" && prevStatus !== "FINISHED") {

@@ -344,7 +344,8 @@ workTrackRouter.patch("/cards/:id", requireAnyPermission(["worktrack.task.edit",
       brief: z.string().optional(),
       deadline: z.string().optional(),
       createdAt: z.string().optional(),
-      files: z.string().optional()
+      files: z.string().optional(),
+      videoDuration: z.string().optional()
     }).parse(req.body);
 
     res.json(await workTrackService.updateWorkCardFields(req.user.companyId, req.params.id, { ...body, userId: req.user.id }));
@@ -361,7 +362,8 @@ workTrackRouter.patch("/cards/:id/status", requireAnyPermission(["worktrack.task
       reworkReason: z.string().optional(),
       reworkComment: z.string().optional(),
       rulingType: z.enum(["designer_fault", "client_delay", "none"]).optional(),
-      finalFileUrl: z.string().optional()
+      finalFileUrl: z.string().optional(),
+      videoDuration: z.string().optional()
     }).parse(req.body);
 
     res.json(await workTrackService.updateWorkCardStatus(req.user.companyId, req.params.id, req.user.id, body));
