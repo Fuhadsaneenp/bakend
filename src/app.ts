@@ -89,22 +89,26 @@ export const createApp = () => {
     if (!key || key.includes("..")) return res.status(400).json({ message: "Invalid file key" });
 
     try {
-      const document = await prisma.employeeDocument.findFirst({
+      const storedFile = await prisma.storedFile.findUnique({
+        where: { fileKey: key }
+      });
+
+      const document = storedFile ? null : await prisma.employeeDocument.findFirst({
         where: { fileKey: key },
         select: { fileData: true, fileName: true, mimeType: true }
       });
 
-      const letter = document ? null : await prisma.employeeLetter.findFirst({
+      const letter = storedFile || document ? null : await prisma.employeeLetter.findFirst({
         where: { fileKey: key },
         select: { fileData: true, title: true }
       });
 
-      const databaseBytes = document?.fileData || letter?.fileData;
+      const databaseBytes = storedFile?.fileData || document?.fileData || letter?.fileData;
       const bytes = databaseBytes
         ? Buffer.from(databaseBytes)
         : await storageService.getObject(key);
-      const mimeType = document?.mimeType || (letter ? "application/pdf" : inferMimeTypeFromKey(key));
-      const fileName = document?.fileName || (letter ? `${letter.title}.pdf` : key.split("/").pop()) || "download";
+      const mimeType = storedFile?.mimeType || document?.mimeType || (letter ? "application/pdf" : inferMimeTypeFromKey(key));
+      const fileName = storedFile?.fileName || document?.fileName || (letter ? `${letter.title}.pdf` : key.split("/").pop()) || "download";
 
       res.setHeader("Content-Type", mimeType);
       res.setHeader("Content-Length", String(bytes.length));

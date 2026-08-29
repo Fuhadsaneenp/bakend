@@ -319,7 +319,7 @@ workTrackRouter.post("/cards/:id/files", requireAnyPermission(["worktrack.task.e
 
     const safeFileName = sanitizeUploadFileName(req.file.originalname);
     const key = `companies/${req.user.companyId}/work-track/${card.id}/${Date.now()}-${safeFileName}`;
-    await storageService.putObject(key, req.file.buffer, req.file.mimetype);
+    await storageService.putObject(key, req.file.buffer, req.file.mimetype, safeFileName);
 
     res.status(201).json({
       key,
