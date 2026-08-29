@@ -648,6 +648,7 @@ export const workTrackService = {
         firstName: true,
         middleName: true,
         lastName: true,
+        displayName: true,
         personalEmail: true,
         userId: true,
         user: {
@@ -1035,8 +1036,8 @@ export const workTrackService = {
       },
       include: {
         client: true,
-        assignedTo: { select: { id: true, firstName: true, middleName: true, lastName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
-        assignedBy: { select: { id: true, firstName: true, middleName: true, lastName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
+        assignedTo: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
+        assignedBy: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
         comments: {
           include: {
             user: {
@@ -1045,7 +1046,7 @@ export const workTrackService = {
                 email: true,
                 role: true,
                 employee: {
-                  select: { id: true, firstName: true, middleName: true, lastName: true, designation: { select: { title: true } } }
+                  select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } } }
                 }
               }
             }
@@ -1055,7 +1056,7 @@ export const workTrackService = {
         reworkLogs: {
           include: {
             chargedTo: {
-              select: { id: true, firstName: true, middleName: true, lastName: true, designation: { select: { title: true } } }
+              select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } } }
             }
           },
           orderBy: { createdAt: "desc" }
@@ -1068,7 +1069,7 @@ export const workTrackService = {
                 email: true,
                 role: true,
                 employee: {
-                  select: { id: true, firstName: true, middleName: true, lastName: true, designation: { select: { title: true } } }
+                  select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } } }
                 }
               }
             }
@@ -1085,8 +1086,8 @@ export const workTrackService = {
       where: { id },
       include: {
         client: true,
-        assignedTo: { select: { id: true, firstName: true, middleName: true, lastName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
-        assignedBy: { select: { id: true, firstName: true, middleName: true, lastName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
+        assignedTo: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
+        assignedBy: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
         comments: {
           include: {
             user: {
@@ -1095,7 +1096,7 @@ export const workTrackService = {
                 email: true,
                 role: true,
                 employee: {
-                  select: { id: true, firstName: true, middleName: true, lastName: true, designation: { select: { title: true } } }
+                  select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } } }
                 }
               }
             }
@@ -1105,7 +1106,7 @@ export const workTrackService = {
         reworkLogs: {
           include: {
             chargedTo: {
-              select: { id: true, firstName: true, middleName: true, lastName: true, designation: { select: { title: true } } }
+              select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } } }
             }
           },
           orderBy: { createdAt: "desc" }
@@ -1118,7 +1119,7 @@ export const workTrackService = {
                 email: true,
                 role: true,
                 employee: {
-                  select: { id: true, firstName: true, middleName: true, lastName: true, designation: { select: { title: true } } }
+                  select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } } }
                 }
               }
             }
