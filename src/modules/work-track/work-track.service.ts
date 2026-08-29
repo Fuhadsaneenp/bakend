@@ -923,6 +923,7 @@ export const workTrackService = {
 
   async createWorkCard(companyId: string, creatorUserId: string, data: {
     clientId: string;
+    clientName?: string;
     title: string;
     brief: string;
     category: string;
@@ -938,10 +939,39 @@ export const workTrackService = {
       where: { userId: creatorUserId, companyId }
     });
 
+    let resolvedClientId = data.clientId;
+    let existingClient = await prisma.client.findFirst({
+      where: { id: resolvedClientId, companyId }
+    });
+
+    if (!existingClient) {
+      const nameCandidate = (data.clientName || data.clientId || "").trim();
+      if (nameCandidate) {
+        existingClient = await prisma.client.findFirst({
+          where: {
+            companyId,
+            name: nameCandidate
+          }
+        });
+      }
+    }
+
+    if (!existingClient) {
+      const fallbackName = (data.clientName || data.clientId || "Client").trim();
+      existingClient = await prisma.client.create({
+        data: {
+          companyId,
+          name: fallbackName
+        }
+      });
+    }
+
+    resolvedClientId = existingClient.id;
+
     const card = await prisma.workCard.create({
       data: {
         companyId,
-        clientId: data.clientId,
+        clientId: resolvedClientId,
         workId,
         title: data.title,
         brief: data.brief,

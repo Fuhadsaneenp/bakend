@@ -189,7 +189,7 @@ workTrackRouter.get("/clients", requirePermission("worktrack.client.view"), asyn
   }
 });
 
-workTrackRouter.post("/clients", requirePermission("worktrack.client.create"), async (req, res, next) => {
+workTrackRouter.post("/clients", requireAnyPermission(["worktrack.client.create", "worktrack.task.create"]), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const body = z.object({
@@ -204,7 +204,7 @@ workTrackRouter.post("/clients", requirePermission("worktrack.client.create"), a
   }
 });
 
-workTrackRouter.put("/clients/:id", requirePermission("worktrack.client.create"), async (req, res, next) => {
+workTrackRouter.put("/clients/:id", requireAnyPermission(["worktrack.client.create", "worktrack.client.edit", "worktrack.task.edit", "worktrack.task.create"]), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const body = z.object({
@@ -281,6 +281,7 @@ workTrackRouter.post("/cards", requirePermission("worktrack.task.create"), async
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const body = z.object({
       clientId: z.string().min(1),
+      clientName: z.string().optional(),
       title: z.string().min(1),
       brief: z.string().min(1),
       category: z.string().min(1),
