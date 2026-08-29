@@ -1404,6 +1404,10 @@ export const workTrackService = {
     const previousStatus = card.status;
     let nextStatus = data.status || previousStatus;
 
+    if (data.files !== undefined && previousStatus === "APPROVED" && !isCompanyAdmin && !isCoordinator) {
+      throw new ApiError(403, "Approved tasks are completed. Only Admins and Coordinators can change approved deliverable images.");
+    }
+
     if (data.status && data.status !== previousStatus) {
       const isStatusCoordinator = isCoordinator;
       const isDesigner = !isCompanyAdmin && !isStatusCoordinator;
