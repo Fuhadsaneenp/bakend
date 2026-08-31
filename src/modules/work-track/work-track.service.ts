@@ -1437,7 +1437,7 @@ export const workTrackService = {
     if (data.status) updateData.status = data.status.toUpperCase();
     if (data.title) updateData.title = data.title;
     if (data.brief !== undefined) updateData.brief = data.brief;
-    if (data.deadline !== undefined) updateData.deadline = data.deadline;
+    if (data.deadline !== undefined) updateData.deadline = new Date(data.deadline);
     if (data.createdAt !== undefined) updateData.createdAt = new Date(data.createdAt);
     if (data.files !== undefined) {
       let finalFiles = data.files;
