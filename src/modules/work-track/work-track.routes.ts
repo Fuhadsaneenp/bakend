@@ -276,6 +276,16 @@ workTrackRouter.get("/cards", requirePermission("worktrack.task.view"), async (r
   }
 });
 
+// EMS Context (Attendance, Leaves, WFH, Shift rules for task duration calculation)
+workTrackRouter.get("/ems-context", requirePermission("worktrack.task.view"), async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    res.json(await workTrackService.getEMSContext(req.user.companyId));
+  } catch (error) {
+    next(error);
+  }
+});
+
 workTrackRouter.post("/cards", requirePermission("worktrack.task.create"), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");

@@ -3025,5 +3025,98 @@ export const workTrackService = {
     }
 
     return createdLedger;
+  },
+
+  async getEMSContext(companyId: string) {
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+
+    const [attendanceRecords, wfhRequests, shifts] = await Promise.all([
+      prisma.attendance.findMany({
+        where: {
+          employee: { companyId },
+          workDate: { gte: sixtyDaysAgo }
+        },
+        select: {
+          id: true,
+          employeeId: true,
+          workDate: true,
+          checkInAt: true,
+          checkOutAt: true
+        }
+      }),
+      prisma.wFHRequest.findMany({
+        where: {
+          employee: { companyId },
+          status: "APPROVED",
+          endDate: { gte: sixtyDaysAgo }
+        },
+        select: {
+          id: true,
+          employeeId: true,
+          startDate: true,
+          endDate: true,
+          reason: true,
+          status: true
+        }
+      }),
+      prisma.shift.findMany({
+        where: {
+          companyId,
+          isActive: true
+        }
+      })
+    ]);
+
+    const approvedLeaves: Array<{ employeeId: string; startDate: string; endDate: string; reason: string }> = [];
+    const approvedWfh: Array<{ employeeId: string; startDate: string; endDate: string; reason: string }> = [];
+
+    wfhRequests.forEach(req => {
+      const reasonLower = (req.reason || "").toLowerCase();
+      const isWfh = reasonLower.includes("work from home") || reasonLower.includes("[wfh]");
+      const startStr = req.startDate.toISOString().slice(0, 10);
+      const endStr = req.endDate.toISOString().slice(0, 10);
+      if (isWfh) {
+        approvedWfh.push({
+          employeeId: req.employeeId,
+          startDate: startStr,
+          endDate: endStr,
+          reason: req.reason
+        });
+      } else if (!reasonLower.includes("[missed punch]")) {
+        approvedLeaves.push({
+          employeeId: req.employeeId,
+          startDate: startStr,
+          endDate: endStr,
+          reason: req.reason
+        });
+      }
+    });
+
+    return {
+      attendance: attendanceRecords.map(att => ({
+        id: att.id,
+        employeeId: att.employeeId,
+        workDate: att.workDate.toISOString().slice(0, 10),
+        checkInAt: att.checkInAt ? att.checkInAt.toISOString() : null,
+        checkOutAt: att.checkOutAt ? att.checkOutAt.toISOString() : null
+      })),
+      approvedLeaves,
+      approvedWfh,
+      shifts: shifts.map(s => {
+        let parsedWorkingDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        try {
+          if (s.workingDays) parsedWorkingDays = JSON.parse(s.workingDays);
+        } catch {}
+        return {
+          id: s.id,
+          name: s.name,
+          startTime: s.startTime || "09:00",
+          endTime: s.endTime || "18:00",
+          workingDays: parsedWorkingDays,
+          isDefault: s.isDefault
+        };
+      })
+    };
   }
 };
