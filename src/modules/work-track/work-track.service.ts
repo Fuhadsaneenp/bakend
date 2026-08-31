@@ -1389,14 +1389,23 @@ export const workTrackService = {
       if (card.assignedToId && actor.employee?.id && card.assignedToId !== actor.employee.id) {
         throw new ApiError(403, "View access only");
       }
-      if (data.assignedToId !== undefined) {
+
+      const hasGeneralTaskEdits = data.title !== undefined || data.brief !== undefined || data.priority !== undefined || data.deadline !== undefined || data.createdAt !== undefined;
+      const hasAssignEdit = data.assignedToId !== undefined;
+      const hasDeliverableEdit = data.files !== undefined || data.videoDuration !== undefined;
+      const hasStatusEdit = data.status !== undefined;
+
+      if (hasAssignEdit) {
         await permissionService.requirePermission(data.userId, "worktrack.task.assign", scope);
-      } else if (data.status !== undefined && Object.keys(data).filter(k => k !== "userId" && k !== "status").length === 0) {
-        await permissionService.requireAnyPermission(data.userId, ["worktrack.task.status.update", "worktrack.review.review", "worktrack.review.approve", "worktrack.review.reject", "worktrack.task.edit"], scope);
-      } else if (data.files !== undefined && Object.keys(data).filter(k => k !== "userId" && k !== "files").length === 0) {
-        await permissionService.requireAnyPermission(data.userId, ["worktrack.file.upload", "worktrack.task.edit", "worktrack.task.status.update"], scope);
-      } else {
+      }
+      if (hasGeneralTaskEdits) {
         await permissionService.requirePermission(data.userId, "worktrack.task.edit", scope);
+      }
+      if (hasDeliverableEdit) {
+        await permissionService.requireAnyPermission(data.userId, ["worktrack.file.upload", "worktrack.task.edit", "worktrack.task.status.update"], scope);
+      }
+      if (hasStatusEdit) {
+        await permissionService.requireAnyPermission(data.userId, ["worktrack.task.status.update", "worktrack.review.review", "worktrack.review.approve", "worktrack.review.reject", "worktrack.task.edit"], scope);
       }
     }
 
@@ -1430,9 +1439,19 @@ export const workTrackService = {
     if (data.brief !== undefined) updateData.brief = data.brief;
     if (data.deadline !== undefined) updateData.deadline = data.deadline;
     if (data.createdAt !== undefined) updateData.createdAt = new Date(data.createdAt);
-    if (data.files !== undefined) updateData.files = data.files;
-
-    if (data.videoDuration && !data.files && card.files) {
+    if (data.files !== undefined) {
+      let finalFiles = data.files;
+      if (data.videoDuration) {
+        try {
+          const parsed = JSON.parse(data.files);
+          if (Array.isArray(parsed) && parsed.length > 0 && !parsed[0].videoDuration) {
+            parsed[0].videoDuration = data.videoDuration.trim();
+            finalFiles = JSON.stringify(parsed);
+          }
+        } catch {}
+      }
+      updateData.files = finalFiles;
+    } else if (data.videoDuration && card.files) {
       try {
         const parsed = JSON.parse(card.files);
         if (Array.isArray(parsed) && parsed.length > 0) {
