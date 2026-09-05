@@ -271,7 +271,14 @@ workTrackRouter.put("/sm-approved-meta", async (req, res, next) => {
       ? (existing.value as Record<string, any>)
       : {};
 
-    const merged = { ...existingMeta, ...incomingMeta };
+    const merged = { ...existingMeta };
+    for (const [key, val] of Object.entries(incomingMeta)) {
+      if (val === null || (val && typeof val === "object" && (val as any).deleted === true)) {
+        delete merged[key];
+      } else {
+        merged[key] = val;
+      }
+    }
 
     const setting = await prisma.companySetting.upsert({
       where: {
