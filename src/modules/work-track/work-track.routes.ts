@@ -179,6 +179,123 @@ workTrackRouter.put("/data-entry-company-catalog", async (req, res, next) => {
   }
 });
 
+const SM_CALENDAR_POSTS_KEY = "sm_calendar_live_posts_v1";
+const SM_APPROVED_WORKS_META_KEY = "sm_calendar_approved_works_meta_v1";
+
+// Social Media Calendar Live Posts (Shared company-wide across all members and tracks)
+workTrackRouter.get("/sm-calendar-posts", async (req, res, next) => {
+  try {
+    const companyId = await resolveDataEntryCatalogCompanyId(req.user?.companyId);
+    const setting = await prisma.companySetting.findUnique({
+      where: {
+        companyId_key: {
+          companyId,
+          key: SM_CALENDAR_POSTS_KEY
+        }
+      }
+    });
+
+    const posts = Array.isArray(setting?.value) ? setting.value : [];
+    res.json({ posts, count: posts.length, updatedAt: setting?.updatedAt ?? null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+workTrackRouter.put("/sm-calendar-posts", async (req, res, next) => {
+  try {
+    const companyId = await resolveDataEntryCatalogCompanyId(req.user?.companyId);
+    const posts: any[] = Array.isArray(req.body?.posts) ? req.body.posts : [];
+
+    const setting = await prisma.companySetting.upsert({
+      where: {
+        companyId_key: {
+          companyId,
+          key: SM_CALENDAR_POSTS_KEY
+        }
+      },
+      create: {
+        companyId,
+        key: SM_CALENDAR_POSTS_KEY,
+        value: posts
+      },
+      update: {
+        value: posts
+      }
+    });
+
+    res.json({ success: true, posts: setting.value, count: posts.length, updatedAt: setting.updatedAt });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Social Media Approved Works Scheduling Metadata (Shared company-wide across all members and tracks)
+workTrackRouter.get("/sm-approved-meta", async (req, res, next) => {
+  try {
+    const companyId = await resolveDataEntryCatalogCompanyId(req.user?.companyId);
+    const setting = await prisma.companySetting.findUnique({
+      where: {
+        companyId_key: {
+          companyId,
+          key: SM_APPROVED_WORKS_META_KEY
+        }
+      }
+    });
+
+    const meta = (setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value))
+      ? setting.value
+      : {};
+    res.json({ meta, updatedAt: setting?.updatedAt ?? null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+workTrackRouter.put("/sm-approved-meta", async (req, res, next) => {
+  try {
+    const companyId = await resolveDataEntryCatalogCompanyId(req.user?.companyId);
+    const incomingMeta = (req.body?.meta && typeof req.body.meta === "object" && !Array.isArray(req.body.meta))
+      ? req.body.meta
+      : {};
+
+    const existing = await prisma.companySetting.findUnique({
+      where: {
+        companyId_key: {
+          companyId,
+          key: SM_APPROVED_WORKS_META_KEY
+        }
+      }
+    });
+    const existingMeta = (existing?.value && typeof existing.value === "object" && !Array.isArray(existing.value))
+      ? (existing.value as Record<string, any>)
+      : {};
+
+    const merged = { ...existingMeta, ...incomingMeta };
+
+    const setting = await prisma.companySetting.upsert({
+      where: {
+        companyId_key: {
+          companyId,
+          key: SM_APPROVED_WORKS_META_KEY
+        }
+      },
+      create: {
+        companyId,
+        key: SM_APPROVED_WORKS_META_KEY,
+        value: merged
+      },
+      update: {
+        value: merged
+      }
+    });
+
+    res.json({ success: true, meta: setting.value, updatedAt: setting.updatedAt });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Clients
 workTrackRouter.get("/clients", requirePermission("worktrack.client.view"), async (req, res, next) => {
   try {
