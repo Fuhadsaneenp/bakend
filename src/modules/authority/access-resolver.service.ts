@@ -284,6 +284,59 @@ export const accessResolverService = {
       pushScope(entry, scope.scopeType, scope.scopeRefId);
     }
 
+    // ── Step 5: Sync with configured EMS Section Grants ──
+    try {
+      const userTrackRow = await prisma.companySetting.findFirst({
+        where: { key: "authority:user-track-settings" }
+      });
+      if (userTrackRow?.value) {
+        const parsed: any = typeof userTrackRow.value === "string" ? JSON.parse(userTrackRow.value) : userTrackRow.value;
+        const emsGrants = parsed?.emsSectionGrants;
+        if (emsGrants && typeof emsGrants === "object") {
+          const userKeys = [
+            user.id,
+            user.email,
+            user.employee?.id,
+            (user as any).employeeCode
+          ].filter(Boolean).map(k => String(k).toLowerCase().trim());
+
+          let userEmsGrants: Record<string, boolean> | null = null;
+          for (const k of userKeys) {
+            if (emsGrants[k]) {
+              userEmsGrants = emsGrants[k];
+              break;
+            }
+          }
+
+          if (userEmsGrants) {
+            if (userEmsGrants.payroll) {
+              for (const code of ["payroll.run.view", "payroll.run.process", "payroll.run.approve", "payroll.settings.manage", "report.payroll.view"]) {
+                const entry = ensurePermissionEntry(permissionMap, code, true);
+                entry.allowed = true;
+                entry.sources.push("ems-section:payroll");
+                pushScope(entry, AccessScopeType.GLOBAL);
+              }
+            }
+            if (userEmsGrants.reports) {
+              for (const code of ["report.hr.view", "report.payroll.view"]) {
+                const entry = ensurePermissionEntry(permissionMap, code, false);
+                entry.allowed = true;
+                entry.sources.push("ems-section:reports");
+                pushScope(entry, AccessScopeType.GLOBAL);
+              }
+            }
+            if (userEmsGrants.expenses) {
+              for (const code of ["expense.claim.view", "expense.claim.create", "expense.claim.review", "expense.claim.approve"]) {
+                const entry = ensurePermissionEntry(permissionMap, code, false);
+                entry.allowed = true;
+                entry.sources.push("ems-section:expenses");
+              }
+            }
+          }
+        }
+      }
+    } catch {}
+
     // Super Admin is a platform owner role. It must always resolve to every
     // permission even if older Authority UI overrides accidentally contain DENY.
     if (user.role === "SUPER_ADMIN") {

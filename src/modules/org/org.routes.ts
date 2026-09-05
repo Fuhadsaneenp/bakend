@@ -10,9 +10,42 @@ export const orgRouter = Router();
 orgRouter.use(requireAuth);
 
 // Companies CRUD
-orgRouter.get("/companies", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+orgRouter.get("/companies", async (req, res, next) => {
   try {
-    res.json(await orgService.companies());
+    const isFullAdmin = req.user?.role === Role.SUPER_ADMIN || req.user?.role === Role.HR_ADMIN;
+    if (isFullAdmin) {
+      return res.json(await orgService.companies());
+    }
+
+    // For non-admin employees/managers, only return their single assigned company
+    let companyId = req.user?.companyId;
+    if (!companyId && req.user?.id) {
+      const emp = await prisma.employee.findFirst({
+        where: { userId: req.user.id },
+        select: { companyId: true }
+      });
+      if (emp?.companyId) companyId = emp.companyId;
+    }
+
+    if (companyId) {
+      const userCompany = await prisma.company.findUnique({ where: { id: companyId } });
+      if (userCompany) {
+        return res.json([userCompany]);
+      }
+    }
+
+    if (req.user?.email) {
+      const empByEmail = await prisma.employee.findFirst({
+        where: { user: { email: req.user.email } },
+        include: { company: true }
+      });
+      if (empByEmail?.company) {
+        return res.json([empByEmail.company]);
+      }
+    }
+
+    const defaultCompany = await prisma.company.findFirst({ orderBy: { name: "asc" } });
+    return res.json(defaultCompany ? [defaultCompany] : []);
   } catch (error) {
     next(error);
   }

@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
-import type { Role } from "@prisma/client";
+import { Role } from "@prisma/client";
 import { env } from "../config/env.js";
 import { ApiError } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
@@ -73,10 +73,13 @@ export const requirePermission = (permissionCode: string) => {
   };
 };
 
-export const requireAnyPermission = (permissionCodes: string[]) => {
+export const requireAnyPermission = (permissionCodes: string[], bypassRoles: Role[] = [Role.SUPER_ADMIN, Role.HR_ADMIN]) => {
   return async (req: Request, _res: Response, next: NextFunction) => {
     try {
       if (!req.user) throw new ApiError(401, "Unauthenticated");
+      if (bypassRoles.includes(req.user.role)) {
+        return next();
+      }
       await permissionService.requireAnyPermission(req.user.id, permissionCodes, req.user.companyId ? { companyId: req.user.companyId } : undefined);
       next();
     } catch (error) {

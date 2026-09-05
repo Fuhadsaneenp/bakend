@@ -855,14 +855,14 @@ export const authorityService = {
       });
     }
 
-    if (!setting?.value) return { trackLevels: {}, moduleGrants: {}, actionGrants: {}, positionOverrides: {}, emsLevels: {} };
+    if (!setting?.value) return { trackLevels: {}, moduleGrants: {}, actionGrants: {}, positionOverrides: {}, emsLevels: {}, emsSectionGrants: {} };
     try {
       if (typeof setting.value === "string") {
         return JSON.parse(setting.value);
       }
       return setting.value as any;
     } catch {
-      return { trackLevels: {}, moduleGrants: {}, actionGrants: {}, positionOverrides: {}, emsLevels: {} };
+      return { trackLevels: {}, moduleGrants: {}, actionGrants: {}, positionOverrides: {}, emsLevels: {}, emsSectionGrants: {} };
     }
   },
 
@@ -880,7 +880,8 @@ export const authorityService = {
       moduleGrants: data.moduleGrants !== undefined ? data.moduleGrants : (existing.moduleGrants || {}),
       actionGrants: data.actionGrants !== undefined ? data.actionGrants : (existing.actionGrants || {}),
       positionOverrides: data.positionOverrides !== undefined ? data.positionOverrides : (existing.positionOverrides || {}),
-      emsLevels: data.emsLevels !== undefined ? data.emsLevels : (existing.emsLevels || {})
+      emsLevels: data.emsLevels !== undefined ? data.emsLevels : (existing.emsLevels || {}),
+      emsSectionGrants: data.emsSectionGrants !== undefined ? data.emsSectionGrants : (existing.emsSectionGrants || {})
     };
 
     const allCompanies = await prisma.company.findMany({ select: { id: true } });

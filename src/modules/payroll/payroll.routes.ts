@@ -1,7 +1,7 @@
 import { Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireRoles } from "../../middleware/auth.js";
+import { requireAnyPermission, requireAuth } from "../../middleware/auth.js";
 import { ApiError } from "../../lib/errors.js";
 import { payrollService } from "./payroll.service.js";
 import { prisma } from "../../lib/prisma.js";
@@ -10,7 +10,27 @@ export const payrollRouter = Router();
 payrollRouter.use(requireAuth);
 
 async function resolvePayrollCompanyId(req: any, requestedCompanyId?: string) {
-  const companyId = requestedCompanyId || req.user?.companyId;
+  const isFullAdmin = req.user?.role === Role.SUPER_ADMIN || req.user?.role === Role.HR_ADMIN;
+  let companyId: string | undefined;
+
+  if (isFullAdmin) {
+    companyId = requestedCompanyId || req.user?.companyId;
+  } else {
+    companyId = req.user?.companyId;
+    if (!companyId && req.user?.id) {
+      const emp = await prisma.employee.findFirst({ where: { userId: req.user.id }, select: { companyId: true } });
+      if (emp?.companyId) companyId = emp.companyId;
+    }
+    if (!companyId && req.user?.email) {
+      const empByEmail = await prisma.employee.findFirst({ where: { user: { email: req.user.email } }, select: { companyId: true } });
+      if (empByEmail?.companyId) companyId = empByEmail.companyId;
+    }
+  }
+
+  if (!companyId) {
+    const firstCompany = await prisma.company.findFirst({ select: { id: true } });
+    if (firstCompany) companyId = firstCompany.id;
+  }
   if (!companyId) throw new ApiError(400, "Company context required");
 
   const company = await prisma.company.findUnique({ where: { id: companyId }, select: { id: true } });
@@ -19,7 +39,7 @@ async function resolvePayrollCompanyId(req: any, requestedCompanyId?: string) {
   return company.id;
 }
 
-payrollRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+payrollRouter.get("/", requireAnyPermission(["payroll.run.view", "payroll.run.process", "payroll.run.approve"]), async (req, res, next) => {
   try {
     const requestedCompanyId = typeof req.query.companyId === "string" ? req.query.companyId : undefined;
     const companyId = await resolvePayrollCompanyId(req, requestedCompanyId);
@@ -57,7 +77,7 @@ payrollRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req
   }
 });
 
-payrollRouter.post("/generate", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+payrollRouter.post("/generate", requireAnyPermission(["payroll.run.process", "payroll.run.approve"]), async (req, res, next) => {
   try {
     if (!req.user) throw new ApiError(401, "Unauthenticated");
     const body = z.object({
@@ -73,12 +93,13 @@ payrollRouter.post("/generate", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), a
   }
 });
 
-payrollRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+payrollRouter.patch("/:id/status", requireAnyPermission(["payroll.run.process", "payroll.run.approve"]), async (req, res, next) => {
   try {
-    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const hasFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
     const body = z.object({ status: z.enum(["DRAFT", "APPROVED", "PAID"]) }).parse(req.body);
+    const companyId = await resolvePayrollCompanyId(req);
     const run = await prisma.payrollRun.findFirst({
-      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+      where: hasFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId }
     });
     if (!run) throw new ApiError(404, "Payroll run not found");
 
@@ -94,7 +115,7 @@ payrollRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN)
   }
 });
 
-payrollRouter.patch("/payslips/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+payrollRouter.patch("/payslips/:id", requireAnyPermission(["payroll.run.process", "payroll.run.approve"]), async (req, res, next) => {
   try {
     const payslip = await prisma.payslip.findUnique({ where: { id: req.params.id }, include: { payrollRun: true } });
     if (!payslip) throw new ApiError(404, "Payslip not found");
@@ -116,7 +137,7 @@ payrollRouter.patch("/payslips/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMI
   }
 });
 
-payrollRouter.delete("/payslips/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+payrollRouter.delete("/payslips/:id", requireAnyPermission(["payroll.run.process", "payroll.run.approve"]), async (req, res, next) => {
   try {
     const payslip = await prisma.payslip.findUnique({ where: { id: req.params.id }, include: { payrollRun: true } });
     if (!payslip) throw new ApiError(404, "Payslip not found");
@@ -128,7 +149,7 @@ payrollRouter.delete("/payslips/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADM
   }
 });
 
-payrollRouter.post("/payslips/:id/send", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+payrollRouter.post("/payslips/:id/send", requireAnyPermission(["payroll.run.process", "payroll.run.approve"]), async (req, res, next) => {
   try {
     res.json(await payrollService.sendPayslip(req.params.id));
   } catch (error) {
@@ -136,7 +157,7 @@ payrollRouter.post("/payslips/:id/send", requireRoles(Role.SUPER_ADMIN, Role.HR_
   }
 });
 
-payrollRouter.post("/runs/:id/send-all", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+payrollRouter.post("/runs/:id/send-all", requireAnyPermission(["payroll.run.process", "payroll.run.approve"]), async (req, res, next) => {
   try {
     res.json(await payrollService.sendAllPayslips(req.params.id));
   } catch (error) {
@@ -144,12 +165,13 @@ payrollRouter.post("/runs/:id/send-all", requireRoles(Role.SUPER_ADMIN, Role.HR_
   }
 });
 
-payrollRouter.delete("/runs/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+payrollRouter.delete("/runs/:id", requireAnyPermission(["payroll.run.process", "payroll.run.approve"]), async (req, res, next) => {
   try {
     const runId = req.params.id;
-    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const hasFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const companyId = await resolvePayrollCompanyId(req);
     const run = await prisma.payrollRun.findFirst({
-      where: isFullAdmin ? { id: runId } : { id: runId, companyId: req.user!.companyId || undefined }
+      where: hasFullAdmin ? { id: runId } : { id: runId, companyId }
     });
     if (!run) throw new ApiError(404, "Payroll run not found");
 
