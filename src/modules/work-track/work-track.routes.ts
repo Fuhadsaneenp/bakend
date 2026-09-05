@@ -185,7 +185,7 @@ const SM_APPROVED_WORKS_META_KEY = "sm_calendar_approved_works_meta_v1";
 // Social Media Calendar Live Posts (Shared company-wide across all members and tracks)
 workTrackRouter.get("/sm-calendar-posts", async (req, res, next) => {
   try {
-    const companyId = await resolveDataEntryCatalogCompanyId(req.user?.companyId);
+    const companyId = await resolveDataEntryCatalogCompanyId((req.query.companyId as string) || req.user?.companyId);
     const setting = await prisma.companySetting.findUnique({
       where: {
         companyId_key: {
@@ -204,7 +204,7 @@ workTrackRouter.get("/sm-calendar-posts", async (req, res, next) => {
 
 workTrackRouter.put("/sm-calendar-posts", async (req, res, next) => {
   try {
-    const companyId = await resolveDataEntryCatalogCompanyId(req.user?.companyId);
+    const companyId = await resolveDataEntryCatalogCompanyId((req.query.companyId as string) || (req.body?.companyId as string) || req.user?.companyId);
     const posts: any[] = Array.isArray(req.body?.posts) ? req.body.posts : [];
 
     const setting = await prisma.companySetting.upsert({
@@ -233,7 +233,7 @@ workTrackRouter.put("/sm-calendar-posts", async (req, res, next) => {
 // Social Media Approved Works Scheduling Metadata (Shared company-wide across all members and tracks)
 workTrackRouter.get("/sm-approved-meta", async (req, res, next) => {
   try {
-    const companyId = await resolveDataEntryCatalogCompanyId(req.user?.companyId);
+    const companyId = await resolveDataEntryCatalogCompanyId((req.query.companyId as string) || req.user?.companyId);
     const setting = await prisma.companySetting.findUnique({
       where: {
         companyId_key: {
@@ -254,7 +254,7 @@ workTrackRouter.get("/sm-approved-meta", async (req, res, next) => {
 
 workTrackRouter.put("/sm-approved-meta", async (req, res, next) => {
   try {
-    const companyId = await resolveDataEntryCatalogCompanyId(req.user?.companyId);
+    const companyId = await resolveDataEntryCatalogCompanyId((req.query.companyId as string) || (req.body?.companyId as string) || req.user?.companyId);
     const incomingMeta = (req.body?.meta && typeof req.body.meta === "object" && !Array.isArray(req.body.meta))
       ? req.body.meta
       : {};
