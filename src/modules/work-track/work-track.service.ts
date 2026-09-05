@@ -1399,7 +1399,14 @@ export const workTrackService = {
         await permissionService.requirePermission(data.userId, "worktrack.task.assign", scope);
       }
       if (hasGeneralTaskEdits) {
-        await permissionService.requirePermission(data.userId, "worktrack.task.edit", scope);
+        const isSelfCard = Boolean(
+          (card.assignedToId && actor.employee?.id && card.assignedToId === actor.employee.id) ||
+          (card.assignedById && actor.employee?.id && card.assignedById === actor.employee.id)
+        );
+        const onlyDateEdits = (data.deadline !== undefined || data.createdAt !== undefined) && data.title === undefined && data.brief === undefined && data.priority === undefined;
+        if (!isSelfCard || !onlyDateEdits) {
+          await permissionService.requirePermission(data.userId, "worktrack.task.edit", scope);
+        }
       }
       if (hasDeliverableEdit) {
         await permissionService.requireAnyPermission(data.userId, ["worktrack.file.upload", "worktrack.task.edit", "worktrack.task.status.update"], scope);
