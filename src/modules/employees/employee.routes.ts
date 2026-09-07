@@ -384,6 +384,16 @@ employeeRouter.post("/:id/exit", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), 
       }
     });
 
+    if (employee.userId) {
+      await prisma.user.update({
+        where: { id: employee.userId },
+        data: {
+          isActive: false,
+          refreshHash: null
+        }
+      }).catch((e) => console.warn(`[Employee Offboard] Failed to deactivate user ${employee.userId}:`, e));
+    }
+
     res.json(updated);
   } catch (error) {
     next(error);

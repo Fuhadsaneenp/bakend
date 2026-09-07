@@ -1036,8 +1036,8 @@ export const workTrackService = {
       },
       include: {
         client: true,
-        assignedTo: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
-        assignedBy: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
+        assignedTo: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, status: true, dateOfExit: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
+        assignedBy: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, status: true, dateOfExit: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
         comments: {
           include: {
             user: {
@@ -1086,8 +1086,8 @@ export const workTrackService = {
       where: { id },
       include: {
         client: true,
-        assignedTo: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
-        assignedBy: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
+        assignedTo: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, status: true, dateOfExit: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
+        assignedBy: { select: { id: true, firstName: true, middleName: true, lastName: true, displayName: true, status: true, dateOfExit: true, designation: { select: { title: true } }, department: { select: { name: true } } } },
         comments: {
           include: {
             user: {

@@ -22,9 +22,12 @@ export const authService = {
   async login(email: string, password: string) {
     const user = await prisma.user.findUnique({
       where: { email: email.trim().toLowerCase() },
-      include: { employee: { select: { firstName: true, middleName: true, lastName: true, displayName: true, employeeCode: true } } }
+      include: { employee: { select: { firstName: true, middleName: true, lastName: true, displayName: true, employeeCode: true, status: true, dateOfExit: true } } }
     });
     if (!user || !user.isActive) throw new ApiError(401, "Invalid credentials");
+    if (user.employee && (user.employee.status !== "ACTIVE" || user.employee.dateOfExit)) {
+      throw new ApiError(401, "Account has been offboarded");
+    }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) throw new ApiError(401, "Invalid credentials");
@@ -226,6 +229,8 @@ export const authService = {
 
     const employees = await prisma.employee.findMany({
       where: {
+        status: "ACTIVE",
+        dateOfExit: null,
         ...(isSuperAdmin ? {} : { companyId: companyId ?? undefined }),
         // Exclude the real admin's own employee record from the list
         user: {
@@ -338,8 +343,8 @@ export const authService = {
       throw new ApiError(404, "Target user account not found");
     }
 
-    if (!targetUser.isActive) {
-      throw new ApiError(400, "Cannot impersonate an inactive account");
+    if (!targetUser.isActive || (targetUser.employee && (targetUser.employee.status !== "ACTIVE" || targetUser.employee.dateOfExit))) {
+      throw new ApiError(400, "Cannot switch to an offboarded or inactive employee account");
     }
 
     const payload = {

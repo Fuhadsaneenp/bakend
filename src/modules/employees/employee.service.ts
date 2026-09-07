@@ -327,6 +327,15 @@ export const employeeService = {
     });
     if (!employee) throw notFound("Employee");
     const updatedEmployee = await prisma.employee.update({ where: { id: employeeId }, data: { status } });
+    if (employee.userId) {
+      await prisma.user.update({
+        where: { id: employee.userId },
+        data: {
+          isActive: status === "ACTIVE",
+          refreshHash: status === "ACTIVE" ? undefined : null
+        }
+      }).catch((e) => console.warn(`[Employee Status] Failed to sync user status:`, e));
+    }
     await queueEmployeeDeviceSync(updatedEmployee, "UPSERT_USER");
     return updatedEmployee;
   },
