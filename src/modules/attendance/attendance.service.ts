@@ -72,7 +72,7 @@ function getShiftParams(employee: any): ShiftParams {
   };
 }
 
-async function recalculateDraftPayrollForWorkDate(companyId: string, workDate: Date) {
+export async function recalculateDraftPayrollForWorkDate(companyId: string, workDate: Date) {
   const { payrollService } = await import("../payroll/payroll.service.js");
   await payrollService.recalculateDraftRunsForPeriods(companyId, [
     {
@@ -266,7 +266,7 @@ export const attendanceService = {
     biometricId: string,
     punchTimeStr: string,
     direction?: "IN" | "OUT",
-    options?: { skipPayrollRecalc?: boolean }
+    options?: { skipPayrollRecalc?: boolean; skipNotification?: boolean }
   ) {
     let employee = await prisma.employee.findFirst({
       where: {
@@ -327,6 +327,7 @@ export const attendanceService = {
         await recalculateDraftPayrollForWorkDate(employee.companyId, workDate);
       }
 
+    if (!options?.skipNotification) {
       // Notify Super Admin and HR Admin of Biometric Punch In
       try {
         const empName = `${employee.firstName} ${employee.lastName || ""}`.trim();
@@ -340,6 +341,7 @@ export const attendanceService = {
           metadata: { attendanceId: attendance.id, source: "BIOMETRIC", biometricId, isLate: attendance.isLate }
         }).catch((e) => console.error("[Attendance] Biometric punch-in notification error:", e));
       } catch {}
+    }
 
       return { employeeId: employee.id, type: "CHECK_IN", attendanceId: attendance.id };
     }
@@ -392,19 +394,21 @@ export const attendanceService = {
       await recalculateDraftPayrollForWorkDate(employee.companyId, workDate);
     }
 
-    // Notify Super Admin and HR Admin of Biometric Punch Out
-    try {
-      const empName = `${employee.firstName} ${employee.lastName || ""}`.trim();
-      const timeStr = punchTime.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
-      notificationService.notifyAttendance({
-        companyId: employee.companyId,
-        employeeName: empName,
-        employeeUserId: employee.userId,
-        type: "PUNCH_OUT",
-        timeStr,
-        metadata: { attendanceId: attendance.id, source: "BIOMETRIC", biometricId, workMinutes: worked, isEarlyLeave }
-      }).catch((e) => console.error("[Attendance] Biometric punch-out notification error:", e));
-    } catch {}
+    if (!options?.skipNotification) {
+      // Notify Super Admin and HR Admin of Biometric Punch Out
+      try {
+        const empName = `${employee.firstName} ${employee.lastName || ""}`.trim();
+        const timeStr = punchTime.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
+        notificationService.notifyAttendance({
+          companyId: employee.companyId,
+          employeeName: empName,
+          employeeUserId: employee.userId,
+          type: "PUNCH_OUT",
+          timeStr,
+          metadata: { attendanceId: attendance.id, source: "BIOMETRIC", biometricId, workMinutes: worked, isEarlyLeave }
+        }).catch((e) => console.error("[Attendance] Biometric punch-out notification error:", e));
+      } catch {}
+    }
 
     return { employeeId: employee.id, type: "CHECK_OUT", attendanceId: attendance.id };
   }

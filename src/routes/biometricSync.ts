@@ -1,19 +1,25 @@
 import { prisma } from "../lib/prisma.js";
-import { attendanceService } from "../modules/attendance/attendance.service.js";
+import { attendanceService, recalculateDraftPayrollForWorkDate } from "../modules/attendance/attendance.service.js";
 
 // A pre-hashed bcrypt hash for the password "TempPassword123!"
 const DUMMY_PASSWORD_HASH = "$2a$10$Ex7a3m9zH8G5tP2rK4yU1u1j6W3e8r9t0y1u2i3o4p5a6s7d8f9g0";
 
-let activeBiometricSync: Promise<void> | null = null;
+let isSyncRunning = false;
+let shouldRerun = false;
 
 async function performBiometricSync() {
   const pendingLogs = await prisma.biometricRawLog.findMany({
     where: { processingStatus: "PENDING" },
-    orderBy: { receivedAt: "asc" }
+    orderBy: { receivedAt: "asc" },
+    take: 50
   });
 
   if (pendingLogs.length === 0) {
     return;
+  }
+
+  if (pendingLogs.length === 50) {
+    shouldRerun = true;
   }
 
   console.log(`[Biometric Sync] Starting background sync for ${pendingLogs.length} pending logs...`);
@@ -26,6 +32,8 @@ async function performBiometricSync() {
       legalName: "Second Tales EMS"
     }
   });
+
+  const affectedPayrollPeriods = new Set<string>();
 
   for (const log of pendingLogs) {
     try {
@@ -198,8 +206,19 @@ async function performBiometricSync() {
 
         for (const punch of punchesToProcess) {
           try {
-            await attendanceService.biometricPunch(punch.biometricId, punch.punchTimeStr);
+            const isRecent = Math.abs(Date.now() - punch.timestamp) < 30 * 60 * 1000;
+            await attendanceService.biometricPunch(punch.biometricId, punch.punchTimeStr, undefined, {
+              skipPayrollRecalc: true,
+              skipNotification: !isRecent
+            });
             successCount++;
+            const datePart = punch.punchTimeStr.split(/[\sT]/)[0];
+            if (datePart) {
+              const [y, m] = datePart.split("-").map(Number);
+              if (y && m) {
+                affectedPayrollPeriods.add(`${company.id}:${y}-${m}`);
+              }
+            }
           } catch (punchErr: any) {
             console.error(`[Biometric Sync] Punch failed for ${punch.biometricId} at ${punch.punchTimeStr}:`, punchErr.message);
             failCount++;
@@ -237,19 +256,40 @@ async function performBiometricSync() {
     }
   }
 
+  // Recalculate draft payroll once per affected period
+  if (affectedPayrollPeriods.size > 0) {
+    for (const period of affectedPayrollPeriods) {
+      try {
+        const [cId, ym] = period.split(":");
+        const [year, month] = ym.split("-").map(Number);
+        const periodDate = new Date(year, month - 1, 1);
+        await recalculateDraftPayrollForWorkDate(cId, periodDate);
+      } catch (err) {
+        console.warn(`[Biometric Sync] Failed to recalculate payroll for ${period}:`, err);
+      }
+    }
+  }
+
   console.log("[Biometric Sync] Background sync cycle completed.");
 }
 
 /**
- * Device uploads can arrive only seconds apart. Reuse the active sync instead
- * of starting overlapping database-heavy imports that exhaust the SQL pool.
+ * Device uploads can arrive only seconds apart. Run a sequential loop that
+ * processes all pending logs without dropping requests or overloading the DB.
  */
-export function runBiometricSync() {
-  if (!activeBiometricSync) {
-    activeBiometricSync = performBiometricSync().finally(() => {
-      activeBiometricSync = null;
-    });
+export async function runBiometricSync(): Promise<void> {
+  if (isSyncRunning) {
+    shouldRerun = true;
+    return;
   }
 
-  return activeBiometricSync;
+  isSyncRunning = true;
+  try {
+    do {
+      shouldRerun = false;
+      await performBiometricSync();
+    } while (shouldRerun);
+  } finally {
+    isSyncRunning = false;
+  }
 }
