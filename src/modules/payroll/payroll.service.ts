@@ -346,11 +346,20 @@ async function deliverPayslipById(payslipId: string) {
 }
 
 export const payrollService = {
-  async generate(companyId: string, processedBy: string, month: number, year: number, type: "REGULAR" | "FINAL" = "REGULAR") {
+  async generate(companyId: string, processedBy: string, month: number, year: number, type: "REGULAR" | "FINAL" = "REGULAR", employeeId?: string) {
     const existing = await prisma.payrollRun.findUnique({
       where: { companyId_month_year_type: { companyId, month, year, type } }
     });
-    if (existing) throw new ApiError(409, "Payroll already generated for this period and type");
+    if (existing) {
+      if (existing.status.startsWith("DRAFT")) {
+        await prisma.$transaction([
+          prisma.payslip.deleteMany({ where: { payrollRunId: existing.id } }),
+          prisma.payrollRun.delete({ where: { id: existing.id } })
+        ]);
+      } else {
+        throw new ApiError(409, "Payroll already generated and approved/paid for this period and type");
+      }
+    }
 
     const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });
     const endOfMonthDate = new Date(year, month, 0);
@@ -359,11 +368,21 @@ export const payrollService = {
     const employees = await prisma.employee.findMany({
       where: {
         companyId,
-        status: type === "FINAL" ? "TERMINATED" : "ACTIVE",
         salary: { isNot: null },
-        ...(type === "FINAL"
-          ? { dateOfExit: { gte: startOfMonthDate, lte: endOfDay(endOfMonthDate) } }
-          : { dateOfJoining: { lte: endOfDay(endOfMonthDate) } }
+        ...(employeeId
+          ? { id: employeeId }
+          : type === "FINAL"
+            ? {
+                OR: [
+                  { status: "TERMINATED" },
+                  { status: "INACTIVE" },
+                  { dateOfExit: { not: null } }
+                ]
+              }
+            : {
+                status: "ACTIVE",
+                dateOfJoining: { lte: endOfDay(endOfMonthDate) }
+              }
         )
       },
       include: {
@@ -387,6 +406,13 @@ export const payrollService = {
         }
       }
     });
+
+    if (employees.length === 0) {
+      if (type === "FINAL") {
+        throw new ApiError(400, "No eligible offboarded employee found with salary details for final settlement.");
+      }
+      throw new ApiError(400, "No active employees found with salary details for this period.");
+    }
 
     let grossTotal = 0;
     let netTotal = 0;

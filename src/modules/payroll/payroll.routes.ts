@@ -84,10 +84,11 @@ payrollRouter.post("/generate", requireAnyPermission(["payroll.run.process", "pa
       companyId: z.string().optional(),
       month: z.number().min(1).max(12),
       year: z.number().min(2020),
-      type: z.enum(["REGULAR", "FINAL"]).optional().default("REGULAR")
+      type: z.enum(["REGULAR", "FINAL"]).optional().default("REGULAR"),
+      employeeId: z.string().optional()
     }).parse(req.body);
     const companyId = await resolvePayrollCompanyId(req, body.companyId);
-    res.status(201).json(await payrollService.generate(companyId, req.user.id, body.month, body.year, body.type));
+    res.status(201).json(await payrollService.generate(companyId, req.user.id, body.month, body.year, body.type, body.employeeId));
   } catch (error) {
     next(error);
   }
