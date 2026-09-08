@@ -255,14 +255,18 @@ function buildAttendanceSnapshot(input: {
   );
   const dayCredits = new Map<string, number>();
 
-  const cursor = new Date(employeePeriodStart);
-  while (cursor <= employeePeriodEnd) {
-    const dayKey = formatDayKey(cursor);
-    dayCredits.set(dayKey, isWorkingDayForPayroll(cursor, input.employee) ? 0 : 1);
-    cursor.setDate(cursor.getDate() + 1);
+  for (let day = 1; day <= totalDaysInMonth; day++) {
+    const dayStr = String(day).padStart(2, "0");
+    const monthStr = String(input.month).padStart(2, "0");
+    const dayKey = `${input.year}-${monthStr}-${dayStr}`;
+    const dayDate = new Date(input.year, input.month - 1, day, 12, 0, 0);
+
+    if (dayDate >= startOfDay(employeePeriodStart) && dayDate <= endOfDay(employeePeriodEnd)) {
+      dayCredits.set(dayKey, isWorkingDayForPayroll(dayDate, input.employee) ? 0 : 1);
+    }
   }
 
-  for (const row of attendanceInPeriod) {
+  for (const row of input.employee.attendance) {
     const dayKey = formatDayKey(row.workDate);
     const currentCredit = dayCredits.get(dayKey) ?? 0;
     dayCredits.set(dayKey, Math.max(currentCredit, attendanceCredit(row, input.employee)));
@@ -282,7 +286,14 @@ function buildAttendanceSnapshot(input: {
     }
   }
 
-  const payableDays = Array.from(dayCredits.values()).reduce((sum, value) => sum + value, 0);
+  let payableDays = 0;
+  for (let day = 1; day <= totalDaysInMonth; day++) {
+    const dayDate = new Date(input.year, input.month - 1, day, 12, 0, 0);
+    if (dayDate >= startOfDay(employeePeriodStart) && dayDate <= endOfDay(employeePeriodEnd)) {
+      const dayKey = `${input.year}-${String(input.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      payableDays += (dayCredits.get(dayKey) ?? 0);
+    }
+  }
   const lopDays = Math.max(0, attendanceDays - payableDays);
 
   return {
@@ -367,23 +378,38 @@ function computePayrollAmounts(input: {
     return active;
   };
 
-  // Day-by-day calculation across the employee period
+  // Day-by-day calculation across the calendar days of the month
   let totalBasic = 0;
   let totalAllowances = 0;
   let totalDeductions = 0;
 
-  const cursor = new Date(snapshot.employeePeriodStart);
-  while (cursor <= snapshot.employeePeriodEnd) {
-    const dayKey = formatDayKey(cursor);
+  for (let day = 1; day <= totalDaysInMonth; day++) {
+    const dayStr = String(day).padStart(2, "0");
+    const monthStr = String(input.month).padStart(2, "0");
+    const dayKey = `${input.year}-${monthStr}-${dayStr}`;
+    const dayDate = new Date(input.year, input.month - 1, day, 12, 0, 0);
+
+    if (dayDate < startOfDay(snapshot.employeePeriodStart) || dayDate > endOfDay(snapshot.employeePeriodEnd)) {
+      continue;
+    }
+
     const dayCredit = snapshot.dayCredits.get(dayKey) ?? 0;
-    const sal = getSalaryForDate(cursor);
+    const sal = getSalaryForDate(dayDate);
 
     totalBasic += (sal.basic / totalDaysInMonth) * dayCredit;
     totalAllowances += (sal.allowances / totalDaysInMonth) * dayCredit;
     totalDeductions += (sal.deductions / totalDaysInMonth) * (dayCredit > 0 ? 1 : 0);
-
-    cursor.setDate(cursor.getDate() + 1);
   }
+
+  // Medbiomate: ₹400 bonus for each full 7-day week worked (without taking leave on Saturday or Sunday)
+  const medbiomateBonus = calculateMedbiomateWeeklyBonus(
+    input.year,
+    input.month,
+    snapshot.dayCredits,
+    input.employee
+  );
+
+  totalAllowances += medbiomateBonus;
 
   return {
     attendanceDays: snapshot.attendanceDays,
@@ -393,6 +419,51 @@ function computePayrollAmounts(input: {
     allowances: Math.round(totalAllowances * 100) / 100,
     deductions: Math.round(totalDeductions * 100) / 100
   };
+}
+
+function calculateMedbiomateWeeklyBonus(
+  year: number,
+  month: number,
+  allCredits: Map<string, number>,
+  employee: {
+    company?: { name?: string | null; legalName?: string | null; worksSevenDays?: boolean | null } | null;
+  }
+): number {
+  const isMedbiomate =
+    Boolean(employee.company?.name && employee.company.name.toLowerCase().includes("medbiomate")) ||
+    Boolean(employee.company?.legalName && employee.company.legalName.toLowerCase().includes("medbiomate"));
+
+  if (!isMedbiomate) return 0;
+
+  const totalDaysInMonth = new Date(year, month, 0).getDate();
+  let totalBonus = 0;
+
+  // Check each Sunday that falls within the payroll month
+  for (let day = 1; day <= totalDaysInMonth; day++) {
+    const sundayDate = new Date(year, month - 1, day);
+    if (sundayDate.getDay() === 0) {
+      // Sunday found. Check all 7 days of this Monday-Sunday week
+      let allSevenDaysWorked = true;
+      for (let offset = 6; offset >= 0; offset--) {
+        const weekDayDate = new Date(year, month - 1, day - offset);
+        const y = weekDayDate.getFullYear();
+        const m = String(weekDayDate.getMonth() + 1).padStart(2, "0");
+        const d = String(weekDayDate.getDate()).padStart(2, "0");
+        const key = `${y}-${m}-${d}`;
+        const credit = allCredits.get(key) ?? 0;
+        if (credit < 1) {
+          allSevenDaysWorked = false;
+          break;
+        }
+      }
+
+      if (allSevenDaysWorked) {
+        totalBonus += 400;
+      }
+    }
+  }
+
+  return totalBonus;
 }
 
 async function deliverPayslipById(payslipId: string) {
@@ -468,8 +539,8 @@ export const payrollService = {
         attendance: {
           where: {
             workDate: {
-              gte: startOfDay(startOfMonthDate),
-              lte: endOfDay(endOfMonthDate)
+              gte: startOfDay(new Date(year, month - 1, 1 - 7)),
+              lte: endOfDay(new Date(year, month, 7))
             }
           }
         },
@@ -736,7 +807,9 @@ export const payrollService = {
           dateOfExit: payslip.employee.dateOfExit,
           shift: payslip.employee.shift,
           company: payslip.employee.company,
-          attendance: payslip.employee.attendance.filter((row) => row.workDate >= startOfDay(new Date(run.year, run.month - 1, 1)) && row.workDate <= endOfDay(new Date(run.year, run.month, 0))),
+          attendance: payslip.employee.attendance.filter(
+            (row) => row.workDate >= startOfDay(new Date(run.year, run.month - 1, 1 - 7)) && row.workDate <= endOfDay(new Date(run.year, run.month, 7))
+          ),
           wfhRequests: payslip.employee.wfhRequests.filter((row) => row.startDate <= endOfDay(new Date(run.year, run.month, 0)) && row.endDate >= startOfDay(new Date(run.year, run.month - 1, 1))),
           salary,
           salaryHistory: payslip.employee.salaryHistory

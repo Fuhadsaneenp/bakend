@@ -165,7 +165,7 @@ async function performBiometricSync() {
         // Line format: PIN\tTimestamp\tState\tVerifyMode\t...
         // Example: ST013\t2026-06-22 10:06:12\t0\t1\t0\t\t\t0\t0\t
         const punchesToProcess: { biometricId: string; punchTimeStr: string; timestamp: number }[] = [];
-        
+
         for (const line of rawLines) {
           const trimmed = line.trim().replace(/^(ATTLOG|OPLOG|USERINFO|USER)\s+/i, "");
           if (!trimmed) continue;
