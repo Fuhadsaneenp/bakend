@@ -60,6 +60,7 @@ const employeeProfileFields = {
   designation: true,
   manager: { include: { documents: { select: employeeDocumentFields } } },
   salary: true,
+  salaryHistory: { orderBy: { effectiveFrom: "desc" as const } },
   shift: true,
   documents: { select: employeeDocumentFields, orderBy: { uploadedAt: "desc" as const } },
   letters: { select: employeeLetterFields, orderBy: { issuedAt: "desc" as const } }
@@ -310,6 +311,16 @@ export const employeeService = {
             effectiveFrom: new Date(data.salary.effectiveFrom)
           }
         });
+        await tx.salaryHistory.create({
+          data: {
+            employeeId: employee.id,
+            basic: new Prisma.Decimal(data.salary.basic),
+            allowances: new Prisma.Decimal(data.salary.allowances),
+            deductions: new Prisma.Decimal(data.salary.deductions),
+            effectiveFrom: new Date(data.salary.effectiveFrom),
+            notes: "Initial salary on onboarding"
+          }
+        });
       }
 
       return tx.employee.findUniqueOrThrow({ where: { id: employee.id }, include: employeeProfileFields });
@@ -440,20 +451,75 @@ export const employeeService = {
       });
 
       if (data.salary) {
+        const effectiveDate = new Date(data.salary.effectiveFrom);
+        const existingSalary = await tx.salary.findUnique({ where: { employeeId: id } });
+        const existingHistoryCount = await tx.salaryHistory.count({ where: { employeeId: id } });
+
+        // If no history exists yet but there was an existing salary, preserve initial record
+        if (existingHistoryCount === 0 && existingSalary) {
+          await tx.salaryHistory.create({
+            data: {
+              employeeId: id,
+              basic: existingSalary.basic,
+              allowances: existingSalary.allowances,
+              deductions: existingSalary.deductions,
+              effectiveFrom: existingSalary.effectiveFrom,
+              notes: "Initial recorded salary"
+            }
+          });
+        }
+
+        const existingForSameDate = await tx.salaryHistory.findFirst({
+          where: { employeeId: id, effectiveFrom: effectiveDate }
+        });
+
+        if (existingForSameDate) {
+          await tx.salaryHistory.update({
+            where: { id: existingForSameDate.id },
+            data: {
+              basic: new Prisma.Decimal(data.salary.basic),
+              allowances: new Prisma.Decimal(data.salary.allowances),
+              deductions: new Prisma.Decimal(data.salary.deductions)
+            }
+          });
+        } else {
+          await tx.salaryHistory.create({
+            data: {
+              employeeId: id,
+              basic: new Prisma.Decimal(data.salary.basic),
+              allowances: new Prisma.Decimal(data.salary.allowances),
+              deductions: new Prisma.Decimal(data.salary.deductions),
+              effectiveFrom: effectiveDate,
+              notes: (data.salary as any).notes || "Salary revision"
+            }
+          });
+        }
+
+        // Keep current salary table synchronized to the latest effective salary
+        const latestHistory = await tx.salaryHistory.findFirst({
+          where: { employeeId: id },
+          orderBy: { effectiveFrom: "desc" }
+        });
+
+        const activeBasic = latestHistory ? latestHistory.basic : new Prisma.Decimal(data.salary.basic);
+        const activeAllowances = latestHistory ? latestHistory.allowances : new Prisma.Decimal(data.salary.allowances);
+        const activeDeductions = latestHistory ? latestHistory.deductions : new Prisma.Decimal(data.salary.deductions);
+        const activeEffectiveFrom = latestHistory ? latestHistory.effectiveFrom : effectiveDate;
+
         await tx.salary.upsert({
           where: { employeeId: id },
           create: {
             employeeId: id,
-            basic: new Prisma.Decimal(data.salary.basic),
-            allowances: new Prisma.Decimal(data.salary.allowances),
-            deductions: new Prisma.Decimal(data.salary.deductions),
-            effectiveFrom: new Date(data.salary.effectiveFrom)
+            basic: activeBasic,
+            allowances: activeAllowances,
+            deductions: activeDeductions,
+            effectiveFrom: activeEffectiveFrom
           },
           update: {
-            basic: new Prisma.Decimal(data.salary.basic),
-            allowances: new Prisma.Decimal(data.salary.allowances),
-            deductions: new Prisma.Decimal(data.salary.deductions),
-            effectiveFrom: new Date(data.salary.effectiveFrom)
+            basic: activeBasic,
+            allowances: activeAllowances,
+            deductions: activeDeductions,
+            effectiveFrom: activeEffectiveFrom
           }
         });
       }
@@ -777,6 +843,109 @@ export const employeeService = {
         taxId: data.taxId
       },
       include: employeeProfileFields
+    });
+  },
+
+  async getSalaryHistory(employeeId: string) {
+    return prisma.salaryHistory.findMany({
+      where: { employeeId },
+      orderBy: { effectiveFrom: "desc" }
+    });
+  },
+
+  async addSalaryRevision(employeeId: string, data: { basic: number; allowances: number; deductions: number; effectiveFrom: string; notes?: string }) {
+    const effectiveDate = new Date(data.effectiveFrom);
+    return prisma.$transaction(async (tx) => {
+      const existingSalary = await tx.salary.findUnique({ where: { employeeId } });
+      const existingHistoryCount = await tx.salaryHistory.count({ where: { employeeId } });
+      if (existingHistoryCount === 0 && existingSalary) {
+        await tx.salaryHistory.create({
+          data: {
+            employeeId,
+            basic: existingSalary.basic,
+            allowances: existingSalary.allowances,
+            deductions: existingSalary.deductions,
+            effectiveFrom: existingSalary.effectiveFrom,
+            notes: "Initial recorded salary"
+          }
+        });
+      }
+
+      const existingForSameDate = await tx.salaryHistory.findFirst({
+        where: { employeeId, effectiveFrom: effectiveDate }
+      });
+
+      let revision;
+      if (existingForSameDate) {
+        revision = await tx.salaryHistory.update({
+          where: { id: existingForSameDate.id },
+          data: {
+            basic: new Prisma.Decimal(data.basic),
+            allowances: new Prisma.Decimal(data.allowances),
+            deductions: new Prisma.Decimal(data.deductions),
+            notes: data.notes || existingForSameDate.notes
+          }
+        });
+      } else {
+        revision = await tx.salaryHistory.create({
+          data: {
+            employeeId,
+            basic: new Prisma.Decimal(data.basic),
+            allowances: new Prisma.Decimal(data.allowances),
+            deductions: new Prisma.Decimal(data.deductions),
+            effectiveFrom: effectiveDate,
+            notes: data.notes || "Salary revision"
+          }
+        });
+      }
+
+      const latest = await tx.salaryHistory.findFirst({
+        where: { employeeId },
+        orderBy: { effectiveFrom: "desc" }
+      });
+      if (latest) {
+        await tx.salary.upsert({
+          where: { employeeId },
+          create: {
+            employeeId,
+            basic: latest.basic,
+            allowances: latest.allowances,
+            deductions: latest.deductions,
+            effectiveFrom: latest.effectiveFrom
+          },
+          update: {
+            basic: latest.basic,
+            allowances: latest.allowances,
+            deductions: latest.deductions,
+            effectiveFrom: latest.effectiveFrom
+          }
+        });
+      }
+      return revision;
+    });
+  },
+
+  async deleteSalaryRevision(employeeId: string, historyId: string) {
+    return prisma.$transaction(async (tx) => {
+      await tx.salaryHistory.deleteMany({
+        where: { id: historyId, employeeId }
+      });
+      const latest = await tx.salaryHistory.findFirst({
+        where: { employeeId },
+        orderBy: { effectiveFrom: "desc" }
+      });
+      if (latest) {
+        await tx.salary.update({
+          where: { employeeId },
+          data: {
+            basic: latest.basic,
+            allowances: latest.allowances,
+            deductions: latest.deductions,
+            effectiveFrom: latest.effectiveFrom
+          }
+        });
+      }
+      return { success: true };
     });
   }
 };

@@ -251,6 +251,7 @@ model Employee {
   onboardingStatus OnboardingStatus @default(NOT_STARTED)
   baseCurrency   String          @default("INR")
   salary         Salary?
+  salaryHistory  SalaryHistory[]
   shiftId        String?
   shift          Shift?          @relation(fields: [shiftId], references: [id])
   officeId       String?
@@ -297,6 +298,20 @@ model Salary {
   deductions  Decimal  @db.Decimal(12, 2)
   effectiveFrom DateTime
   createdAt   DateTime @default(now())
+}
+
+model SalaryHistory {
+  id            String    @id @default(cuid())
+  employeeId    String
+  employee      Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  basic         Decimal   @db.Decimal(12, 2)
+  allowances    Decimal   @db.Decimal(12, 2)
+  deductions    Decimal   @db.Decimal(12, 2)
+  effectiveFrom DateTime
+  notes         String?
+  createdAt     DateTime  @default(now())
+
+  @@index([employeeId, effectiveFrom])
 }
 
 model EmployeeDocument {

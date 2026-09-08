@@ -427,3 +427,57 @@ employeeRouter.patch("/:id/settlement", requireRoles(Role.SUPER_ADMIN, Role.HR_A
     next(error);
   }
 });
+
+employeeRouter.get("/:id/salary-history", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const employee = await prisma.employee.findFirst({
+      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+    });
+    if (!employee) throw new ApiError(404, "Employee not found");
+
+    const history = await employeeService.getSalaryHistory(employee.id);
+    res.json(history);
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.post("/:id/salary-history", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const employee = await prisma.employee.findFirst({
+      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+    });
+    if (!employee) throw new ApiError(404, "Employee not found");
+
+    const body = z.object({
+      basic: z.number().nonnegative(),
+      allowances: z.number().nonnegative(),
+      deductions: z.number().nonnegative(),
+      effectiveFrom: z.string(),
+      notes: z.string().optional()
+    }).parse(req.body);
+
+    const revision = await employeeService.addSalaryRevision(employee.id, body);
+    res.status(201).json(revision);
+  } catch (error) {
+    next(error);
+  }
+});
+
+employeeRouter.delete("/:id/salary-history/:historyId", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const employee = await prisma.employee.findFirst({
+      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+    });
+    if (!employee) throw new ApiError(404, "Employee not found");
+
+    const result = await employeeService.deleteSalaryRevision(employee.id, req.params.historyId);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+

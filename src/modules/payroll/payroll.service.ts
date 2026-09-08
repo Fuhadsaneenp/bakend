@@ -288,7 +288,10 @@ function buildAttendanceSnapshot(input: {
   return {
     attendanceDays,
     payableDays: Math.max(0, Math.min(attendanceDays, payableDays)),
-    lopDays
+    lopDays,
+    dayCredits,
+    employeePeriodStart,
+    employeePeriodEnd
   };
 }
 
@@ -305,19 +308,90 @@ function computePayrollAmounts(input: {
     company?: { worksSevenDays?: boolean | null } | null;
     attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date; workMinutes?: number | null }>;
     wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
-    salary: { basic: Prisma.Decimal | number; allowances: Prisma.Decimal | number };
+    salary: { basic: Prisma.Decimal | number; allowances: Prisma.Decimal | number; deductions?: Prisma.Decimal | number; effectiveFrom?: Date | string };
+    salaryHistory?: Array<{ basic: Prisma.Decimal | number; allowances: Prisma.Decimal | number; deductions?: Prisma.Decimal | number; effectiveFrom: Date | string }>;
   };
 }) {
   const totalDaysInMonth = new Date(input.year, input.month, 0).getDate();
   const snapshot = buildAttendanceSnapshot(input);
-  const proration = snapshot.payableDays / totalDaysInMonth;
+
+  // Collect all available salary revisions
+  const revisions: Array<{ basic: number; allowances: number; deductions: number; effectiveFrom: Date }> = [];
+
+  if (input.employee.salaryHistory && input.employee.salaryHistory.length > 0) {
+    for (const h of input.employee.salaryHistory) {
+      revisions.push({
+        basic: decimalToNumber(h.basic),
+        allowances: decimalToNumber(h.allowances),
+        deductions: decimalToNumber(h.deductions ?? 0),
+        effectiveFrom: new Date(h.effectiveFrom)
+      });
+    }
+  }
+
+  // Also include the current salary record if not already present
+  if (input.employee.salary) {
+    const sEff = input.employee.salary.effectiveFrom ? new Date(input.employee.salary.effectiveFrom) : input.employee.dateOfJoining;
+    const exists = revisions.some((r) => r.effectiveFrom.getTime() === sEff.getTime());
+    if (!exists) {
+      revisions.push({
+        basic: decimalToNumber(input.employee.salary.basic),
+        allowances: decimalToNumber(input.employee.salary.allowances),
+        deductions: decimalToNumber(input.employee.salary.deductions ?? 0),
+        effectiveFrom: sEff
+      });
+    }
+  }
+
+  // Sort revisions chronologically by effectiveFrom
+  revisions.sort((a, b) => a.effectiveFrom.getTime() - b.effectiveFrom.getTime());
+
+  // Helper to get active salary for any specific calendar date
+  const getSalaryForDate = (date: Date) => {
+    if (revisions.length === 0) {
+      return {
+        basic: decimalToNumber(input.employee.salary?.basic ?? 0),
+        allowances: decimalToNumber(input.employee.salary?.allowances ?? 0),
+        deductions: decimalToNumber(input.employee.salary?.deductions ?? 0)
+      };
+    }
+    let active = revisions[0];
+    const targetTime = endOfDay(date).getTime();
+    for (const rev of revisions) {
+      if (rev.effectiveFrom.getTime() <= targetTime) {
+        active = rev;
+      } else {
+        break;
+      }
+    }
+    return active;
+  };
+
+  // Day-by-day calculation across the employee period
+  let totalBasic = 0;
+  let totalAllowances = 0;
+  let totalDeductions = 0;
+
+  const cursor = new Date(snapshot.employeePeriodStart);
+  while (cursor <= snapshot.employeePeriodEnd) {
+    const dayKey = formatDayKey(cursor);
+    const dayCredit = snapshot.dayCredits.get(dayKey) ?? 0;
+    const sal = getSalaryForDate(cursor);
+
+    totalBasic += (sal.basic / totalDaysInMonth) * dayCredit;
+    totalAllowances += (sal.allowances / totalDaysInMonth) * dayCredit;
+    totalDeductions += (sal.deductions / totalDaysInMonth) * (dayCredit > 0 ? 1 : 0);
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
 
   return {
     attendanceDays: snapshot.attendanceDays,
     payableDays: snapshot.payableDays,
     lopDays: snapshot.lopDays,
-    basic: decimalToNumber(input.employee.salary.basic) * proration,
-    allowances: decimalToNumber(input.employee.salary.allowances) * proration
+    basic: Math.round(totalBasic * 100) / 100,
+    allowances: Math.round(totalAllowances * 100) / 100,
+    deductions: Math.round(totalDeductions * 100) / 100
   };
 }
 
@@ -387,6 +461,7 @@ export const payrollService = {
       },
       include: {
         salary: true,
+        salaryHistory: { orderBy: { effectiveFrom: "asc" } },
         shift: true,
         company: true,
         user: true,
@@ -433,7 +508,7 @@ export const payrollService = {
 
       for (const employee of employees) {
         const salary = employee.salary!;
-        const { attendanceDays, payableDays, basic, allowances } = computePayrollAmounts({
+        const { attendanceDays, payableDays, basic, allowances, deductions: computedDeductions } = computePayrollAmounts({
           month,
           year,
           type,
@@ -446,10 +521,13 @@ export const payrollService = {
             company: employee.company,
             attendance: employee.attendance,
             wfhRequests: employee.wfhRequests,
-            salary
+            salary,
+            salaryHistory: employee.salaryHistory
           }
         });
-        const deductions = decimalToNumber(salary.deductions);
+        const deductions = (employee.salaryHistory && employee.salaryHistory.length > 1)
+          ? computedDeductions
+          : decimalToNumber(salary.deductions);
         
         const grossPay = basic + allowances;
         const netPay = Math.max(0, grossPay - deductions);
@@ -625,6 +703,7 @@ export const payrollService = {
             employee: {
               include: {
                 salary: true,
+                salaryHistory: { orderBy: { effectiveFrom: "asc" } },
                 shift: true,
                 company: true,
                 attendance: true,
@@ -646,7 +725,7 @@ export const payrollService = {
       const salary = payslip.employee.salary;
       if (!salary) continue;
 
-      const { attendanceDays, payableDays, basic, allowances } = computePayrollAmounts({
+      const { attendanceDays, payableDays, basic, allowances, deductions: computedDeductions } = computePayrollAmounts({
         month: run.month,
         year: run.year,
         type: payrollType,
@@ -659,7 +738,8 @@ export const payrollService = {
           company: payslip.employee.company,
           attendance: payslip.employee.attendance.filter((row) => row.workDate >= startOfDay(new Date(run.year, run.month - 1, 1)) && row.workDate <= endOfDay(new Date(run.year, run.month, 0))),
           wfhRequests: payslip.employee.wfhRequests.filter((row) => row.startDate <= endOfDay(new Date(run.year, run.month, 0)) && row.endDate >= startOfDay(new Date(run.year, run.month - 1, 1))),
-          salary
+          salary,
+          salaryHistory: payslip.employee.salaryHistory
         }
       });
 
