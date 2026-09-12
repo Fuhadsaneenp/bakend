@@ -165,9 +165,14 @@ wordpressRouter.post("/:site/uploads", async (req, res, next) => {
           r => r && (r.sourceUrl === input.url || (r.postId && r.postId === input.postId))
         );
 
+        let resolvedCompanyName = (input.companyName || "").trim();
+        if (resolvedCompanyName.toLowerCase() === "nmc") {
+          resolvedCompanyName = "NMC Healthcare";
+        }
+
         const rowData = {
           count: existingIdx >= 0 ? (nextRows[existingIdx]?.count || existingIdx + 1) : nextRows.length + 1,
-          companyName: input.companyName || "",
+          companyName: resolvedCompanyName,
           jobCount: 1,
           category: input.categories[0] || "",
           sourceUrl: input.url,
