@@ -36,6 +36,10 @@ const configuredOrigins = () => {
   if (env.NODE_ENV !== "production") {
     origins.add("http://localhost:3000");
     origins.add("http://127.0.0.1:3000");
+    origins.add("http://localhost:3001");
+    origins.add("http://127.0.0.1:3001");
+    origins.add("http://localhost:8001");
+    origins.add("http://127.0.0.1:8001");
   }
 
   return origins;

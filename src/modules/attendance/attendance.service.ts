@@ -218,12 +218,13 @@ export const attendanceService = {
   },
 
   monthlyReport(companyId: string, month: number, year: number) {
-    const from = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`);
+    // Extend by 7 days on each side to support cross-month Monday-to-Sunday weekly calculations
+    const from = new Date(new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`).getTime() - 7 * 24 * 60 * 60 * 1000);
     const totalDays = new Date(year, month, 0).getDate();
-    const to = new Date(`${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}T23:59:59+05:30`);
+    const to = new Date(new Date(`${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}T23:59:59+05:30`).getTime() + 7 * 24 * 60 * 60 * 1000);
     return prisma.attendance.findMany({
       where: { employee: { companyId }, workDate: { gte: from, lte: to } },
-      include: { employee: { include: { shift: true } } },
+      include: { employee: { include: { shift: true, company: true } } },
       orderBy: [{ workDate: "asc" }]
     });
   },
@@ -232,9 +233,10 @@ export const attendanceService = {
     const employee = await prisma.employee.findUnique({ where: { userId: user.id } });
     const fallbackCompanyId = user.companyId || employee?.companyId || undefined;
 
-    const from = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`);
+    // Extend by 7 days on each side to support cross-month Monday-to-Sunday weekly calculations
+    const from = new Date(new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`).getTime() - 7 * 24 * 60 * 60 * 1000);
     const totalDays = new Date(year, month, 0).getDate();
-    const to = new Date(`${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}T23:59:59+05:30`);
+    const to = new Date(new Date(`${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}T23:59:59+05:30`).getTime() + 7 * 24 * 60 * 60 * 1000);
 
     if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
       if (requestedCompanyId) {
@@ -243,7 +245,7 @@ export const attendanceService = {
 
       return prisma.attendance.findMany({
         where: { workDate: { gte: from, lte: to } },
-        include: { employee: { include: { shift: true } } },
+        include: { employee: { include: { shift: true, company: true } } },
         orderBy: [{ workDate: "asc" }]
       });
     }
@@ -257,7 +259,7 @@ export const attendanceService = {
 
     return prisma.attendance.findMany({
       where: { employee: employeeWhere, workDate: { gte: from, lte: to } },
-      include: { employee: { include: { shift: true } } },
+      include: { employee: { include: { shift: true, company: true } } },
       orderBy: [{ workDate: "asc" }]
     });
   },

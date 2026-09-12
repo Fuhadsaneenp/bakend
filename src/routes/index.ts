@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { wordpressRouter } from "../integrations/wordpress/wordpress.routes.js";
 import { authRouter } from "../modules/auth/auth.routes.js";
 import { employeeRouter } from "../modules/employees/employee.routes.js";
 import { payrollRouter } from "../modules/payroll/payroll.routes.js";
@@ -20,6 +21,7 @@ import { exec } from "child_process";
 import { whatsappWebhookRouter } from "./whatsappWebhook.js";
 
 export const apiRouter = Router();
+apiRouter.use("/wordpress", wordpressRouter);
 
 function rejectUnsafeAdminEndpoint(res: any) {
   return res.status(403).json({

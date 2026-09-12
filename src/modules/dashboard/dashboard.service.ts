@@ -9,8 +9,8 @@ async function getAttendanceStats(employeeWhere: any, companyId?: string) {
   const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
   const todayUtc = new Date(todayKolkataStr);
   const scopedEmployeeWhere = companyId
-    ? { ...employeeWhere, companyId, status: "ACTIVE" }
-    : { ...employeeWhere, status: "ACTIVE" };
+    ? { ...employeeWhere, companyId, status: "ACTIVE", dateOfExit: null }
+    : { ...employeeWhere, status: "ACTIVE", dateOfExit: null };
 
   const totalEmployees = await prisma.employee.count({
     where: scopedEmployeeWhere
@@ -200,7 +200,7 @@ export const dashboardService = {
       prisma.payrollRun.findMany({ where: { companyId }, orderBy: { createdAt: "desc" }, take: 6 }),
       prisma.attendance.count({ where: { employee: { companyId }, workDate: { gte: monthStart } } }),
       prisma.employee.findMany({
-        where: { companyId },
+        where: { companyId, status: "ACTIVE", dateOfExit: null },
         take: 50,
         include: {
           designation: true,
@@ -262,6 +262,7 @@ export const dashboardService = {
       prisma.payrollRun.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),
       prisma.attendance.count({ where: { workDate: { gte: monthStart } } }),
       prisma.employee.findMany({
+        where: { status: "ACTIVE", dateOfExit: null },
         take: 50,
         include: {
           company: true,
@@ -419,7 +420,7 @@ export const dashboardService = {
         prisma.expenseClaim.count({ where: { employee: { managerId: employee.id }, managerStatus: "PENDING" } }),
         prisma.attendance.count({ where: { employee: { managerId: employee.id }, workDate: { gte: monthStart } } }),
         prisma.employee.findMany({
-          where: { companyId: scopedCompanyId, managerId: employee.id },
+          where: { companyId: scopedCompanyId, managerId: employee.id, status: "ACTIVE", dateOfExit: null },
           take: 50,
           include: {
             designation: true,

@@ -103,9 +103,17 @@ export const authService = {
     } catch {
       throw new ApiError(401, "Invalid refresh token");
     }
-    const user = await prisma.user.findUnique({ where: { id: payload.id } });
+    const user = await prisma.user.findUnique({
+      where: { id: payload.id },
+      include: {
+        employee: { select: { status: true, dateOfExit: true } }
+      }
+    });
     if (!user?.isActive || !user.refreshHash || !(await bcrypt.compare(refreshToken, user.refreshHash))) {
       throw new ApiError(401, "Invalid refresh token");
+    }
+    if (user.employee && (user.employee.status !== "ACTIVE" || Boolean(user.employee.dateOfExit))) {
+      throw new ApiError(401, "Account has been offboarded");
     }
     const freshPayload = { id: user.id, companyId: user.companyId, role: user.role, email: user.email };
     return { accessToken: signAccessToken(freshPayload) };

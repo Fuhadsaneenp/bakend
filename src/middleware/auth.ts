@@ -35,20 +35,33 @@ export const requireAuth = async (req: Request, _res: Response, next: NextFuncti
 
   try {
     const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as AuthUser & { impersonatedBy?: any };
-    const dbUser = await prisma.user.findUnique({ where: { id: payload.id } });
-    if (dbUser) {
-      req.user = {
-        id: dbUser.id,
-        companyId: dbUser.companyId,
-        role: dbUser.role as Role,
-        email: dbUser.email,
-        impersonatedBy: payload.impersonatedBy
-      };
-    } else {
-      req.user = payload;
+    const dbUser = await prisma.user.findUnique({
+      where: { id: payload.id },
+      include: {
+        employee: {
+          select: { status: true, dateOfExit: true }
+        }
+      }
+    });
+
+    if (!dbUser || !dbUser.isActive) {
+      return next(new ApiError(401, "Account is deactivated or not found"));
     }
+
+    if (dbUser.employee && (dbUser.employee.status !== "ACTIVE" || Boolean(dbUser.employee.dateOfExit))) {
+      return next(new ApiError(403, "Account has been offboarded"));
+    }
+
+    req.user = {
+      id: dbUser.id,
+      companyId: dbUser.companyId,
+      role: dbUser.role as Role,
+      email: dbUser.email,
+      impersonatedBy: payload.impersonatedBy
+    };
     next();
   } catch (error) {
+    if (error instanceof ApiError) return next(error);
     next(new ApiError(401, "Invalid or expired access token"));
   }
 };
