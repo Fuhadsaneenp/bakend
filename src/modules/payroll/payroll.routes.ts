@@ -64,7 +64,10 @@ payrollRouter.get("/", requireAnyPermission(["payroll.run.view", "payroll.run.pr
           include: {
             employee: {
               include: {
-                salary: true
+                salary: true,
+                shift: true,
+                department: true,
+                company: true
               }
             }
           }
