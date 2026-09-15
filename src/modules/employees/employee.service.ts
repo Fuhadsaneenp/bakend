@@ -7,7 +7,7 @@ import { storageService } from "../../storage/storage.service.js";
 import type { AuthUser } from "../../middleware/auth.js";
 import { renderEmployeeLetterPdf } from "./employee-letter.pdf.js";
 import { getKolkataStartOfDay } from "../attendance/attendance.service.js";
-import { isCoreTeamEmployee, isRequesterCoreTeam } from "../../lib/coreTeam.js";
+import { isCoreTeamEmployee, isRequesterCoreTeam, isHrEmployee, isRequesterHr } from "../../lib/coreTeam.js";
 
 const nextEmployeeCode = async (companyId: string) => {
   const count = await prisma.employee.count({ where: { companyId } });
@@ -129,13 +129,14 @@ export const employeeService = {
   },
 
   async listForUser(user: AuthUser, requestedCompanyId?: string) {
-    const currentEmployee = await prisma.employee.findUnique({ where: { userId: user.id } });
-    const isHrHead = Boolean(currentEmployee?.isHrHead);
-    const isSuperAdmin = user.role === Role.SUPER_ADMIN;
-    const isHrAdmin = user.role === Role.HR_ADMIN;
-    const isAdminScope = isSuperAdmin || isHrAdmin || isHrHead;
+    const currentEmployee = await prisma.employee.findUnique({
+      where: { userId: user.id },
+      include: { department: true, designation: true, user: true }
+    });
+    const isHr = await isRequesterHr(user);
+    const isAdminScope = isHr;
 
-    const targetCompanyId = (isSuperAdmin || isHrAdmin)
+    const targetCompanyId = isHr
       ? (requestedCompanyId || undefined)
       : (requestedCompanyId || user.companyId || undefined);
 
@@ -406,14 +407,17 @@ export const employeeService = {
     taxId?: string | null;
     salary?: { basic: number; allowances: number; deductions: number; effectiveFrom: string };
   }) {
-    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
+    const requesterIsHr = await isRequesterHr(user);
     const employee = await prisma.employee.findFirst({
-      where: isFullAdmin ? { id } : { id, companyId: user.companyId || undefined },
+      where: requesterIsHr ? { id } : { id, companyId: user.companyId || undefined },
       include: { department: true, designation: true, user: true }
     });
     if (!employee) throw notFound("Employee not found");
 
     if (data.salary) {
+      if (!requesterIsHr) {
+        throw new ApiError(403, "Insufficient permissions to modify salary");
+      }
       const userIsCoreTeam = await isRequesterCoreTeam(user);
       const targetIsCoreTeam = isCoreTeamEmployee(employee);
       if (targetIsCoreTeam && !userIsCoreTeam && employee.userId !== user.id) {
@@ -560,16 +564,18 @@ export const employeeService = {
   },
 
   async assertSelfOrHr(user: AuthUser, employeeId: string) {
-    if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
-      const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+    const requesterIsHr = await isRequesterHr(user);
+    if (requesterIsHr) {
+      const isSuperAdmin = user.role === Role.SUPER_ADMIN;
+      const employee = await prisma.employee.findFirst({
+        where: isSuperAdmin ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
+      });
       if (!employee) throw notFound("Employee");
       return employee;
     }
-    if (!user.companyId) throw new ApiError(400, "Company context required");
-    const employee = await prisma.employee.findFirst({ where: { id: employeeId, companyId: user.companyId } });
-    if (!employee) throw notFound("Employee");
-    if (isHrRole(user.role) || employee.userId === user.id) return employee;
-    throw new ApiError(403, "Insufficient permissions");
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, userId: user.id } });
+    if (!employee) throw new ApiError(403, "Insufficient permissions");
+    return employee;
   },
 
   async updateOnboardingStatus(employeeId: string) {
@@ -620,10 +626,11 @@ export const employeeService = {
   },
 
   async verifyDocument(user: AuthUser, documentId: string, status: "UPLOADED" | "VERIFIED" | "REJECTED", notes?: string) {
-    if (!isHrRole(user.role)) throw new ApiError(403, "Insufficient permissions");
-    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
+    const requesterIsHr = await isRequesterHr(user);
+    if (!requesterIsHr) throw new ApiError(403, "Insufficient permissions");
+    const isSuperAdmin = user.role === Role.SUPER_ADMIN;
     const document = await prisma.employeeDocument.findFirst({
-      where: isFullAdmin ? { id: documentId } : { id: documentId, employee: { companyId: user.companyId || undefined } }
+      where: isSuperAdmin ? { id: documentId } : { id: documentId, employee: { companyId: user.companyId || undefined } }
     });
     if (!document) throw notFound("Document");
 
@@ -642,16 +649,16 @@ export const employeeService = {
   },
 
   async deleteDocument(user: AuthUser, documentId: string) {
-    if (!isHrRole(user.role)) throw new ApiError(403, "Insufficient permissions");
-    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
+    const requesterIsHr = await isRequesterHr(user);
+    if (!requesterIsHr) throw new ApiError(403, "Insufficient permissions");
+    const isSuperAdmin = user.role === Role.SUPER_ADMIN;
     const document = await prisma.employeeDocument.findFirst({
-      where: isFullAdmin ? { id: documentId } : { id: documentId, employee: { companyId: user.companyId || undefined } }
+      where: isSuperAdmin ? { id: documentId } : { id: documentId, employee: { companyId: user.companyId || undefined } }
     });
     if (!document) throw notFound("Document");
 
     await prisma.employeeDocument.delete({ where: { id: documentId } });
     await this.updateOnboardingStatus(document.employeeId);
-    return { ok: true };
   },
 
   async deleteEmployee(user: AuthUser, employeeId: string, confirmation: string) {
@@ -804,9 +811,9 @@ export const employeeService = {
   },
 
   async getByIdForUser(employeeId: string, user: AuthUser) {
-    const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
+    const requesterIsHr = await isRequesterHr(user);
     const employee = await prisma.employee.findFirst({
-      where: isFullAdmin ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined },
+      where: requesterIsHr ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined },
       include: employeeProfileFields
     });
     if (!employee) throw notFound("Employee");
@@ -824,7 +831,7 @@ export const employeeService = {
       };
     }
 
-    if (!isHrRole(user.role) && employee.userId !== user.id) {
+    if (!requesterIsHr && employee.userId !== user.id) {
       return {
         ...employee,
         salary: null,

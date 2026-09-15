@@ -3,12 +3,12 @@ import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma.js";
-import { requireAuth, requireRoles } from "../../middleware/auth.js";
+import { requireAuth, requireRoles, requireHrOrRoles } from "../../middleware/auth.js";
 import { ApiError } from "../../lib/errors.js";
 import { employeeService } from "./employee.service.js";
 import { audit } from "../audit/audit.service.js";
 import { authService } from "../auth/auth.service.js";
-import { isCoreTeamEmployee, isRequesterCoreTeam } from "../../lib/coreTeam.js";
+import { isCoreTeamEmployee, isRequesterCoreTeam, isRequesterHr } from "../../lib/coreTeam.js";
 
 export const employeeRouter = Router();
 const allowedDocumentMimeTypes = new Set([
@@ -153,7 +153,7 @@ employeeRouter.post("/me/update-password", async (req, res, next) => {
   }
 });
 
-employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+employeeRouter.post("/", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
       throw new ApiError(400, "Company context required");
@@ -188,7 +188,7 @@ employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (r
       }).optional()
     }).parse(req.body);
 
-    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN || await isRequesterHr(req.user!);
     const targetCompanyId = isFullAdmin ? (body.companyId || req.user!.companyId) : req.user!.companyId;
     if (!targetCompanyId) throw new ApiError(400, "Company context required");
 
@@ -200,7 +200,7 @@ employeeRouter.post("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (r
   }
 });
 
-employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+employeeRouter.patch("/:id", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
       throw new ApiError(400, "Company context required");
@@ -243,7 +243,7 @@ employeeRouter.patch("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
   }
 });
 
-employeeRouter.patch("/:id/status", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+employeeRouter.patch("/:id/status", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
       throw new ApiError(400, "Company context required");
@@ -313,7 +313,7 @@ employeeRouter.post("/:id/documents", requireRoles(Role.SUPER_ADMIN, Role.HR_ADM
   }
 });
 
-employeeRouter.patch("/documents/:documentId/verify", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+employeeRouter.patch("/documents/:documentId/verify", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const body = z.object({
       status: z.enum(["UPLOADED", "VERIFIED", "REJECTED"]),
@@ -325,7 +325,7 @@ employeeRouter.patch("/documents/:documentId/verify", requireRoles(Role.SUPER_AD
   }
 });
 
-employeeRouter.delete("/documents/:documentId", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+employeeRouter.delete("/documents/:documentId", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     res.json(await employeeService.deleteDocument(req.user!, req.params.documentId));
   } catch (error) {
@@ -341,7 +341,7 @@ employeeRouter.get("/:id/letters", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN,
   }
 });
 
-employeeRouter.post("/:id/letters", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+employeeRouter.post("/:id/letters", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
       throw new ApiError(400, "Company context required");
@@ -357,7 +357,7 @@ employeeRouter.post("/:id/letters", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN
   }
 });
 
-employeeRouter.post("/:id/exit", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+employeeRouter.post("/:id/exit", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
       throw new ApiError(400, "Company context required");
@@ -368,7 +368,7 @@ employeeRouter.post("/:id/exit", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), 
       exitRemarks: z.string().optional()
     }).parse(req.body);
 
-    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN || await isRequesterHr(req.user!);
     const employee = await prisma.employee.findFirst({
       where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
     });
@@ -401,7 +401,7 @@ employeeRouter.post("/:id/exit", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), 
   }
 });
 
-employeeRouter.patch("/:id/settlement", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+employeeRouter.patch("/:id/settlement", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && !req.user!.companyId) {
       throw new ApiError(400, "Company context required");
@@ -410,7 +410,7 @@ employeeRouter.patch("/:id/settlement", requireRoles(Role.SUPER_ADMIN, Role.HR_A
       settlementStatus: z.enum(["PENDING", "SETTLED"])
     }).parse(req.body);
 
-    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN || await isRequesterHr(req.user!);
     const employee = await prisma.employee.findFirst({
       where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
     });
@@ -429,11 +429,11 @@ employeeRouter.patch("/:id/settlement", requireRoles(Role.SUPER_ADMIN, Role.HR_A
   }
 });
 
-employeeRouter.get("/:id/salary-history", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+employeeRouter.get("/:id/salary-history", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const requesterIsHr = await isRequesterHr(req.user!);
     const employee = await prisma.employee.findFirst({
-      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined },
+      where: requesterIsHr ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined },
       include: { department: true, designation: true, user: true }
     });
     if (!employee) throw new ApiError(404, "Employee not found");
@@ -451,11 +451,11 @@ employeeRouter.get("/:id/salary-history", requireRoles(Role.SUPER_ADMIN, Role.HR
   }
 });
 
-employeeRouter.post("/:id/salary-history", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+employeeRouter.post("/:id/salary-history", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const requesterIsHr = await isRequesterHr(req.user!);
     const employee = await prisma.employee.findFirst({
-      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined },
+      where: requesterIsHr ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined },
       include: { department: true, designation: true, user: true }
     });
     if (!employee) throw new ApiError(404, "Employee not found");
@@ -481,11 +481,11 @@ employeeRouter.post("/:id/salary-history", requireRoles(Role.SUPER_ADMIN, Role.H
   }
 });
 
-employeeRouter.delete("/:id/salary-history/:historyId", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+employeeRouter.delete("/:id/salary-history/:historyId", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
+    const requesterIsHr = await isRequesterHr(req.user!);
     const employee = await prisma.employee.findFirst({
-      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined },
+      where: requesterIsHr ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined },
       include: { department: true, designation: true, user: true }
     });
     if (!employee) throw new ApiError(404, "Employee not found");

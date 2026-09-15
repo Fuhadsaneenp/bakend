@@ -5,6 +5,7 @@ import { env } from "../config/env.js";
 import { ApiError } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { permissionService } from "../modules/authority/permission.service.js";
+import { isRequesterHr } from "../lib/coreTeam.js";
 
 export type AuthUser = {
   id: string;
@@ -71,6 +72,16 @@ export const requireRoles = (...roles: Role[]) => {
     if (!req.user) return next(new ApiError(401, "Unauthenticated"));
     if (!roles.includes(req.user.role)) return next(new ApiError(403, "Insufficient permissions"));
     next();
+  };
+};
+
+export const requireHrOrRoles = (...roles: Role[]) => {
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.user) return next(new ApiError(401, "Unauthenticated"));
+    if (roles.includes(req.user.role)) return next();
+    const isHr = await isRequesterHr(req.user);
+    if (isHr) return next();
+    return next(new ApiError(403, "Insufficient permissions"));
   };
 };
 
