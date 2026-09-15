@@ -52,6 +52,12 @@ const REVIEW_ALLOWED_STATUSES = ["PENDING", "WAITING", "OUT_TO_DELIVER", "IN_PRO
 const APPROVAL_ALLOWED_STATUSES = ["PENDING", "APPROVED", "REWORK", "WAITING", "OUT_TO_DELIVER", "IN_PROGRESS", "CLIENT_REJECTED", "REJECTED"];
 const DATA_ENTRY_SHEETS_SETTING_KEY = "worktrack_data_entry_sheets_v1";
 
+// In-flight mutex to serialize identical card creations and prevent race conditions
+const inFlightCardCreations = new Map<string, Promise<any>>();
+
+// Cache of recently created cards by idempotency key (valid for 60 seconds)
+const recentCardsByIdempotencyKey = new Map<string, { card: any; timestamp: number }>();
+
 function getAuthorityTrackAliases(track?: string | null) {
   const normalized = String(track || "").toLowerCase().replace(/_/g, "-");
   if (!normalized) return ["design", "designer", "video", "video-editor", "seo", "performance", "performance-marketing", "data_entry", "data-entry", "dev", "development"];
@@ -933,90 +939,219 @@ export const workTrackService = {
     deadline: string;
     assignedToId?: string;
     createdAt?: string;
+    idempotencyKey?: string;
   }) {
-    const workId = await this.generateNextWorkId();
+    // 1. Check idempotency cache if key is provided
+    const cleanIdempotencyKey = data.idempotencyKey?.trim();
+    if (cleanIdempotencyKey) {
+      const cached = recentCardsByIdempotencyKey.get(cleanIdempotencyKey);
+      if (cached && Date.now() - cached.timestamp < 60000) {
+        console.log(`[WorkTrack] Returning cached card for idempotencyKey: ${cleanIdempotencyKey}`);
+        return cached.card;
+      }
+    }
 
-    const creatorEmployee = await prisma.employee.findFirst({
-      where: { userId: creatorUserId, companyId }
-    });
+    // 2. Build unique in-flight mutex key based on company, client, normalized title, category, and assignee
+    const trimmedTitle = data.title.trim().toLowerCase();
+    const assignedKey = data.assignedToId || "unassigned";
+    const lockKey = cleanIdempotencyKey
+      ? `idemp:${companyId}:${cleanIdempotencyKey}`
+      : `dup:${companyId}:${data.clientId}:${trimmedTitle}:${data.category.toLowerCase()}:${assignedKey}`;
 
-    let resolvedClientId = data.clientId;
-    let existingClient = await prisma.client.findFirst({
-      where: { id: resolvedClientId, companyId }
-    });
+    // If an identical request is already running, wait on its promise to avoid parallel insert
+    if (inFlightCardCreations.has(lockKey)) {
+      console.log(`[WorkTrack] Awaiting in-flight card creation for lockKey: ${lockKey}`);
+      try {
+        return await inFlightCardCreations.get(lockKey);
+      } catch (err) {
+        // If the in-flight promise failed, proceed to try fresh creation
+      }
+    }
 
-    if (!existingClient) {
-      const nameCandidate = (data.clientName || data.clientId || "").trim();
-      if (nameCandidate) {
-        existingClient = await prisma.client.findFirst({
-          where: {
+    const creationPromise = (async () => {
+      // 3. Check DB deduplication: has an identical card been created in the last 15 seconds?
+      const fifteenSecondsAgo = new Date(Date.now() - 15000);
+      const recentCards = await prisma.workCard.findMany({
+        where: {
+          companyId,
+          createdAt: { gte: fifteenSecondsAgo }
+        },
+        select: {
+          id: true,
+          workId: true,
+          title: true,
+          clientId: true,
+          category: true,
+          assignedToId: true,
+          createdAt: true
+        }
+      });
+
+      const existingRecent = recentCards.find((c) => {
+        const titleMatch = c.title.trim().toLowerCase() === trimmedTitle;
+        const categoryMatch = c.category.toLowerCase() === data.category.toLowerCase();
+        const clientMatch = c.clientId === data.clientId;
+        const assigneeMatch = (c.assignedToId || "") === (data.assignedToId || "");
+        return titleMatch && categoryMatch && (clientMatch || titleMatch) && assigneeMatch;
+      });
+
+      if (existingRecent) {
+        console.warn(`[WorkTrack] Duplicate card creation prevented: ${existingRecent.workId} (created ${Math.round((Date.now() - new Date(existingRecent.createdAt).getTime()) / 1000)}s ago)`);
+        const fullCard = await prisma.workCard.findUnique({
+          where: { id: existingRecent.id },
+          include: {
+            client: true,
+            assignedTo: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                designation: { select: { title: true } }
+              }
+            },
+            assignedBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                displayName: true
+              }
+            }
+          }
+        });
+        if (fullCard) {
+          if (cleanIdempotencyKey) {
+            recentCardsByIdempotencyKey.set(cleanIdempotencyKey, { card: fullCard, timestamp: Date.now() });
+          }
+          return fullCard;
+        }
+      }
+
+      // 4. Resolve or create Client
+      const creatorEmployee = await prisma.employee.findFirst({
+        where: { userId: creatorUserId, companyId }
+      });
+
+      let resolvedClientId = data.clientId;
+      let existingClient = await prisma.client.findFirst({
+        where: { id: resolvedClientId, companyId }
+      });
+
+      if (!existingClient) {
+        const nameCandidate = (data.clientName || data.clientId || "").trim();
+        if (nameCandidate) {
+          existingClient = await prisma.client.findFirst({
+            where: {
+              companyId,
+              name: nameCandidate
+            }
+          });
+        }
+      }
+
+      if (!existingClient) {
+        const fallbackName = (data.clientName || data.clientId || "Client").trim();
+        existingClient = await prisma.client.create({
+          data: {
             companyId,
-            name: nameCandidate
+            name: fallbackName
           }
         });
       }
-    }
 
-    if (!existingClient) {
-      const fallbackName = (data.clientName || data.clientId || "Client").trim();
-      existingClient = await prisma.client.create({
+      resolvedClientId = existingClient.id;
+
+      // 5. Generate unique workId
+      const workId = await this.generateNextWorkId();
+
+      const card = await prisma.workCard.create({
         data: {
           companyId,
-          name: fallbackName
+          clientId: resolvedClientId,
+          workId,
+          title: data.title,
+          brief: data.brief,
+          category: data.category,
+          priority: data.priority ? data.priority.toUpperCase() : "MEDIUM",
+          complexity: data.complexity ? data.complexity.toUpperCase() : "MEDIUM",
+          deadline: new Date(data.deadline),
+          createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
+          assignedToId: data.assignedToId || null,
+          assignedById: creatorEmployee?.id || null,
+          status: "PENDING"
+        },
+        include: {
+          client: true,
+          assignedTo: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              displayName: true,
+              designation: { select: { title: true } }
+            }
+          },
+          assignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              displayName: true
+            }
+          }
         }
       });
-    }
 
-    resolvedClientId = existingClient.id;
-
-    const card = await prisma.workCard.create({
-      data: {
-        companyId,
-        clientId: resolvedClientId,
-        workId,
-        title: data.title,
-        brief: data.brief,
-        category: data.category,
-        priority: data.priority ? data.priority.toUpperCase() : "MEDIUM",
-        complexity: data.complexity ? data.complexity.toUpperCase() : "MEDIUM",
-        deadline: new Date(data.deadline),
-        createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
-        assignedToId: data.assignedToId || null,
-        assignedById: creatorEmployee?.id || null,
-        status: "PENDING"
-      }
-    });
-
-    // Create initial status history
-    await prisma.statusHistory.create({
-      data: {
-        workCardId: card.id,
-        status: "PENDING",
-        userId: creatorUserId
-      }
-    });
-
-    // Send in-app / push notification if assigned
-    if (data.assignedToId) {
-      const assignedEmployee = await prisma.employee.findUnique({
-        where: { id: data.assignedToId },
-        select: { userId: true }
+      // Create initial status history
+      await prisma.statusHistory.create({
+        data: {
+          workCardId: card.id,
+          status: "PENDING",
+          userId: creatorUserId
+        }
       });
-      if (assignedEmployee?.userId) {
-        const assignerName = creatorEmployee
-          ? `${creatorEmployee.firstName} ${creatorEmployee.lastName || ""}`.trim()
-          : "Manager";
-        notificationService.notifyTaskAssigned({
-          assignedUserId: assignedEmployee.userId,
-          assignerName,
-          taskTitle: card.title,
-          taskId: card.id,
-          metadata: { workId: card.workId, category: card.category }
-        }).catch((e) => console.error("[WorkTrack] Task assigned notification error:", e));
-      }
-    }
 
-    return card;
+      // Send in-app / push notification if assigned
+      if (data.assignedToId) {
+        const assignedEmployee = await prisma.employee.findUnique({
+          where: { id: data.assignedToId },
+          select: { userId: true }
+        });
+        if (assignedEmployee?.userId) {
+          const assignerName = creatorEmployee
+            ? `${creatorEmployee.firstName} ${creatorEmployee.lastName || ""}`.trim()
+            : "Manager";
+          notificationService.notifyTaskAssigned({
+            assignedUserId: assignedEmployee.userId,
+            assignerName,
+            taskTitle: card.title,
+            taskId: card.id,
+            metadata: { workId: card.workId, category: card.category }
+          }).catch((e) => console.error("[WorkTrack] Task assigned notification error:", e));
+        }
+      }
+
+      if (cleanIdempotencyKey) {
+        recentCardsByIdempotencyKey.set(cleanIdempotencyKey, { card, timestamp: Date.now() });
+        // Clean up old entries after 5 minutes to prevent memory leaks
+        if (recentCardsByIdempotencyKey.size > 1000) {
+          const cutoff = Date.now() - 60000;
+          for (const [k, v] of recentCardsByIdempotencyKey.entries()) {
+            if (v.timestamp < cutoff) recentCardsByIdempotencyKey.delete(k);
+          }
+        }
+      }
+
+      return card;
+    })();
+
+    inFlightCardCreations.set(lockKey, creationPromise);
+    try {
+      return await creationPromise;
+    } finally {
+      inFlightCardCreations.delete(lockKey);
+    }
   },
 
   async getWorkCards(companyId: string, userId: string, filters: {

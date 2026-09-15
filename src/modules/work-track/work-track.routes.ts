@@ -423,7 +423,8 @@ workTrackRouter.post("/cards", requirePermission("worktrack.task.create"), async
       complexity: z.enum(["SIMPLE", "MEDIUM", "HEAVY"]),
       deadline: z.string(),
       assignedToId: z.string().optional(),
-      createdAt: z.string().optional()
+      createdAt: z.string().optional(),
+      idempotencyKey: z.string().optional()
     }).parse(req.body);
 
     res.status(201).json(await workTrackService.createWorkCard(req.user.companyId, req.user.id, body));
