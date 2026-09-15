@@ -115,8 +115,14 @@ export const authService = {
     if (user.employee && (user.employee.status !== "ACTIVE" || Boolean(user.employee.dateOfExit))) {
       throw new ApiError(401, "Account has been offboarded");
     }
-    const freshPayload = { id: user.id, companyId: user.companyId, role: user.role, email: user.email };
-    return { accessToken: signAccessToken(freshPayload) };
+    const freshPayload = {
+      id: user.id,
+      companyId: user.companyId,
+      role: user.role,
+      email: user.email,
+      ...((payload as any).impersonatedBy ? { impersonatedBy: (payload as any).impersonatedBy } : {})
+    };
+    return { accessToken: signAccessToken(freshPayload as any) };
   },
 
   async updatePasswordDirect(userId: string, newPass: string) {
