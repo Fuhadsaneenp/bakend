@@ -7,6 +7,7 @@ import { storageService } from "../../storage/storage.service.js";
 import type { AuthUser } from "../../middleware/auth.js";
 import { renderEmployeeLetterPdf } from "./employee-letter.pdf.js";
 import { getKolkataStartOfDay } from "../attendance/attendance.service.js";
+import { isCoreTeamEmployee, isRequesterCoreTeam } from "../../lib/coreTeam.js";
 
 const nextEmployeeCode = async (companyId: string) => {
   const count = await prisma.employee.count({ where: { companyId } });
@@ -144,7 +145,7 @@ export const employeeService = {
       const todayUtc = new Date(todayKolkataStr);
       const todayStart = getKolkataStartOfDay(new Date());
 
-      return prisma.employee.findMany({
+      const list = await prisma.employee.findMany({
         where,
         include: {
           ...employeeProfileFields,
@@ -163,6 +164,23 @@ export const employeeService = {
         },
         orderBy: [{ employeeCode: "asc" }, { createdAt: "asc" }]
       });
+
+      const userIsCoreTeam = isCoreTeamEmployee(currentEmployee) || user.role === Role.SUPER_ADMIN;
+
+      if (!userIsCoreTeam) {
+        return list.map((emp) => {
+          if (isCoreTeamEmployee(emp) && emp.userId !== user.id) {
+            return {
+              ...emp,
+              salary: null,
+              salaryHistory: []
+            };
+          }
+          return emp;
+        });
+      }
+
+      return list;
     }
 
     if (!targetCompanyId) return [];
@@ -390,9 +408,18 @@ export const employeeService = {
   }) {
     const isFullAdmin = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: isFullAdmin ? { id } : { id, companyId: user.companyId || undefined }
+      where: isFullAdmin ? { id } : { id, companyId: user.companyId || undefined },
+      include: { department: true, designation: true, user: true }
     });
     if (!employee) throw notFound("Employee not found");
+
+    if (data.salary) {
+      const userIsCoreTeam = await isRequesterCoreTeam(user);
+      const targetIsCoreTeam = isCoreTeamEmployee(employee);
+      if (targetIsCoreTeam && !userIsCoreTeam && employee.userId !== user.id) {
+        throw new ApiError(403, "Only Core Team members can modify Core Team salary");
+      }
+    }
 
     const updatedEmployee = await prisma.$transaction(async (tx) => {
       const userUpdateData: any = {};
@@ -784,10 +811,24 @@ export const employeeService = {
     });
     if (!employee) throw notFound("Employee");
 
+    const userIsCoreTeam = await isRequesterCoreTeam(user);
+    const targetIsCoreTeam = isCoreTeamEmployee(employee);
+
+    if (targetIsCoreTeam && !userIsCoreTeam && employee.userId !== user.id) {
+      return {
+        ...employee,
+        salary: null,
+        salaryHistory: [],
+        dateOfBirth: null,
+        taxId: null
+      };
+    }
+
     if (!isHrRole(user.role) && employee.userId !== user.id) {
       return {
         ...employee,
         salary: null,
+        salaryHistory: [],
         dateOfBirth: null,
         taxId: null
       };

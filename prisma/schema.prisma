@@ -256,6 +256,7 @@ model Employee {
   shift          Shift?          @relation(fields: [shiftId], references: [id])
   officeId       String?
   isHrHead       Boolean         @default(false)
+  isCoreTeam     Boolean         @default(false)
   customAttendanceHoursEnabled Boolean @default(false)
   customFullDayHours Decimal?      @db.Decimal(4, 2)
   customHalfDayHours Decimal?      @db.Decimal(4, 2)

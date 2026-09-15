@@ -8,6 +8,7 @@ import { ApiError } from "../../lib/errors.js";
 import { employeeService } from "./employee.service.js";
 import { audit } from "../audit/audit.service.js";
 import { authService } from "../auth/auth.service.js";
+import { isCoreTeamEmployee, isRequesterCoreTeam } from "../../lib/coreTeam.js";
 
 export const employeeRouter = Router();
 const allowedDocumentMimeTypes = new Set([
@@ -432,9 +433,16 @@ employeeRouter.get("/:id/salary-history", requireRoles(Role.SUPER_ADMIN, Role.HR
   try {
     const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined },
+      include: { department: true, designation: true, user: true }
     });
     if (!employee) throw new ApiError(404, "Employee not found");
+
+    const userIsCoreTeam = await isRequesterCoreTeam(req.user!);
+    const targetIsCoreTeam = isCoreTeamEmployee(employee);
+    if (targetIsCoreTeam && !userIsCoreTeam && employee.userId !== req.user!.id) {
+      throw new ApiError(403, "Insufficient permissions to view Core Team salary history");
+    }
 
     const history = await employeeService.getSalaryHistory(employee.id);
     res.json(history);
@@ -447,9 +455,16 @@ employeeRouter.post("/:id/salary-history", requireRoles(Role.SUPER_ADMIN, Role.H
   try {
     const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined },
+      include: { department: true, designation: true, user: true }
     });
     if (!employee) throw new ApiError(404, "Employee not found");
+
+    const userIsCoreTeam = await isRequesterCoreTeam(req.user!);
+    const targetIsCoreTeam = isCoreTeamEmployee(employee);
+    if (targetIsCoreTeam && !userIsCoreTeam) {
+      throw new ApiError(403, "Only Core Team members can modify Core Team salary");
+    }
 
     const body = z.object({
       basic: z.number().nonnegative(),
@@ -470,9 +485,16 @@ employeeRouter.delete("/:id/salary-history/:historyId", requireRoles(Role.SUPER_
   try {
     const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN;
     const employee = await prisma.employee.findFirst({
-      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined },
+      include: { department: true, designation: true, user: true }
     });
     if (!employee) throw new ApiError(404, "Employee not found");
+
+    const userIsCoreTeam = await isRequesterCoreTeam(req.user!);
+    const targetIsCoreTeam = isCoreTeamEmployee(employee);
+    if (targetIsCoreTeam && !userIsCoreTeam) {
+      throw new ApiError(403, "Only Core Team members can delete Core Team salary revisions");
+    }
 
     const result = await employeeService.deleteSalaryRevision(employee.id, req.params.historyId);
     res.json(result);

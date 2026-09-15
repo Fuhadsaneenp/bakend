@@ -13,7 +13,10 @@ import { storageService } from "./storage/storage.service.js";
 const productionOrigins = [
   "https://stems.secondtales.com",
   "https://www.stems.secondtales.com",
-  "https://secondtales.com"
+  "https://secondtales.com",
+  // Origins of the bundled iOS and Android apps.
+  "capacitor://localhost",
+  "https://localhost"
 ];
 
 const inferMimeTypeFromKey = (key: string) => {

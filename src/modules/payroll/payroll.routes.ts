@@ -5,6 +5,7 @@ import { requireAnyPermission, requireAuth } from "../../middleware/auth.js";
 import { ApiError } from "../../lib/errors.js";
 import { payrollService } from "./payroll.service.js";
 import { prisma } from "../../lib/prisma.js";
+import { isCoreTeamEmployee, isRequesterCoreTeam } from "../../lib/coreTeam.js";
 
 export const payrollRouter = Router();
 payrollRouter.use(requireAuth);
@@ -67,13 +68,42 @@ payrollRouter.get("/", requireAnyPermission(["payroll.run.view", "payroll.run.pr
                 salary: true,
                 shift: true,
                 department: true,
-                company: true
+                designation: true,
+                company: true,
+                user: true
               }
             }
           }
         }
       }
     });
+
+    const userIsCoreTeam = await isRequesterCoreTeam(req.user!);
+
+    if (!userIsCoreTeam) {
+      const sanitizedRuns = runs.map((run) => {
+        const visiblePayslips = run.payslips.filter((ps) => {
+          const isTargetCore = isCoreTeamEmployee(ps.employee);
+          if (isTargetCore && ps.employee?.userId !== req.user!.id) {
+            return false;
+          }
+          return true;
+        });
+
+        const grossTotal = visiblePayslips.reduce((sum, p) => sum + Number(p.grossPay || 0), 0);
+        const netTotal = visiblePayslips.reduce((sum, p) => sum + Number(p.netPay || 0), 0);
+
+        return {
+          ...run,
+          grossTotal,
+          netTotal,
+          payslips: visiblePayslips
+        };
+      });
+
+      return res.json(sanitizedRuns);
+    }
+
     res.json(runs);
   } catch (error) {
     next(error);
@@ -121,8 +151,20 @@ payrollRouter.patch("/:id/status", requireAnyPermission(["payroll.run.process", 
 
 payrollRouter.patch("/payslips/:id", requireAnyPermission(["payroll.run.process", "payroll.run.approve"]), async (req, res, next) => {
   try {
-    const payslip = await prisma.payslip.findUnique({ where: { id: req.params.id }, include: { payrollRun: true } });
+    const payslip = await prisma.payslip.findUnique({
+      where: { id: req.params.id },
+      include: {
+        payrollRun: true,
+        employee: { include: { department: true, designation: true, user: true } }
+      }
+    });
     if (!payslip) throw new ApiError(404, "Payslip not found");
+
+    const userIsCoreTeam = await isRequesterCoreTeam(req.user!);
+    const targetIsCore = isCoreTeamEmployee(payslip.employee);
+    if (targetIsCore && !userIsCoreTeam) {
+      throw new ApiError(403, "Only Core Team members can modify Core Team payslips");
+    }
 
     const body = z.object({
       payableDays: z.number().min(0),
@@ -143,8 +185,20 @@ payrollRouter.patch("/payslips/:id", requireAnyPermission(["payroll.run.process"
 
 payrollRouter.delete("/payslips/:id", requireAnyPermission(["payroll.run.process", "payroll.run.approve"]), async (req, res, next) => {
   try {
-    const payslip = await prisma.payslip.findUnique({ where: { id: req.params.id }, include: { payrollRun: true } });
+    const payslip = await prisma.payslip.findUnique({
+      where: { id: req.params.id },
+      include: {
+        payrollRun: true,
+        employee: { include: { department: true, designation: true, user: true } }
+      }
+    });
     if (!payslip) throw new ApiError(404, "Payslip not found");
+
+    const userIsCoreTeam = await isRequesterCoreTeam(req.user!);
+    const targetIsCore = isCoreTeamEmployee(payslip.employee);
+    if (targetIsCore && !userIsCoreTeam) {
+      throw new ApiError(403, "Only Core Team members can delete Core Team payslips");
+    }
 
     const result = await payrollService.skipPayslip(payslip.payrollRun.companyId, req.params.id);
     res.json(result);
@@ -155,6 +209,20 @@ payrollRouter.delete("/payslips/:id", requireAnyPermission(["payroll.run.process
 
 payrollRouter.post("/payslips/:id/send", requireAnyPermission(["payroll.run.process", "payroll.run.approve"]), async (req, res, next) => {
   try {
+    const payslip = await prisma.payslip.findUnique({
+      where: { id: req.params.id },
+      include: {
+        employee: { include: { department: true, designation: true, user: true } }
+      }
+    });
+    if (!payslip) throw new ApiError(404, "Payslip not found");
+
+    const userIsCoreTeam = await isRequesterCoreTeam(req.user!);
+    const targetIsCore = isCoreTeamEmployee(payslip.employee);
+    if (targetIsCore && !userIsCoreTeam) {
+      throw new ApiError(403, "Only Core Team members can dispatch Core Team payslips");
+    }
+
     res.json(await payrollService.sendPayslip(req.params.id));
   } catch (error) {
     next(error);
