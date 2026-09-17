@@ -332,6 +332,14 @@ export const accessResolverService = {
                 entry.sources.push("ems-section:expenses");
               }
             }
+            if (userEmsGrants["employees.company-select"] || userEmsGrants["employees.manage"] || userEmsGrants.employees) {
+              for (const code of ["employee.profile.view", "employee.profile.create", "employee.profile.edit", "settings.company.view"]) {
+                const entry = ensurePermissionEntry(permissionMap, code, false);
+                entry.allowed = true;
+                entry.sources.push("ems-section:employees");
+                pushScope(entry, AccessScopeType.GLOBAL);
+              }
+            }
           }
         }
       }

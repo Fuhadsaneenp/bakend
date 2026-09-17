@@ -81,6 +81,26 @@ export const requireHrOrRoles = (...roles: Role[]) => {
     if (roles.includes(req.user.role)) return next();
     const isHr = await isRequesterHr(req.user);
     if (isHr) return next();
+
+    // Check authority EMS grants
+    try {
+      const userTrackRow = await prisma.companySetting.findFirst({
+        where: { key: "authority:user-track-settings" }
+      });
+      if (userTrackRow?.value) {
+        const parsed: any = typeof userTrackRow.value === "string" ? JSON.parse(userTrackRow.value) : userTrackRow.value;
+        const emsGrants = parsed?.emsSectionGrants;
+        if (emsGrants && typeof emsGrants === "object") {
+          const userKeys = [req.user.id, req.user.email, req.user.companyId].filter(Boolean).map(k => String(k).toLowerCase().trim());
+          for (const k of userKeys) {
+            if (emsGrants[k]?.["employees.manage"] || emsGrants[k]?.["employees.company-select"] || emsGrants[k]?.employees) {
+              return next();
+            }
+          }
+        }
+      }
+    } catch {}
+
     return next(new ApiError(403, "Insufficient permissions"));
   };
 };

@@ -5,6 +5,7 @@ import { requireAuth, requireRoles } from "../../middleware/auth.js";
 import { ApiError } from "../../lib/errors.js";
 import { orgService } from "./org.service.js";
 import { prisma } from "../../lib/prisma.js";
+import { isRequesterHr } from "../../lib/coreTeam.js";
 
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
@@ -12,7 +13,28 @@ orgRouter.use(requireAuth);
 // Companies CRUD
 orgRouter.get("/companies", async (req, res, next) => {
   try {
-    const isFullAdmin = req.user?.role === Role.SUPER_ADMIN || req.user?.role === Role.HR_ADMIN;
+    const isHr = await isRequesterHr(req.user!);
+    let hasCompanyGrant = false;
+    try {
+      const userTrackRow = await prisma.companySetting.findFirst({
+        where: { key: "authority:user-track-settings" }
+      });
+      if (userTrackRow?.value) {
+        const parsed: any = typeof userTrackRow.value === "string" ? JSON.parse(userTrackRow.value) : userTrackRow.value;
+        const emsGrants = parsed?.emsSectionGrants;
+        if (emsGrants && typeof emsGrants === "object" && req.user?.id) {
+          const userKeys = [req.user.id, req.user.email, req.user.companyId].filter(Boolean).map(k => String(k).toLowerCase().trim());
+          for (const k of userKeys) {
+            if (emsGrants[k]?.["employees.company-select"] || emsGrants[k]?.["employees.manage"] || emsGrants[k]?.company) {
+              hasCompanyGrant = true;
+              break;
+            }
+          }
+        }
+      }
+    } catch {}
+
+    const isFullAdmin = req.user?.role === Role.SUPER_ADMIN || req.user?.role === Role.HR_ADMIN || isHr || hasCompanyGrant;
     if (isFullAdmin) {
       return res.json(await orgService.companies());
     }

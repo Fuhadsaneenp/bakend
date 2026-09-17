@@ -188,8 +188,28 @@ employeeRouter.post("/", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
       }).optional()
     }).parse(req.body);
 
-    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN || await isRequesterHr(req.user!);
-    const targetCompanyId = isFullAdmin ? (body.companyId || req.user!.companyId) : req.user!.companyId;
+    let hasCompanyGrant = false;
+    try {
+      const userTrackRow = await prisma.companySetting.findFirst({
+        where: { key: "authority:user-track-settings" }
+      });
+      if (userTrackRow?.value) {
+        const parsed: any = typeof userTrackRow.value === "string" ? JSON.parse(userTrackRow.value) : userTrackRow.value;
+        const emsGrants = parsed?.emsSectionGrants;
+        if (emsGrants && typeof emsGrants === "object" && req.user?.id) {
+          const userKeys = [req.user.id, req.user.email, req.user.companyId].filter(Boolean).map(k => String(k).toLowerCase().trim());
+          for (const k of userKeys) {
+            if (emsGrants[k]?.["employees.company-select"] || emsGrants[k]?.["employees.manage"] || emsGrants[k]?.company) {
+              hasCompanyGrant = true;
+              break;
+            }
+          }
+        }
+      }
+    } catch {}
+
+    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN || await isRequesterHr(req.user!) || hasCompanyGrant;
+    const targetCompanyId = (isFullAdmin && body.companyId) ? body.companyId : (req.user!.companyId || body.companyId);
     if (!targetCompanyId) throw new ApiError(400, "Company context required");
 
     const employee = await employeeService.onboard(targetCompanyId, body);
