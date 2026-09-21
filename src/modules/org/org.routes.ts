@@ -17,7 +17,7 @@ orgRouter.get("/companies", async (req, res, next) => {
     let hasCompanyGrant = false;
     try {
       const userTrackRow = await prisma.companySetting.findFirst({
-        where: { key: "authority:user-track-settings" }
+        where: { key: { in: ["authority_user_track_settings", "authority:user-track-settings"] } }
       });
       if (userTrackRow?.value) {
         const parsed: any = typeof userTrackRow.value === "string" ? JSON.parse(userTrackRow.value) : userTrackRow.value;

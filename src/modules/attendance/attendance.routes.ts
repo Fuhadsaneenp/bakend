@@ -1,7 +1,7 @@
 import { Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireRoles } from "../../middleware/auth.js";
+import { requireAuth, requireHrOrRoles, requireRoles } from "../../middleware/auth.js";
 import { ApiError } from "../../lib/errors.js";
 import { attendanceService } from "./attendance.service.js";
 import { env } from "../../config/env.js";
@@ -734,7 +734,7 @@ attendanceRouter.get("/biometric/logs", requireRoles(Role.SUPER_ADMIN, Role.HR_A
 });
 
 // Shifts CRUD endpoints
-attendanceRouter.get("/shifts", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE), async (req, res, next) => {
+attendanceRouter.get("/shifts", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const shifts = await prisma.shift.findMany({
@@ -747,7 +747,7 @@ attendanceRouter.get("/shifts", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Ro
   }
 });
 
-attendanceRouter.post("/shifts", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+attendanceRouter.post("/shifts", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const companyId = req.user?.companyId;
     if (!companyId) throw new ApiError(400, "Company context required");
@@ -784,7 +784,7 @@ attendanceRouter.post("/shifts", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), 
   }
 });
 
-attendanceRouter.put("/shifts/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+attendanceRouter.put("/shifts/:id", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const companyId = req.user?.companyId;
     if (!companyId) throw new ApiError(400, "Company context required");
@@ -826,7 +826,7 @@ attendanceRouter.put("/shifts/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN
   }
 });
 
-attendanceRouter.delete("/shifts/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+attendanceRouter.delete("/shifts/:id", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const existing = await prisma.shift.findFirst({

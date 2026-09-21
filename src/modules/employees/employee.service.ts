@@ -134,10 +134,30 @@ export const employeeService = {
       include: { department: true, designation: true, user: true }
     });
     const isHr = await isRequesterHr(user);
-    const isAdminScope = isHr;
+    let hasEmployeeGrant = false;
+    try {
+      const userTrackRow = await prisma.companySetting.findFirst({
+        where: { key: { in: ["authority_user_track_settings", "authority:user-track-settings"] } }
+      });
+      if (userTrackRow?.value) {
+        const parsed: any = typeof userTrackRow.value === "string" ? JSON.parse(userTrackRow.value) : userTrackRow.value;
+        const emsGrants = parsed?.emsSectionGrants;
+        if (emsGrants && typeof emsGrants === "object") {
+          const userKeys = [user.id, user.email, user.companyId].filter(Boolean).map(k => String(k).toLowerCase().trim());
+          for (const k of userKeys) {
+            if (emsGrants[k]?.["employees.manage"] || emsGrants[k]?.["employees.company-select"] || emsGrants[k]?.employees) {
+              hasEmployeeGrant = true;
+              break;
+            }
+          }
+        }
+      }
+    } catch {}
 
-    const targetCompanyId = isHr
-      ? (requestedCompanyId || undefined)
+    const isAdminScope = isHr || hasEmployeeGrant;
+
+    const targetCompanyId = isAdminScope
+      ? (requestedCompanyId || user.companyId || undefined)
       : (requestedCompanyId || user.companyId || undefined);
 
     if (isAdminScope) {

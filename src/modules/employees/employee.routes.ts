@@ -191,7 +191,7 @@ employeeRouter.post("/", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), asyn
     let hasCompanyGrant = false;
     try {
       const userTrackRow = await prisma.companySetting.findFirst({
-        where: { key: "authority:user-track-settings" }
+        where: { key: { in: ["authority_user_track_settings", "authority:user-track-settings"] } }
       });
       if (userTrackRow?.value) {
         const parsed: any = typeof userTrackRow.value === "string" ? JSON.parse(userTrackRow.value) : userTrackRow.value;

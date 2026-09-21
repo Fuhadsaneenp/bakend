@@ -4,6 +4,7 @@ import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
 import type { AuthUser } from "../../middleware/auth.js";
 import { notificationService } from "../notifications/notification.service.js";
+import { isHrEmployee } from "../../lib/coreTeam.js";
 
 const lateHour = 9;
 const standardWorkMinutes = 8 * 60;
@@ -230,7 +231,10 @@ export const attendanceService = {
   },
 
   async monthlyReportForUser(user: AuthUser, month: number, year: number, requestedCompanyId?: string) {
-    const employee = await prisma.employee.findUnique({ where: { userId: user.id } });
+    const employee = await prisma.employee.findUnique({
+      where: { userId: user.id },
+      include: { department: true, designation: true }
+    });
     const fallbackCompanyId = user.companyId || employee?.companyId || undefined;
 
     // Extend by 7 days on each side to support cross-month Monday-to-Sunday weekly calculations
@@ -238,9 +242,36 @@ export const attendanceService = {
     const totalDays = new Date(year, month, 0).getDate();
     const to = new Date(new Date(`${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}T23:59:59+05:30`).getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
-      if (requestedCompanyId) {
-        return this.monthlyReport(requestedCompanyId, month, year);
+    const isHr = user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN || isHrEmployee(employee);
+
+    let hasAttendanceCompanyGrant = false;
+    try {
+      const companyIdForSetting = requestedCompanyId || fallbackCompanyId;
+      if (companyIdForSetting) {
+        const setting = await prisma.companySetting.findFirst({
+          where: {
+            companyId: companyIdForSetting,
+            key: { in: ["authority_user_track_settings", "authority:user-track-settings"] }
+          }
+        });
+        if (setting?.value) {
+          const val: any = typeof setting.value === "string" ? JSON.parse(setting.value) : setting.value;
+          const grants = val.emsSectionGrants || {};
+          const keys = [user.id, user.email, employee?.id, employee?.employeeCode].filter(Boolean).map(k => String(k).toLowerCase());
+          for (const k of keys) {
+            if (grants[k]?.["attendance.employee"] || grants[k]?.["attendance.team"] || grants[k]?.attendance) {
+              hasAttendanceCompanyGrant = true;
+              break;
+            }
+          }
+        }
+      }
+    } catch {}
+
+    if (isHr || hasAttendanceCompanyGrant) {
+      const targetCompany = requestedCompanyId || fallbackCompanyId;
+      if (targetCompany) {
+        return this.monthlyReport(targetCompany, month, year);
       }
 
       return prisma.attendance.findMany({

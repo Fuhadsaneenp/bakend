@@ -1,8 +1,9 @@
 import { ApprovalStatus, Role } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireRoles } from "../../middleware/auth.js";
+import { requireAuth, requireHrOrRoles, requireRoles } from "../../middleware/auth.js";
 import { ApiError } from "../../lib/errors.js";
+import { isRequesterHr } from "../../lib/coreTeam.js";
 import { wfhService } from "./wfh.service.js";
 import { leaveAllocationService } from "./leaveAllocation.service.js";
 import { prisma } from "../../lib/prisma.js";
@@ -52,7 +53,8 @@ wfhRouter.get("/allocations", async (req: any, res, next) => {
       return res.json(allocations);
     }
 
-    if (req.user.role === Role.SUPER_ADMIN || req.user.role === Role.HR_ADMIN) {
+    const isHr = await isRequesterHr(req.user);
+    if (req.user.role === Role.SUPER_ADMIN || req.user.role === Role.HR_ADMIN || isHr) {
       const allocations = await leaveAllocationService.getCompanyAllocations(companyId);
       return res.json(allocations);
     }
@@ -67,7 +69,7 @@ wfhRouter.get("/allocations", async (req: any, res, next) => {
   }
 });
 
-wfhRouter.post("/allocations", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req: any, res, next) => {
+wfhRouter.post("/allocations", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req: any, res, next) => {
   try {
     const companyId = req.user.companyId;
     if (!companyId) throw new ApiError(400, "Company context required");

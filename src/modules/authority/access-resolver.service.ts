@@ -1,5 +1,6 @@
 import { AccessScopeType, Role } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { isHrEmployee } from "../../lib/coreTeam.js";
 
 const legacyRolePermissionFallback: Record<Role, string[]> = {
   SUPER_ADMIN: ["*"],
@@ -182,7 +183,10 @@ export const accessResolverService = {
             id: true,
             departmentId: true,
             managerId: true,
-            officeId: true
+            officeId: true,
+            isHrHead: true,
+            department: true,
+            designation: true
           }
         },
         assignedAccessProfiles: {
@@ -287,7 +291,7 @@ export const accessResolverService = {
     // ── Step 5: Sync with configured EMS Section Grants ──
     try {
       const userTrackRow = await prisma.companySetting.findFirst({
-        where: { key: "authority:user-track-settings" }
+        where: { key: { in: ["authority_user_track_settings", "authority:user-track-settings"] } }
       });
       if (userTrackRow?.value) {
         const parsed: any = typeof userTrackRow.value === "string" ? JSON.parse(userTrackRow.value) : userTrackRow.value;
@@ -340,10 +344,58 @@ export const accessResolverService = {
                 pushScope(entry, AccessScopeType.GLOBAL);
               }
             }
+            if (userEmsGrants.attendance || userEmsGrants["attendance.employee"] || userEmsGrants["attendance.team"] || userEmsGrants["attendance.settings"] || userEmsGrants["attendance.biometric"]) {
+              const attCodes = [
+                "attendance.record.view",
+                "attendance.punch.manual",
+                "attendance.regularize.approve"
+              ];
+              if (userEmsGrants["attendance.settings"] || userEmsGrants.attendance) {
+                attCodes.push("attendance.settings.manage");
+              }
+              if (userEmsGrants["attendance.biometric"] || userEmsGrants.attendance) {
+                attCodes.push("attendance.biometric.sync");
+              }
+              for (const code of attCodes) {
+                const entry = ensurePermissionEntry(permissionMap, code, false);
+                entry.allowed = true;
+                entry.sources.push("ems-section:attendance");
+                pushScope(entry, AccessScopeType.GLOBAL);
+              }
+            }
+            if (userEmsGrants.leave || userEmsGrants["leave.master"] || userEmsGrants["leave.team"] || userEmsGrants["leave.settings"]) {
+              const leaveCodes = [
+                "leave.request.view",
+                "leave.request.create",
+                "leave.request.approve",
+                "wfh.request.view",
+                "wfh.request.approve"
+              ];
+              if (userEmsGrants["leave.settings"] || userEmsGrants.leave) {
+                leaveCodes.push("leave.settings.manage");
+              }
+              for (const code of leaveCodes) {
+                const entry = ensurePermissionEntry(permissionMap, code, false);
+                entry.allowed = true;
+                entry.sources.push("ems-section:leave");
+                pushScope(entry, AccessScopeType.GLOBAL);
+              }
+            }
           }
         }
       }
     } catch {}
+
+    // ── Step 6: HR status auto-permissions ──
+    if (isHrEmployee(user.employee as any)) {
+      const hrCodes = legacyRolePermissionFallback.HR_ADMIN || [];
+      for (const code of hrCodes) {
+        const entry = ensurePermissionEntry(permissionMap, code, code.startsWith("settings.authority") || code.startsWith("payroll."));
+        entry.allowed = true;
+        entry.sources.push("hr-designation-status");
+        pushScope(entry, AccessScopeType.GLOBAL);
+      }
+    }
 
     // Super Admin is a platform owner role. It must always resolve to every
     // permission even if older Authority UI overrides accidentally contain DENY.

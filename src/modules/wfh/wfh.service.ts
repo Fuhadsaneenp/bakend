@@ -5,6 +5,7 @@ import { ApiError, notFound } from "../../lib/errors.js";
 import { notificationService } from "../notifications/notification.service.js";
 import { leaveAllocationService } from "./leaveAllocation.service.js";
 import type { AuthUser } from "../../middleware/auth.js";
+import { isHrEmployee } from "../../lib/coreTeam.js";
 
 const db = prisma as any;
 
@@ -424,13 +425,14 @@ export const wfhService = {
 
     const reviewerEmployee = await db.employee.findUnique({
       where: { userId: reviewer.id },
-      include: { user: true }
+      include: { user: true, department: true, designation: true }
     });
 
     const reviewerIsHrHead =
       reviewer.role === Role.SUPER_ADMIN ||
       reviewer.role === Role.HR_ADMIN ||
-      Boolean(reviewerEmployee?.isHrHead);
+      Boolean(reviewerEmployee?.isHrHead) ||
+      isHrEmployee(reviewerEmployee);
 
     const { formatFullName } = await import("../../lib/formatName.js");
     const reviewerName = reviewerEmployee 
@@ -582,10 +584,33 @@ export const wfhService = {
     const targetCompanyId = user.companyId || undefined;
     if (!targetCompanyId) return [];
 
-    const employee = await db.employee.findUnique({ where: { userId: user.id } });
+    const employee = await db.employee.findUnique({
+      where: { userId: user.id },
+      include: { user: true, department: true, designation: true }
+    });
     if (!employee) return [];
 
-    if (employee.isHrHead) {
+    let hasLeaveGrant = false;
+    try {
+      const userTrackRow = await db.companySetting.findFirst({
+        where: { key: { in: ["authority_user_track_settings", "authority:user-track-settings"] } }
+      });
+      if (userTrackRow?.value) {
+        const parsed: any = typeof userTrackRow.value === "string" ? JSON.parse(userTrackRow.value) : userTrackRow.value;
+        const emsGrants = parsed?.emsSectionGrants;
+        if (emsGrants && typeof emsGrants === "object") {
+          const userKeys = [user.id, user.email, user.companyId].filter(Boolean).map(k => String(k).toLowerCase().trim());
+          for (const k of userKeys) {
+            if (emsGrants[k]?.["leave.master"] || emsGrants[k]?.leave || emsGrants[k]?.["leave.team"]) {
+              hasLeaveGrant = true;
+              break;
+            }
+          }
+        }
+      }
+    } catch {}
+
+    if (employee.isHrHead || isHrEmployee(employee) || hasLeaveGrant) {
       return db.wFHRequest.findMany({
         where: { employee: { companyId: targetCompanyId } },
         include: requestInclude,
