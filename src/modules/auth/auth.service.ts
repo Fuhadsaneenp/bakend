@@ -18,12 +18,71 @@ const hashResetCode = (email: string, code: string) => createHash("sha256")
 const createResetCode = () => randomInt(100000, 1_000_000).toString();
 const resetRequestMessage = "If an account exists for this email, a password reset code has been sent.";
 
+async function findUserByIdentifier(identifier: string) {
+  const clean = identifier.trim().toLowerCase();
+  const upperCode = clean.toUpperCase();
+
+  let user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: clean },
+        { employee: { employeeCode: upperCode } },
+        { employee: { biometricId: upperCode } },
+        { employee: { personalEmail: clean } },
+        { employee: { phone: clean } }
+      ]
+    },
+    include: {
+      employee: {
+        select: {
+          id: true,
+          firstName: true,
+          middleName: true,
+          lastName: true,
+          displayName: true,
+          employeeCode: true,
+          status: true,
+          dateOfExit: true,
+          personalEmail: true
+        }
+      }
+    }
+  });
+
+  if (!user && clean.endsWith("@secondtales.com")) {
+    const alias = clean.replace("@secondtales.com", "").toLowerCase();
+    user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: { startsWith: alias } },
+          { employee: { personalEmail: { startsWith: alias } } },
+          { employee: { firstName: { equals: alias } } }
+        ]
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            middleName: true,
+            lastName: true,
+            displayName: true,
+            employeeCode: true,
+            status: true,
+            dateOfExit: true,
+            personalEmail: true
+          }
+        }
+      }
+    });
+  }
+
+  return user;
+}
+
 export const authService = {
   async login(email: string, password: string) {
-    const user = await prisma.user.findUnique({
-      where: { email: email.trim().toLowerCase() },
-      include: { employee: { select: { firstName: true, middleName: true, lastName: true, displayName: true, employeeCode: true, status: true, dateOfExit: true } } }
-    });
+    const user = await findUserByIdentifier(email);
     if (!user || !user.isActive) throw new ApiError(401, "Invalid credentials");
     if (user.employee && (user.employee.status !== "ACTIVE" || user.employee.dateOfExit)) {
       throw new ApiError(401, "Account has been offboarded");
@@ -152,17 +211,25 @@ export const authService = {
     return { ok: true };
   },
 
-  async requestResetPassword(email: string) {
-    const normalizedEmail = email.toLowerCase();
-    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  async requestResetPassword(emailOrCode: string) {
+    const user = await findUserByIdentifier(emailOrCode);
     if (!user?.isActive) return { ok: true, message: resetRequestMessage };
 
+    const normalizedEmail = user.email.toLowerCase();
+    const cleanInput = emailOrCode.trim().toLowerCase();
     const code = createResetCode();
     resetCodes.set(normalizedEmail, {
       codeHash: hashResetCode(normalizedEmail, code),
       expires: Date.now() + 15 * 60 * 1000,
       attempts: 0
     });
+    if (cleanInput !== normalizedEmail) {
+      resetCodes.set(cleanInput, {
+        codeHash: hashResetCode(cleanInput, code),
+        expires: Date.now() + 15 * 60 * 1000,
+        attempts: 0
+      });
+    }
 
     let emailResult: Awaited<ReturnType<typeof emailService.send>>;
     try {
@@ -200,32 +267,40 @@ export const authService = {
     };
   },
 
-  async resetPassword(email: string, code: string, newPass: string) {
-    const normalizedEmail = email.toLowerCase();
-    const record = resetCodes.get(normalizedEmail);
+  async resetPassword(emailOrCode: string, code: string, newPass: string) {
+    const clean = emailOrCode.trim().toLowerCase();
+    const user = await findUserByIdentifier(clean);
+    const normalizedEmail = user ? user.email.toLowerCase() : clean;
+    const record = resetCodes.get(clean) || resetCodes.get(normalizedEmail);
     if (!record) throw new ApiError(400, "No password reset requested for this email");
 
     if (Date.now() > record.expires) {
+      resetCodes.delete(clean);
       resetCodes.delete(normalizedEmail);
       throw new ApiError(400, "Reset code has expired");
     }
     if (record.attempts >= 5) {
+      resetCodes.delete(clean);
       resetCodes.delete(normalizedEmail);
       throw new ApiError(400, "Reset code has expired");
     }
-    if (record.codeHash !== hashResetCode(normalizedEmail, code)) {
+    const matchesCode = record.codeHash === hashResetCode(clean, code) || record.codeHash === hashResetCode(normalizedEmail, code);
+    if (!matchesCode) {
       record.attempts += 1;
       throw new ApiError(400, "Invalid reset code");
     }
 
+    if (!user) throw new ApiError(404, "User not found");
+
     const newHash = await bcrypt.hash(newPass, 12);
     await prisma.user.update({
-      where: { email: normalizedEmail },
+      where: { id: user.id },
       data: { passwordHash: newHash, refreshHash: null }
     });
 
+    resetCodes.delete(clean);
     resetCodes.delete(normalizedEmail);
-    return { ok: true, message: "Password updated successfully" };
+    return { ok: true, message: "Password reset successful" };
   },
 
   async listImpersonationTargets(actorUser: AuthUser) {

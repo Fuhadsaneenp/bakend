@@ -35,7 +35,10 @@ const passwordSchema = z.string()
 
 authRouter.post("/login", loginLimiter, async (req, res, next) => {
   try {
-    const body = z.object({ email: z.string().email(), password: z.string().min(8) }).parse(req.body);
+    const body = z.object({
+      email: z.string().min(1, "Email or Employee ID is required"),
+      password: z.string().min(1, "Password is required")
+    }).parse(req.body);
     res.json(await authService.login(body.email, body.password));
   } catch (error) {
     next(error);
@@ -69,7 +72,7 @@ authRouter.get("/me/access", requireAuth, async (req, res, next) => {
 
 authRouter.post("/forgot-password", passwordResetLimiter, async (req, res, next) => {
   try {
-    const body = z.object({ email: z.string().email() }).parse(req.body);
+    const body = z.object({ email: z.string().min(1, "Email or Employee ID is required") }).parse(req.body);
     res.json(await authService.requestResetPassword(body.email));
   } catch (error) {
     next(error);
@@ -79,7 +82,7 @@ authRouter.post("/forgot-password", passwordResetLimiter, async (req, res, next)
 authRouter.post("/reset-password", passwordResetLimiter, async (req, res, next) => {
   try {
     const body = z.object({
-      email: z.string().email(),
+      email: z.string().min(1, "Email or Employee ID is required"),
       code: z.string().regex(/^\d{6}$/),
       newPassword: passwordSchema
     }).parse(req.body);
