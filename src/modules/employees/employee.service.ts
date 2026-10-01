@@ -156,9 +156,10 @@ export const employeeService = {
 
     const isAdminScope = isHr || hasEmployeeGrant;
 
-    const targetCompanyId = isAdminScope
-      ? (requestedCompanyId || user.companyId || undefined)
-      : (requestedCompanyId || user.companyId || undefined);
+    // Super admins load all companies so the EMS company selector can filter
+    // the complete employee list. Other users retain their existing scope.
+    const targetCompanyId = requestedCompanyId ||
+      (user.role === Role.SUPER_ADMIN ? undefined : user.companyId || undefined);
 
     if (isAdminScope) {
       const where = targetCompanyId ? { companyId: targetCompanyId } : undefined;
