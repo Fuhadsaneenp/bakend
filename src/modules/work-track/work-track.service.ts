@@ -199,6 +199,20 @@ function calculateDataEntrySheetTotalCount(rows: DataEntrySheetRow[] = [], key =
 }
 
 function chooseBestDataEntryRows(key: string, candidates: DataEntrySheetRow[][]) {
+  // Automatic activity is a set of permanent records, not a positional snapshot.
+  const automaticRows = candidates.flat().filter(row => row?.uploadedAt && row?.sourceUrl);
+  if (automaticRows.length && candidates.every(rows => rows.every(row =>
+    !hasDataEntryRowContent(row) || Boolean(row.uploadedAt && row.sourceUrl)
+  ))) {
+    const byUrl = new Map<string, DataEntrySheetRow>();
+    for (const row of automaticRows) {
+      const previous = byUrl.get(row.sourceUrl);
+      if (!previous || getDataEntryRowTimestamp(row) >= getDataEntryRowTimestamp(previous)) {
+        byUrl.set(row.sourceUrl, { ...previous, ...row });
+      }
+    }
+    return Array.from(byUrl.values()).map((row, index) => ({ ...row, count: index + 1 }));
+  }
   return candidates
     .filter((rows) => Array.isArray(rows))
     .reduce<DataEntrySheetRow[] | undefined>((best, candidate) => {
@@ -531,6 +545,12 @@ export const workTrackService = {
 
     for (const [key, incomingRows] of Object.entries(incoming)) {
       const existingRows = existing[key] || [];
+      if (incomingRows.some(row => row.uploadedAt && row.sourceUrl) &&
+          [...existingRows, ...incomingRows].every(row =>
+            !hasDataEntryRowContent(row) || Boolean(row.uploadedAt && row.sourceUrl))) {
+        next[key] = chooseBestDataEntryRows(key, [existingRows, incomingRows]);
+        continue;
+      }
       const maxLength = Math.max(existingRows.length, incomingRows.length);
       const mergedRows: DataEntrySheetRow[] = [];
 
