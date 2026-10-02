@@ -50,6 +50,12 @@ const defaultSites: Record<string, { url: string; brand: string; companyId: stri
     companyId: "cmrtjclxz004eun4zjp7rtcbo",
     secret: "medbiomate_superio_sync_sec_9971abf83c18b76e204b33c5"
   },
+  mediyox: {
+    url: "https://www.mediyox.com",
+    brand: "Mediyox",
+    companyId: "cmrtjclxz004eun4zjp7rtcbo",
+    secret: process.env.EMS_MEDIYOX_SYNC_SECRET || ""
+  },
   secondtales: {
     url: "https://www.secondtales.com",
     brand: "Second Tales",
