@@ -2,18 +2,25 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { wordpressRouter } from "./wordpress.routes.js";
 import { prisma } from "../../lib/prisma.js";
+import { workTrackService } from "../../modules/work-track/work-track.service.js";
 
 test("WordPress authentication, attribution, tenant binding and stable upload identity", async () => {
   const originalSites = process.env.WORDPRESS_SYNC_SITES;
   const originalFind = prisma.user.findFirst;
   const originalUpsert = prisma.companySetting.upsert;
+  const originalEmployeeFind = prisma.employee.findFirst;
+  const originalSheets = workTrackService.getDataEntrySheets;
+  const originalSaveSheets = workTrackService.upsertDataEntrySheets;
+  (prisma.employee as any).findFirst = async () => null;
+  workTrackService.getDataEntrySheets = async () => ({});
+  workTrackService.upsertDataEntrySheets = async (_company, sheets) => sheets;
   const secret = "test-secret-32-characters-long-enough";
   process.env.WORDPRESS_SYNC_SITES = JSON.stringify({ med: { secret, companyId: "tenant-a", brand: "Medbiomate", url: "https://jobs.example.com" } });
   const writes: any[] = [];
   let matched = true;
   (prisma.user as any).findFirst = async (query: any) => {
-    assert.equal(query.where.companyId, "tenant-a");
-    assert.equal(query.where.email, "staff@example.com");
+    if (query.where.companyId) assert.equal(query.where.companyId, "tenant-a");
+    assert.equal(query.where.email.equals, "staff@example.com");
     return matched ? { employee: { id: "employee-a", companyId: "tenant-a", firstName: "Staff", lastName: "Member" } } : null;
   };
   (prisma.companySetting as any).upsert = async (query: any) => { writes.push(query); return query.create; };
@@ -36,15 +43,22 @@ test("WordPress authentication, attribution, tenant binding and stable upload id
     assert.ok((await send()).error);
     assert.equal(writes.length, 0);
     matched = true;
-    assert.deepEqual((await send()).result, { synced: true });
+    assert.deepEqual((await send()).result, { synced: true, employeeId: "employee-a", employeeName: "Staff Member" });
     await send(secret, { ...payload, title: "Updated nurse" });
     assert.equal(writes[0].where.companyId_key.key, writes[1].where.companyId_key.key);
     assert.equal(writes[0].create.companyId, "tenant-a");
     assert.equal(writes[0].create.value.employeeId, "employee-a");
     assert.equal(writes[1].update.value.title, "Updated nurse");
+    const coded = await send(secret, { ...payload, postId: "coded-job-uuid", uploaderId: "coded-user-uuid" } as any);
+    assert.equal(coded.error, undefined);
+    assert.equal(coded.result.synced, true);
   } finally {
     prisma.user.findFirst = originalFind;
     prisma.companySetting.upsert = originalUpsert;
+    prisma.employee.findFirst = originalEmployeeFind;
+    workTrackService.getDataEntrySheets = originalSheets;
+    workTrackService.upsertDataEntrySheets = originalSaveSheets;
+    await prisma.$disconnect();
     if (originalSites === undefined) delete process.env.WORDPRESS_SYNC_SITES;
     else process.env.WORDPRESS_SYNC_SITES = originalSites;
   }

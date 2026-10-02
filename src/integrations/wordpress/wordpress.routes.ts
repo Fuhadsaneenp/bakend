@@ -12,10 +12,10 @@ export const wordpressRouter = Router();
 const prefix = "wordpress_upload_v1_";
 const webUrl = z.string().url().refine(v => /^https?:\/\//i.test(v));
 const uploadSchema = z.object({
-  postId: z.number().int().positive(),
+  postId: z.union([z.number().int().positive(), z.string().min(1).max(100)]),
   type: z.enum(["job", "company"]),
   uploaderEmail: z.string().email(),
-  uploaderId: z.number().int().positive(),
+  uploaderId: z.union([z.number().int().positive(), z.string().min(1).max(100)]),
   title: z.string().max(1000),
   url: webUrl,
   companyName: z.string().max(1000),
@@ -123,7 +123,7 @@ wordpressRouter.post("/:site/uploads", async (req, res, next) => {
     }
 
     const key = prefix + createHash("sha256").update(`${req.params.site}:${input.type}:${input.postId}`).digest("hex");
-    const name = [employee.firstName, employee.lastName].filter(Boolean).join(" ");
+    const name = [employee.firstName, employee.middleName, employee.lastName].filter(Boolean).join(" ");
     const value = {
       ...input,
       employeeId: employee.id,
@@ -208,6 +208,7 @@ wordpressRouter.post("/:site/uploads", async (req, res, next) => {
       });
     } catch (sheetSyncErr) {
       console.error("Failed to sync row directly into data entry sheet table:", sheetSyncErr);
+      throw new ApiError(503, "Upload recorded; employee sheet sync failed. Retry this upload.");
     }
 
     res.json({ synced: true, employeeId: employee.id, employeeName: name });
