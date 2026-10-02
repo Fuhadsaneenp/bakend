@@ -95,6 +95,7 @@ type DataEntrySheetRow = {
   jobTitle?: string;
   notes?: string;
   date?: string;
+  createdAt?: string;
   uploadedAt?: string;
   uploadedBy?: string;
   updatedAt?: string;
@@ -133,6 +134,7 @@ function normalizeDataEntryRows(rows: unknown): DataEntrySheetRow[] {
       jobTitle: typeof row?.jobTitle === "string" ? row.jobTitle : (typeof row?.title === "string" ? row.title : ""),
       notes: typeof row?.notes === "string" ? row.notes : "",
       date: typeof row?.date === "string" ? row.date : "",
+      createdAt: typeof row?.createdAt === "string" ? row.createdAt : undefined,
       uploadedAt: typeof row?.uploadedAt === "string" ? row.uploadedAt : undefined,
       uploadedBy: typeof row?.uploadedBy === "string" ? row.uploadedBy : undefined,
       updatedAt: typeof row?.updatedAt === "string" ? row.updatedAt : undefined

@@ -23,6 +23,7 @@ const uploadSchema = z.object({
   categories: z.array(z.string().max(200)).max(50),
   location: z.string().max(1000),
   status: z.string().max(80),
+  createdAt: z.string().datetime().optional(),
   uploadedAt: z.string(),
   updatedAt: z.string()
 });
@@ -180,6 +181,7 @@ wordpressRouter.post("/:site/uploads", async (req, res, next) => {
           jobTitle: input.title,
           notes: input.title,
           postId: input.postId,
+          createdAt: input.createdAt || input.uploadedAt,
           uploadedAt: input.uploadedAt,
           uploadedBy: name,
           updatedAt: input.updatedAt,
