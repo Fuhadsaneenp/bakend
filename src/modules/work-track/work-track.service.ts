@@ -201,9 +201,7 @@ function calculateDataEntrySheetTotalCount(rows: DataEntrySheetRow[] = [], key =
 function chooseBestDataEntryRows(key: string, candidates: DataEntrySheetRow[][]) {
   // Automatic activity is a set of permanent records, not a positional snapshot.
   const automaticRows = candidates.flat().filter(row => row?.uploadedAt && row?.sourceUrl);
-  if (automaticRows.length && candidates.every(rows => rows.every(row =>
-    !hasDataEntryRowContent(row) || Boolean(row.uploadedAt && row.sourceUrl)
-  ))) {
+  if (automaticRows.length && /-(Jobs|Employer)-/.test(key)) {
     const byUrl = new Map<string, DataEntrySheetRow>();
     for (const row of automaticRows) {
       const previous = byUrl.get(row.sourceUrl);
@@ -211,7 +209,10 @@ function chooseBestDataEntryRows(key: string, candidates: DataEntrySheetRow[][])
         byUrl.set(row.sourceUrl, { ...previous, ...row });
       }
     }
-    return Array.from(byUrl.values()).map((row, index) => ({ ...row, count: index + 1 }));
+    const legacyRows = candidates.reduce<DataEntrySheetRow[]>((best, rows) =>
+      rows.filter(row => hasDataEntryRowContent(row) && !(row.uploadedAt && row.sourceUrl)).length > best.length
+        ? rows.filter(row => hasDataEntryRowContent(row) && !(row.uploadedAt && row.sourceUrl)) : best, []);
+    return [...legacyRows, ...byUrl.values()].map((row, index) => ({ ...row, count: index + 1 }));
   }
   return candidates
     .filter((rows) => Array.isArray(rows))
@@ -545,9 +546,7 @@ export const workTrackService = {
 
     for (const [key, incomingRows] of Object.entries(incoming)) {
       const existingRows = existing[key] || [];
-      if (incomingRows.some(row => row.uploadedAt && row.sourceUrl) &&
-          [...existingRows, ...incomingRows].every(row =>
-            !hasDataEntryRowContent(row) || Boolean(row.uploadedAt && row.sourceUrl))) {
+      if (/-(Jobs|Employer)-/.test(key) && incomingRows.some(row => row.uploadedAt && row.sourceUrl)) {
         next[key] = chooseBestDataEntryRows(key, [existingRows, incomingRows]);
         continue;
       }
