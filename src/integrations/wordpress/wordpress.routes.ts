@@ -25,6 +25,9 @@ const uploadSchema = z.object({
   status: z.string().max(80),
   createdAt: z.string().datetime().optional(),
   uploadedAt: z.string(),
+  activityType: z.enum(["created", "edited"]).optional(),
+  editedBy: z.string().max(300).optional(),
+  editedAt: z.string().datetime().optional(),
   updatedAt: z.string()
 });
 
@@ -190,6 +193,9 @@ wordpressRouter.post("/:site/uploads", async (req, res, next) => {
           createdAt: input.createdAt || input.uploadedAt,
           uploadedAt: input.uploadedAt,
           uploadedBy: name,
+          activityType: input.activityType || "created",
+          editedBy: input.editedBy,
+          editedAt: input.editedAt,
           updatedAt: input.updatedAt,
           date: uploadDate
         };
