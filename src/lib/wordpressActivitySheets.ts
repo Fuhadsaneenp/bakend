@@ -1,3 +1,11 @@
+export function resolveWordPressActivity(upload: Record<string, any>) {
+  const publishedAt = upload.uploadedAt || upload.createdAt;
+  const hasLaterEdit = Number.isFinite(Date.parse(upload.editedAt)) &&
+    Date.parse(upload.editedAt) > Date.parse(publishedAt);
+  const activityType = upload.activityType === "edited" || hasLaterEdit ? "edited" : "created";
+  return { activityType, timestamp: activityType === "edited" ? upload.editedAt || publishedAt : publishedAt };
+}
+
 // The upload ledger is durable even when concurrent sheet saves lose a snapshot.
 // Rebuild the automatic rows on read so every acknowledged upload stays visible.
 export function buildWordPressActivitySheets(values: unknown[]) {
@@ -11,9 +19,7 @@ export function buildWordPressActivitySheets(values: unknown[]) {
     const brand = brands[upload.site];
     if (!brand || !["job", "company"].includes(upload.type) || !upload.employeeId ||
         typeof upload.url !== "string" || !/^https?:\/\//i.test(upload.url)) continue;
-    const activityTimestamp = upload.activityType === "edited"
-      ? upload.editedAt || upload.uploadedAt
-      : upload.createdAt || upload.uploadedAt;
+    const { activityType, timestamp: activityTimestamp } = resolveWordPressActivity(upload);
     if (!Number.isFinite(Date.parse(activityTimestamp))) continue;
     const day = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit",
@@ -27,7 +33,7 @@ export function buildWordPressActivitySheets(values: unknown[]) {
       status: upload.status === "publish" ? "Uploaded" : "Not Uploaded",
       jobTitle: upload.title, notes: upload.title, postId: upload.postId,
       createdAt: upload.createdAt || upload.uploadedAt, uploadedAt: upload.uploadedAt,
-      uploadedBy: upload.employeeName, activityType: upload.activityType || "created",
+      uploadedBy: upload.employeeName, activityType,
       editedBy: upload.editedBy, editedAt: upload.editedAt, updatedAt: upload.updatedAt, date: day,
     };
     for (const target of [key, `${key}-${upload.employeeId}`]) {

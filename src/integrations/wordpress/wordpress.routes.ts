@@ -1,3 +1,4 @@
+import { resolveWordPressActivity } from "../../lib/wordpressActivitySheets.js";
 import { Router } from "express";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
@@ -157,9 +158,7 @@ wordpressRouter.post("/:site/uploads", async (req, res, next) => {
       const brand = site.brand || "Trikonet";
       const subSheet = input.type === "job" ? "Jobs" : "Employer";
       // Group by the timestamp displayed in Work Track, not the later sync time.
-      const activityTimestamp = input.activityType === "edited"
-        ? input.editedAt || input.uploadedAt
-        : input.createdAt || input.uploadedAt;
+      const { activityType, timestamp: activityTimestamp } = resolveWordPressActivity(input);
       const uploadDate = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Asia/Kolkata",
         year: "numeric",
@@ -197,7 +196,7 @@ wordpressRouter.post("/:site/uploads", async (req, res, next) => {
           createdAt: input.createdAt || input.uploadedAt,
           uploadedAt: input.uploadedAt,
           uploadedBy: name,
-          activityType: input.activityType || "created",
+          activityType,
           editedBy: input.editedBy,
           editedAt: input.editedAt,
           updatedAt: input.updatedAt,
