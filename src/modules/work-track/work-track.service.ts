@@ -1,3 +1,4 @@
+import { deduplicateJobActivity } from "../../lib/jobActivityIdentity.js";
 import { buildWordPressActivitySheets } from "../../lib/wordpressActivitySheets.js";
 import { Prisma, Role } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
@@ -203,17 +204,11 @@ function chooseBestDataEntryRows(key: string, candidates: DataEntrySheetRow[][])
   // Automatic activity is a set of permanent records, not a positional snapshot.
   const automaticRows = candidates.flat().filter(row => row?.uploadedAt && row?.sourceUrl);
   if (automaticRows.length && /-(Jobs|Employer)-/.test(key)) {
-    const byUrl = new Map<string, DataEntrySheetRow>();
-    for (const row of automaticRows) {
-      const previous = byUrl.get(row.sourceUrl);
-      if (!previous || getDataEntryRowTimestamp(row) >= getDataEntryRowTimestamp(previous)) {
-        byUrl.set(row.sourceUrl, { ...previous, ...row });
-      }
-    }
+    const automatic = deduplicateJobActivity(automaticRows);
     const legacyRows = candidates.reduce<DataEntrySheetRow[]>((best, rows) =>
       rows.filter(row => hasDataEntryRowContent(row) && !(row.uploadedAt && row.sourceUrl)).length > best.length
         ? rows.filter(row => hasDataEntryRowContent(row) && !(row.uploadedAt && row.sourceUrl)) : best, []);
-    return [...legacyRows, ...byUrl.values()].map((row, index) => ({ ...row, count: index + 1 }));
+    return [...legacyRows, ...automatic].map((row, index) => ({ ...row, count: index + 1 }));
   }
   return candidates
     .filter((rows) => Array.isArray(rows))
