@@ -156,12 +156,16 @@ wordpressRouter.post("/:site/uploads", async (req, res, next) => {
     try {
       const brand = site.brand || "Trikonet";
       const subSheet = input.type === "job" ? "Jobs" : "Employer";
+      // Group by the timestamp displayed in Work Track, not the later sync time.
+      const activityTimestamp = input.activityType === "edited"
+        ? input.editedAt || input.uploadedAt
+        : input.createdAt || input.uploadedAt;
       const uploadDate = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Asia/Kolkata",
         year: "numeric",
         month: "2-digit",
         day: "2-digit"
-      }).format(new Date(input.uploadedAt || Date.now()));
+      }).format(new Date(activityTimestamp || Date.now()));
 
       const memberKey = `${brand}-${subSheet}-${uploadDate}-${employee.id}`;
       const companyKey = `${brand}-${subSheet}-${uploadDate}`;
