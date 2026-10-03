@@ -1,3 +1,4 @@
+import { buildWordPressActivitySheets } from "../../lib/wordpressActivitySheets.js";
 import { Prisma, Role } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
@@ -260,9 +261,15 @@ async function readDataEntrySheets(companyId: string) {
   const companySetting = settings.find((setting) => setting.companyId === companyId);
   const otherSettings = settings.filter((setting) => setting.companyId !== companyId);
 
+  const uploads = await prisma.companySetting.findMany({
+    // A range also avoids MySQL's incompatible LIKE parameter collation.
+    where: { key: { gte: "wordpress_upload_v1_", lt: "wordpress_upload_v2_" } },
+    select: { value: true },
+  });
   return mergeDataEntrySheetMaps(
     ...otherSettings.map((setting) => normalizeDataEntrySheets(setting.value)),
-    normalizeDataEntrySheets(companySetting?.value)
+    normalizeDataEntrySheets(companySetting?.value),
+    normalizeDataEntrySheets(buildWordPressActivitySheets(uploads.map((upload) => upload.value)))
   );
 }
 
