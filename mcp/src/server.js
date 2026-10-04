@@ -1,3 +1,4 @@
+import { confirmedJobSheets } from './job-evidence.js';
 import { registerIntelligence } from './intelligence.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
@@ -95,7 +96,7 @@ export function createServer({
         return valid ? value : null;
       });
       const workCompanyId = values[3]?.user?.companyId ?? null;
-      const report = buildPerformanceReport({ employees, attendance: values[0], cards: values[1], sheets: values[2], workCompanyId, month, year, employeeId, sourceStatus });
+      const report = buildPerformanceReport({ employees, attendance: values[0], cards: values[1], sheets: values[2] === null ? null : confirmedJobSheets(values[2], employees), workCompanyId, month, year, employeeId, sourceStatus });
       return { content: [{ type: 'text', text: JSON.stringify(report, null, 2) }] };
     } catch (error) {
       return { isError: true, content: [{ type: 'text', text: error.message }] };

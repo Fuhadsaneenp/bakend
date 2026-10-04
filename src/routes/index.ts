@@ -1,3 +1,4 @@
+import { mcpEvidenceRouter } from '../integrations/mcp-evidence.js';
 import { Router } from "express";
 import { wordpressRouter } from "../integrations/wordpress/wordpress.routes.js";
 import { authRouter } from "../modules/auth/auth.routes.js";
@@ -21,6 +22,7 @@ import { exec } from "child_process";
 import { whatsappWebhookRouter } from "./whatsappWebhook.js";
 
 export const apiRouter = Router();
+apiRouter.use("/mcp", mcpEvidenceRouter);
 apiRouter.use("/wordpress", wordpressRouter);
 
 function rejectUnsafeAdminEndpoint(res: any) {

@@ -7,7 +7,7 @@ const nameOf = employee => [employee.firstName, employee.middleName, employee.la
 const normalizeName = name => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
 const sum = (rows, field) => rows.reduce((total, row) => total + (Number.isFinite(Number(row[field])) ? Number(row[field]) : 0), 0);
 
-export function buildPerformanceReport({ employees, attendance, cards, sheets, workCompanyId, month, year, employeeId, sourceStatus, dateFrom, dateTo }) {
+export function buildPerformanceReport({ employees, attendance, cards, sheets, workCompanyId, month, year, employeeId, sourceStatus, dateFrom, dateTo, workEmployeeIds }) {
   const period = `${year}-${String(month).padStart(2, '0')}`;
   const inMonth = value => { const day = dateKey(value); return dateFrom ? Boolean(day && day >= dateFrom && day <= dateTo) : day?.startsWith(period) === true; };
   const selected = employeeId ? employees.filter(e => e.id === employeeId) : employees;
@@ -31,7 +31,7 @@ export function buildPerformanceReport({ employees, attendance, cards, sheets, w
       'Reports cover records returned by the backend for this account. Source errors are explicit; missing data is not treated as zero.',
     ],
     employees: selected.map(employee => {
-      const workScopeMatches = Boolean(workCompanyId && employee.companyId === workCompanyId);
+      const workScopeMatches = Boolean(workEmployeeIds ? workEmployeeIds.includes(employee.id) : workCompanyId && employee.companyId === workCompanyId);
       const punches = attendance === null ? null : attendance.filter(row => row.employeeId === employee.id && inMonth(row.workDate)).map(row => ({
         workDate: row.workDate, localDate: dateKey(row.workDate), punchIn: row.checkInAt ?? null, punchOut: row.checkOutAt ?? null,
         workMinutes: row.workMinutes ?? null, overtimeMinutes: row.overtimeMinutes ?? null,
@@ -89,7 +89,7 @@ export function buildPerformanceReport({ employees, attendance, cards, sheets, w
         workUnavailableReason: !workScopeMatches ? 'Work-track APIs use the token company; employee company differs or account company could not be verified.' : cards === null ? 'Source unavailable.' : null,
         dataEntry: attributableEntries === null ? { available: false, reason: !workScopeMatches ? 'Work-track company does not match or could not be verified.' : 'Source unavailable.' }
           : { available: true, scope: 'dated_monthly_activity_and_separate_undated_snapshot', attribution: 'employee_id_or_sheet_suffix_then_unique_normalized_name',
-            monthlyRowCount: monthlyEntries.length, monthlyReportedJobCount: sum(monthlyEntries, 'jobCount'),
+            monthlyRowCount: monthlyEntries.length, addedJobs: monthlyEntries.filter(r => r.activityType !== 'edited').length, editedJobs: monthlyEntries.filter(r => r.activityType === 'edited').length, monthlyReportedJobCount: sum(monthlyEntries, 'jobCount'),
             undatedRowCount: undatedEntries.length, undatedReportedJobCount: sum(undatedEntries, 'jobCount'),
             duplicateNameAttributionSkipped: ambiguous,
             dailyActivity,

@@ -89,9 +89,9 @@ test('performance aggregates monthly attendance, task history, and undated entry
     assert.equal(employee.work.tasks[0].workStartTime, '2026-10-01T04:00:00Z');
     assert.equal(employee.work.tasks[0].activeWorkMinutes, null);
     assert.equal(employee.work.approvedDuringMonth, 1);
-    assert.equal(employee.dataEntry.undatedRowCount, 2);
-    assert.equal(employee.dataEntry.undatedReportedJobCount, 5);
-    assert.equal(employee.dataEntry.rowsWithoutNumericJobCount, 1);
+    assert.equal(employee.dataEntry.undatedRowCount, 0);
+    assert.equal(employee.dataEntry.undatedReportedJobCount, 0);
+    assert.equal(employee.dataEntry.rowsWithoutNumericJobCount, 0);
     assert.equal(employee.dataEntry.monthlyRowCount, 0);
   });
 });
