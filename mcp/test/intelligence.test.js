@@ -38,3 +38,8 @@ test('department, company, ranking and unavailable live status tools return stru
  const r=await client.callTool({name,arguments:args});assert.ok(!r.isError,name);const data=JSON.parse(r.content[0].text);assert.ok(data.period);if(name==='get_currently_working_employees')assert.equal(data.available,false);
  }
 }));
+
+test('denied scoped evidence never falls back to broader company cards',()=>session(async(client,calls)=>{
+ const result=JSON.parse((await client.callTool({name:'get_employee_tasks',arguments:{employee_id:'a',period:'today'}})).content[0].text);
+ assert.equal(result.tasks.available,false);assert.ok(!calls.includes('/api/work-track/cards'));assert.equal(result.data_quality.tasks.http_status,403);
+}));

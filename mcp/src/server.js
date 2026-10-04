@@ -38,7 +38,7 @@ export function createServer({
         const message = response.status === 401 ? 'Access token expired or invalid. Update STEMS_ACCESS_TOKEN and restart.'
           : response.status === 403 ? 'Your backend account does not have permission for this request.'
           : `Backend request failed (HTTP ${response.status}).`;
-        return { isError: true, content: [{ type: 'text', text: message }] };
+        return { isError: true, httpStatus: response.status, content: [{ type: 'text', text: message }] };
       }
       const data = await response.json();
       return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
@@ -56,7 +56,18 @@ export function createServer({
     description: 'List employees visible to the authenticated backend account. Backend role and company permissions apply.',
     inputSchema: { companyId: z.string().min(1).max(128).optional().describe('Optional company ID; the backend checks access.') },
     annotations, ...security,
-  }, ({ companyId }) => request('/api/employees', true, { companyId }));
+  }, async ({ companyId }) => {
+    const result = await request('/api/employees', true, { companyId });
+    if (result.isError) return result;
+    const employees = JSON.parse(result.content[0].text).map(e => ({
+      id: e.id, employeeCode: e.employeeCode, firstName: e.firstName,
+      middleName: e.middleName, lastName: e.lastName, companyId: e.companyId,
+      department: e.department ? { id: e.department.id, name: e.department.name } : null,
+      designation: e.designation ? { id: e.designation.id, title: e.designation.title } : null,
+      reportingManagerId: e.reportingManagerId, status: e.status,
+    }));
+    return { content: [{ type: 'text', text: JSON.stringify(employees) }], structuredContent: { employees } };
+  });
   server.registerTool('stems_list_notifications', {
     description: 'Read the authenticated account’s latest 50 notifications.', inputSchema: {}, annotations, ...security,
   }, () => request('/api/notifications'));
@@ -79,7 +90,7 @@ export function createServer({
       }
       const results = await Promise.all([
         request('/api/attendance/report', true, { month, year, companyId }),
-        request('/api/work-track/cards', true, { assignedToId: employeeId }),
+        request('/api/mcp/work-evidence', true, { employeeId, dateFrom: `${year}-${String(month).padStart(2,'0')}-01`, dateTo: new Date(Date.UTC(year, month, 0)).toISOString().slice(0,10) }),
         request('/api/work-track/data-entry-sheets'),
         request('/api/auth/me/access'),
       ]);
@@ -91,12 +102,12 @@ export function createServer({
           return null;
         }
         const value = JSON.parse(result.content[0].text);
-        const valid = index < 2 ? Array.isArray(value) : value !== null && typeof value === 'object' && !Array.isArray(value);
+        const valid = index === 0 ? Array.isArray(value) : value !== null && typeof value === 'object' && !Array.isArray(value);
         sourceStatus[name] = valid ? { available: true } : { available: false, error: 'Unexpected backend response shape.' };
         return valid ? value : null;
       });
       const workCompanyId = values[3]?.user?.companyId ?? null;
-      const report = buildPerformanceReport({ employees, attendance: values[0], cards: values[1], sheets: values[2] === null ? null : confirmedJobSheets(values[2], employees), workCompanyId, month, year, employeeId, sourceStatus });
+      const report = buildPerformanceReport({ employees, attendance: values[0], cards: values[1]?.cards ?? null, workEmployeeIds: values[1]?.permittedEmployeeIds, sheets: values[2] === null ? null : confirmedJobSheets(values[2], employees), workCompanyId, month, year, employeeId, sourceStatus });
       return { content: [{ type: 'text', text: JSON.stringify(report, null, 2) }] };
     } catch (error) {
       return { isError: true, content: [{ type: 'text', text: error.message }] };

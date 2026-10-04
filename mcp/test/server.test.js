@@ -67,11 +67,11 @@ test('performance aggregates monthly attendance, task history, and undated entry
     '/api/employees': [{ id: 'e1', companyId: 'c1', firstName: 'Asha', lastName: 'K', designation: { title: 'Data Entry' } }],
     '/api/auth/me/access': { user: { companyId: 'c1' } },
     '/api/attendance/report': [{ employeeId: 'e1', workDate: '2026-09-30T18:30:00Z', checkInAt: '2026-10-01T03:30:00Z', workMinutes: 480, isLate: true }],
-    '/api/work-track/cards': [{ id: 'task', assignedToId: 'e1', createdAt: '2026-09-20T00:00:00Z', status: 'APPROVED', statusHistory: [
+    '/api/mcp/work-evidence': {permittedEmployeeIds:['e1'],cards:[{ id: 'task', assignedToId: 'e1', createdAt: '2026-09-20T00:00:00Z', status: 'APPROVED', statusHistory: [
       { status: 'IN_PROGRESS', createdAt: '2026-10-01T04:00:00Z' },
       { status: 'FINISHED', createdAt: '2026-10-01T05:00:00Z' },
       { status: 'APPROVED', createdAt: '2026-10-01T06:00:00Z' },
-    ] }],
+    ] }]},
     '/api/work-track/data-entry-sheets': { sheet: [{ employeeName: 'Asha K', count: 99, jobCount: 5 }, { employeeName: 'Asha K', count: 100, jobCount: '' }] },
   };
   await withClient({ token: 'test-only', fetchImpl: async url => {
@@ -111,4 +111,12 @@ test('performance preserves denied sources and does not confuse companies', asyn
     assert.equal(report.employees[0].work, null);
     assert.equal(report.employees[0].dataEntry.available, false);
   });
+});
+
+test('employee discovery projects out credentials, salary and private contact fields', async () => {
+ await withClient({token:'test',fetchImpl:async()=>Response.json([{id:'e1',firstName:'Asha',salary:99,phone:'private',user:{passwordHash:'secret',refreshHash:'secret'},bankAccount:'secret'}])},async client=>{
+ const result=await client.callTool({name:'stems_list_employees',arguments:{}});
+ assert.ok(!result.isError);assert.equal(JSON.parse(result.content[0].text)[0].id,'e1');
+ assert.doesNotMatch(result.content[0].text,/secret|salary|private|passwordHash|refreshHash|bankAccount/);
+ });
 });
