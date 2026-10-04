@@ -59,7 +59,8 @@ export function createOAuthProvider({ store, issuerUrl, authenticate, validateUs
       });
       res.cookie('stems_mcp_csrf', csrf, { httpOnly: true, secure: new URL(issuer).protocol === 'https:', sameSite: 'lax', path: '/mcp/login', maxAge: 600_000 });
       res.setHeader('Cache-Control', 'no-store');
-      res.setHeader('Referrer-Policy', 'no-referrer');
+      // Preserve the same-origin POST Origin while hiding referrers on the ChatGPT redirect.
+      res.setHeader('Referrer-Policy', 'same-origin');
       res.type('html').send(loginPage(flow, csrf, client.client_name || 'ChatGPT'));
     },
     async challengeForAuthorizationCode(client, code) {
@@ -105,7 +106,8 @@ export function createOAuthProvider({ store, issuerUrl, authenticate, validateUs
     },
     async login(req, res) {
       res.setHeader('Cache-Control', 'no-store');
-      res.setHeader('Referrer-Policy', 'no-referrer');
+      // Preserve the same-origin POST Origin while hiding referrers on the ChatGPT redirect.
+      res.setHeader('Referrer-Policy', 'same-origin');
       const flow = String(req.body?.flow || '');
       try {
         const record = await read(`flow:${hash(flow)}`);
