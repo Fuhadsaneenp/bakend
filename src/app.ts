@@ -33,6 +33,8 @@ const inferMimeTypeFromKey = (key: string) => {
 const configuredOrigins = () => {
   const origins = new Set([
     env.APP_ORIGIN,
+    // OAuth sign-in forms POST from the MCP server itself.
+    new URL(process.env.MCP_PUBLIC_URL || "https://api.secondtales.com").origin,
     ...productionOrigins,
     ...(env.ALLOWED_ORIGINS?.split(",").map((origin: string) => origin.trim()).filter(Boolean) ?? [])
   ]);
