@@ -9,6 +9,7 @@ import { errorHandler } from "./middleware/error.js";
 import { prisma } from "./lib/prisma.js";
 import { iclockRouter } from "./routes/iclock.js";
 import { storageService } from "./storage/storage.service.js";
+import { mcpRouter } from "./integrations/mcp.js";
 
 const productionOrigins = [
   "https://stems.secondtales.com",
@@ -155,6 +156,7 @@ export const createApp = () => {
     res.setHeader("Surrogate-Control", "no-store");
     next();
   });
+  app.use(mcpRouter);
   app.use("/api", apiRouter);
   app.use(errorHandler);
   return app;

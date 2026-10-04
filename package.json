@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "cross-env TZ=Asia/Kolkata tsx watch src/server.ts",
-    "build": "chmod +x ./node_modules/@prisma/engines/* || true && prisma generate && tsc -p tsconfig.json && mkdir -p tmp && touch tmp/restart.txt",
+    "build": "chmod +x ./node_modules/@prisma/engines/* || true && prisma generate && tsc -p tsconfig.json && cp -R mcp dist/mcp && mkdir -p tmp && touch tmp/restart.txt",
     "start": "cross-env TZ=Asia/Kolkata node dist/src/server.js",
     "lint": "eslint src --ext .ts",
     "prisma:generate": "prisma generate",
@@ -43,7 +43,8 @@
     "pg": "^8.22.0",
     "pino": "^9.3.2",
     "typescript": "^5.5.3",
-    "zod": "^3.23.8"
+    "zod": "^3.25.76",
+    "@modelcontextprotocol/sdk": "^1.26.0"
   },
   "devDependencies": {
     "eslint": "^9.6.0",
