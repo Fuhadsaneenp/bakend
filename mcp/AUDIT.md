@@ -25,7 +25,7 @@ No new aggregation tables, broad cache, or production schema migration was intro
 
 ## Validation
 
-18 automated tests, including 100 realistic question variants exercising the planner (not 100 live model-selection evaluations), duplicate names, denied employees, India midnight/week/month boundaries, multi-month source requests, old pending work, cross-company explicit attribution, OAuth PKCE/CSRF/audience/single-use/rotation. Backend TypeScript build verified.
+20 automated tests, including 100 realistic question variants exercising the planner (not 100 live model-selection evaluations), duplicate names, denied employees, India midnight/week/month boundaries, multi-month source requests, old pending work, cross-company explicit attribution, OAuth PKCE/CSRF/audience/single-use/rotation. Backend TypeScript build verified.
 
 ChatGPT catalog refreshed and live search_employee + get_employee_360 verified for Rishana on 2026-10-04: 26 rows / 26 reported jobs; first recorded publication/edit 10:01:36 IST. Counts may change as new work arrives.
 
