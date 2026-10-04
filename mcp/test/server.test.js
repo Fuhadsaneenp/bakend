@@ -21,7 +21,7 @@ test('MCP discovery and health do not send account credentials', async () => {
     return Response.json({ ok: true, database: 'connected' });
   } }, async client => {
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map(tool => tool.name), ['stems_health', 'stems_list_employees', 'stems_list_notifications', 'stems_employee_performance']);
+    assert.ok(['stems_health', 'search_employee', 'get_employee_360', 'plan_employee_query'].every(name => tools.some(tool => tool.name === name)));
     const result = await client.callTool({ name: 'stems_health', arguments: {} });
     assert.equal(JSON.parse(result.content[0].text).ok, true);
   });

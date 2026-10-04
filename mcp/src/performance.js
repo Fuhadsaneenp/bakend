@@ -7,9 +7,9 @@ const nameOf = employee => [employee.firstName, employee.middleName, employee.la
 const normalizeName = name => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
 const sum = (rows, field) => rows.reduce((total, row) => total + (Number.isFinite(Number(row[field])) ? Number(row[field]) : 0), 0);
 
-export function buildPerformanceReport({ employees, attendance, cards, sheets, workCompanyId, month, year, employeeId, sourceStatus }) {
+export function buildPerformanceReport({ employees, attendance, cards, sheets, workCompanyId, month, year, employeeId, sourceStatus, dateFrom, dateTo }) {
   const period = `${year}-${String(month).padStart(2, '0')}`;
-  const inMonth = value => dateKey(value)?.startsWith(period) === true;
+  const inMonth = value => { const day = dateKey(value); return dateFrom ? Boolean(day && day >= dateFrom && day <= dateTo) : day?.startsWith(period) === true; };
   const selected = employeeId ? employees.filter(e => e.id === employeeId) : employees;
   if (employeeId && !selected.length) throw new Error('Employee not found in the employees visible to this account.');
   const names = new Map();
@@ -38,7 +38,7 @@ export function buildPerformanceReport({ employees, attendance, cards, sheets, w
         isLate: row.isLate ?? null, isEarlyLeave: row.isEarlyLeave ?? null,
       }));
       const tasks = cards === null || !workScopeMatches ? null : cards.filter(card => card.assignedToId === employee.id &&
-        (inMonth(card.createdAt) || (card.statusHistory || []).some(event => inMonth(event.createdAt))))
+        (inMonth(card.createdAt) || (card.statusHistory || []).some(event => inMonth(event.createdAt)) || (dateFrom && !['FINISHED', 'APPROVED', 'OUT_TO_DELIVER'].includes(card.status))))
         .map(card => {
           const history = [...(card.statusHistory || [])].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
           const started = history.find(event => event.status === 'IN_PROGRESS');
@@ -54,18 +54,19 @@ export function buildPerformanceReport({ employees, attendance, cards, sheets, w
         });
       const name = normalizeName(nameOf(employee));
       const ambiguous = (names.get(name) || 0) > 1;
-      const entries = sheets === null || !workScopeMatches ? null : sheetRows.filter(row => {
+      const entries = sheets === null ? null : sheetRows.filter(row => {
         const sheetEmployeeId = row.sheet.match(/\d{4}-\d{2}-\d{2}-(.+)$/)?.[1];
         const explicitId = row.employeeId || sheetEmployeeId;
-        return explicitId ? explicitId === employee.id : (!ambiguous && normalizeName(row.employeeName || row.uploadedBy) === name);
+        return explicitId ? explicitId === employee.id : (workScopeMatches && !ambiguous && normalizeName(row.employeeName || row.uploadedBy) === name);
       });
-      const deduped = entries === null ? null : [...new Map(entries.map((row, index) => {
+      const attributableEntries = !workScopeMatches && entries?.length === 0 ? null : entries;
+      const deduped = attributableEntries === null ? null : [...new Map(attributableEntries.map((row, index) => {
         const day = row.date || row.sheet.match(/\d{4}-\d{2}-\d{2}/)?.[0] || dateKey(row.uploadedAt || row.createdAt);
         const identity = row.postId ?? row.sourceUrl;
         const brand = row.sheet.split(/-(?:Jobs|Employer)-/)[0];
         return [identity ? `${brand}:${identity}:${day || 'undated'}:${row.activityType || 'created'}` : `${row.sheet}:${index}`, { ...row, activityDate: day || null }];
       })).values()];
-      const monthlyEntries = deduped?.filter(row => row.activityDate?.startsWith(period)) || [];
+      const monthlyEntries = deduped?.filter(row => dateFrom ? row.activityDate >= dateFrom && row.activityDate <= dateTo : row.activityDate?.startsWith(period)) || [];
       const undatedEntries = deduped?.filter(row => !row.activityDate) || [];
       const dailyActivity = [...new Set(monthlyEntries.map(row => row.activityDate))].sort().map(day => {
         const rows = monthlyEntries.filter(row => row.activityDate === day);
@@ -82,11 +83,11 @@ export function buildPerformanceReport({ employees, attendance, cards, sheets, w
         attendance: punches === null ? null : { recordedDays: punches.length, workMinutes: sum(punches, 'workMinutes'),
           overtimeMinutes: sum(punches, 'overtimeMinutes'), lateDays: punches.filter(row => row.isLate === true).length,
           earlyLeaveDays: punches.filter(row => row.isEarlyLeave === true).length, daily: punches },
-        work: tasks === null ? null : { scope: 'Tasks created or with status changes during the requested month; current statuses and lifetime histories included.',
+        work: tasks === null ? null : { scope: dateFrom ? 'Tasks with activity in range plus current pending backlog; current statuses and lifetime histories included.' : 'Tasks created or with status changes during the requested month; current statuses and lifetime histories included.',
           taskCount: tasks.length, approvedDuringMonth: tasks.filter(task => task.statusHistory.some(event => event.status === 'APPROVED' && inMonth(event.timestamp))).length,
           tasks },
         workUnavailableReason: !workScopeMatches ? 'Work-track APIs use the token company; employee company differs or account company could not be verified.' : cards === null ? 'Source unavailable.' : null,
-        dataEntry: entries === null ? { available: false, reason: !workScopeMatches ? 'Work-track company does not match or could not be verified.' : 'Source unavailable.' }
+        dataEntry: attributableEntries === null ? { available: false, reason: !workScopeMatches ? 'Work-track company does not match or could not be verified.' : 'Source unavailable.' }
           : { available: true, scope: 'dated_monthly_activity_and_separate_undated_snapshot', attribution: 'employee_id_or_sheet_suffix_then_unique_normalized_name',
             monthlyRowCount: monthlyEntries.length, monthlyReportedJobCount: sum(monthlyEntries, 'jobCount'),
             undatedRowCount: undatedEntries.length, undatedReportedJobCount: sum(undatedEntries, 'jobCount'),

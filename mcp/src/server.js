@@ -1,3 +1,4 @@
+import { registerIntelligence } from './intelligence.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { buildPerformanceReport } from './performance.js';
@@ -100,5 +101,6 @@ export function createServer({
       return { isError: true, content: [{ type: 'text', text: error.message }] };
     }
   });
+  registerIntelligence(server, { request, annotations, security });
   return server;
 }

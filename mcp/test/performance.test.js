@@ -32,3 +32,11 @@ test('created and updated timestamps do not fabricate work start or completion',
   assert.equal(task.workEndTime, null);
   assert.equal(report.employees[0].work.approvedDuringMonth, 0);
 });
+
+test('shared sheets require explicit employee attribution across company contexts', () => {
+  const report = buildPerformanceReport({ employees: [{ id: 'one', companyId: 'other', firstName: 'Asha' }],
+    attendance: [], cards: [], sheets: { shared: [{ employeeId: 'one', date: '2026-10-04', postId: 1 }, { employeeName: 'Asha', date: '2026-10-04', postId: 2 }] },
+    workCompanyId: 'c', month: 10, year: 2026, sourceStatus: {} });
+  assert.equal(report.employees[0].dataEntry.available, true);
+  assert.equal(report.employees[0].dataEntry.monthlyRowCount, 1);
+});
