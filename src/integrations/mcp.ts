@@ -33,7 +33,8 @@ async function validateUser(userId: string) {
 
 export const mcpRouter = createHttpRouter({
   issuerUrl,
-  baseUrl: `http://127.0.0.1:${env.PORT}`,
+  // Hostinger Passenger manages the listening socket; use the public API origin.
+  baseUrl: issuerUrl,
   store,
   validateUser,
   async authenticate(identifier: string, password: string) {
