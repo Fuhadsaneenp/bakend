@@ -26,7 +26,7 @@ const store = {
 
 async function validateUser(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId }, include: { employee: { select: { status: true, dateOfExit: true } } } });
-  if (!user?.isActive || !user.companyId || !['SUPER_ADMIN', 'HR_ADMIN', 'MANAGER'].includes(user.role)
+  if (!user?.isActive || !user.companyId || !['SUPER_ADMIN', 'HR_ADMIN', 'MANAGER', 'EMPLOYEE'].includes(user.role)
     || (user.employee && (user.employee.status !== 'ACTIVE' || user.employee.dateOfExit))) throw new Error('Reporting account unavailable.');
   return user;
 }

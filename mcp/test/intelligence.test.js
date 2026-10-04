@@ -25,3 +25,16 @@ const subjects=['Fuhad','Rishana','Asha','ST001','HF002'];
 const prompts=['How did NAME perform today?','What did NAME work on yesterday?','When did NAME start work today?','When did NAME stop working yesterday?','How many hours did NAME work this week?','Was NAME active today?','How much idle time did NAME have yesterday?','What tasks did NAME complete today?','What tasks are pending for NAME this month?','Does NAME have overdue work today?','What project is NAME working on today?','Show NAME activity for last 7 days.','Show NAME work history last 30 days.','How productive was NAME last month?','Show NAME attendance this week.','Show NAME data entry today.','Show NAME performance last week.','Show NAME targets this month.','Show NAME break time yesterday.','Show NAME activity Monday.'];
 export const questions=subjects.flatMap(subject=>prompts.map(prompt=>prompt.replaceAll('NAME',subject)));
 test('100 realistic questions produce executable plans without fabricated live measurements',()=>session(async client=>{assert.equal(questions.length,100);for(const question of questions){const r=await client.callTool({name:'plan_employee_query',arguments:{question,employee_id:'a'}});assert.ok(!r.isError,question);const p=JSON.parse(r.content[0].text);assert.equal(p.steps[0].tool,'get_employee_360');assert.equal(p.steps[0].arguments.employee_id,'a');assert.ok(p.period.date_from<=p.period.date_to);}}));
+test('follow-up employee context and week comparison plan',()=>session(async client=>{
+ const yesterday=JSON.parse((await client.callTool({name:'plan_employee_query',arguments:{question:'What about yesterday?',employee_id:'a'}})).content[0].text);
+ assert.equal(yesterday.steps[0].arguments.employee_id,'a');
+ assert.equal(yesterday.period.date_from,yesterday.period.date_to);
+ const comparison=JSON.parse((await client.callTool({name:'plan_employee_query',arguments:{question:'Compare this week with last week',employee_id:'a'}})).content[0].text);
+ assert.equal(comparison.steps[0].tool,'compare_employee_periods');
+ assert.ok(comparison.steps[0].arguments.second_to<comparison.steps[0].arguments.first_from);
+}));
+test('department, company, ranking and unavailable live status tools return structured evidence',()=>session(async client=>{
+ for(const [name,args] of [['get_department_summary',{department:'Marketing',period:'today'}],['get_company_work_summary',{period:'today'}],['get_top_performers',{metric:'data_entry_rows',period:'today'}],['get_currently_working_employees',{period:'today'}]]){
+ const r=await client.callTool({name,arguments:args});assert.ok(!r.isError,name);const data=JSON.parse(r.content[0].text);assert.ok(data.period);if(name==='get_currently_working_employees')assert.equal(data.available,false);
+ }
+}));
