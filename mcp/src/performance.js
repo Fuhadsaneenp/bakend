@@ -97,6 +97,12 @@ export function buildPerformanceReport({ employees, attendance, cards, sheets, w
             workStartTime: null, workEndTime: null, rows: monthlyEntries, undatedRows: undatedEntries },
       };
     }),
-    unattributedDataEntryRows: sheets === null ? null : sheetRows.filter(row => !names.has(normalizeName(row.employeeName)) || names.get(normalizeName(row.employeeName)) !== 1).length,
+    unattributedDataEntryRows: sheets === null ? null : sheetRows.filter(row => {
+      const explicitId = row.employeeId || row.sheet.match(/\d{4}-\d{2}-\d{2}-(.+)$/)?.[1];
+      if (explicitId && employees.some(employee => employee.id === explicitId)) return false;
+      const n = normalizeName(row.employeeName || row.uploadedBy);
+      return !explicitId && names.get(n) !== 1;
+    }).length,
+    unattributedDataEntryScope: 'All dates in returned sheet snapshots, including undated rows and shared/personal duplicates; this is not a daily work count.',
   };
 }
