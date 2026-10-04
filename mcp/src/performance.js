@@ -54,8 +54,11 @@ export function buildPerformanceReport({ employees, attendance, cards, sheets, w
         });
       const name = normalizeName(nameOf(employee));
       const ambiguous = (names.get(name) || 0) > 1;
-      const entries = sheets === null || !workScopeMatches ? null : sheetRows.filter(row => row.employeeId === employee.id || row.sheet.endsWith(`-${employee.id}`) ||
-        (!ambiguous && normalizeName(row.employeeName || row.uploadedBy) === name));
+      const entries = sheets === null || !workScopeMatches ? null : sheetRows.filter(row => {
+        const sheetEmployeeId = row.sheet.match(/\d{4}-\d{2}-\d{2}-(.+)$/)?.[1];
+        const explicitId = row.employeeId || sheetEmployeeId;
+        return explicitId ? explicitId === employee.id : (!ambiguous && normalizeName(row.employeeName || row.uploadedBy) === name);
+      });
       const deduped = entries === null ? null : [...new Map(entries.map((row, index) => {
         const day = row.date || row.sheet.match(/\d{4}-\d{2}-\d{2}/)?.[0] || dateKey(row.uploadedAt || row.createdAt);
         const identity = row.postId ?? row.sourceUrl;
@@ -64,6 +67,14 @@ export function buildPerformanceReport({ employees, attendance, cards, sheets, w
       })).values()];
       const monthlyEntries = deduped?.filter(row => row.activityDate?.startsWith(period)) || [];
       const undatedEntries = deduped?.filter(row => !row.activityDate) || [];
+      const dailyActivity = [...new Set(monthlyEntries.map(row => row.activityDate))].sort().map(day => {
+        const rows = monthlyEntries.filter(row => row.activityDate === day);
+        const times = rows.map(row => row.activityType === 'edited' ? row.editedAt : row.uploadedAt || row.createdAt)
+          .filter(value => value && dateKey(value) === day).sort((a, b) => new Date(a) - new Date(b));
+        return { date: day, rowCount: rows.length, reportedJobCount: sum(rows, 'jobCount'),
+          firstRecordedActivityAt: times[0] || null, lastRecordedActivityAt: times.at(-1) || null,
+          timingSource: 'publication_or_edit_activity_not_work_timer' };
+      });
       return {
         employee: { id: employee.id, employeeCode: employee.employeeCode, name: nameOf(employee),
           designation: employee.designation?.title ?? employee.designation ?? null,
@@ -80,6 +91,7 @@ export function buildPerformanceReport({ employees, attendance, cards, sheets, w
             monthlyRowCount: monthlyEntries.length, monthlyReportedJobCount: sum(monthlyEntries, 'jobCount'),
             undatedRowCount: undatedEntries.length, undatedReportedJobCount: sum(undatedEntries, 'jobCount'),
             duplicateNameAttributionSkipped: ambiguous,
+            dailyActivity,
             rowsWithoutNumericJobCount: [...monthlyEntries, ...undatedEntries].filter(row => row.jobCount === '' || row.jobCount == null || !Number.isFinite(Number(row.jobCount))).length,
             workStartTime: null, workEndTime: null, rows: monthlyEntries, undatedRows: undatedEntries },
       };
