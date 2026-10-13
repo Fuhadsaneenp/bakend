@@ -1,3 +1,4 @@
+import { assertActiveEmployee } from "../../lib/employeeEligibility.js";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError } from "../../lib/errors.js";
 
@@ -101,6 +102,7 @@ export const recruitmentService = {
     }
 
     if (data.hiringManagerId) {
+      await assertActiveEmployee(data.hiringManagerId, companyId);
       const manager = await prisma.employee.findFirst({
         where: { id: data.hiringManagerId, companyId }
       });
@@ -138,6 +140,7 @@ export const recruitmentService = {
     }
 
     if (data.hiringManagerId) {
+      await assertActiveEmployee(data.hiringManagerId, companyId);
       const manager = await prisma.employee.findFirst({
         where: { id: data.hiringManagerId, companyId }
       });

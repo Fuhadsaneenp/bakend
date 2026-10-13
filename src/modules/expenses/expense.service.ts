@@ -1,3 +1,4 @@
+import { assertActiveEmployee } from "../../lib/employeeEligibility.js";
 import { ApprovalStatus, ExpenseCategory, ReimbursementStatus, Role } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
@@ -9,6 +10,7 @@ export const expenseService = {
   async submit(userId: string, data: { category: ExpenseCategory; amount: number; currency?: string; description: string; receiptKey?: string; advanceId?: string }) {
     const employee = await prisma.employee.findUnique({ where: { userId } });
     if (!employee) throw notFound("Employee");
+    await assertActiveEmployee(employee.id);
     return prisma.expenseClaim.create({
       data: {
         employeeId: employee.id,

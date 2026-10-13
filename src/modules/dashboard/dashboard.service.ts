@@ -1,3 +1,4 @@
+import { activeEmployeeWhere } from "../../lib/employeeEligibility.js";
 import { Role } from "@prisma/client";
 import { startOfMonth, differenceInMinutes } from "date-fns";
 import { prisma } from "../../lib/prisma.js";
@@ -9,8 +10,8 @@ async function getAttendanceStats(employeeWhere: any, companyId?: string) {
   const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
   const todayUtc = new Date(todayKolkataStr);
   const scopedEmployeeWhere = companyId
-    ? { ...employeeWhere, companyId, status: "ACTIVE", dateOfExit: null }
-    : { ...employeeWhere, status: "ACTIVE", dateOfExit: null };
+    ? { ...employeeWhere, companyId, ...activeEmployeeWhere() }
+    : { ...employeeWhere, ...activeEmployeeWhere() };
 
   const totalEmployees = await prisma.employee.count({
     where: scopedEmployeeWhere
@@ -194,13 +195,13 @@ export const dashboardService = {
     const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
     const todayUtc = new Date(todayKolkataStr);
     const [employees, pendingWfh, pendingExpenses, payrollRuns, attendanceToday, recentEmployees, terminatedCount, attendanceStats, jobApplicants] = await Promise.all([
-      prisma.employee.count({ where: { companyId, status: "ACTIVE" } }),
+      prisma.employee.count({ where: { companyId, ...activeEmployeeWhere() } }),
       prisma.wFHRequest.count({ where: { employee: { companyId }, status: "PENDING" } }),
       prisma.expenseClaim.count({ where: { employee: { companyId }, OR: [{ managerStatus: "PENDING" }, { hrStatus: "PENDING" }] } }),
       prisma.payrollRun.findMany({ where: { companyId }, orderBy: { createdAt: "desc" }, take: 6 }),
       prisma.attendance.count({ where: { employee: { companyId }, workDate: { gte: monthStart } } }),
       prisma.employee.findMany({
-        where: { companyId, status: "ACTIVE", dateOfExit: null },
+        where: { companyId, ...activeEmployeeWhere() },
         take: 50,
         include: {
           designation: true,
@@ -226,7 +227,7 @@ export const dashboardService = {
       prisma.jobApplicant.count({ where: { companyId } })
     ]);
     const employeeIds = await prisma.employee.findMany({
-      where: { companyId, status: "ACTIVE" },
+      where: { companyId, ...activeEmployeeWhere() },
       select: { id: true }
     });
     const workTrackStats = await getWorkTrackStats(employeeIds.map((employee) => employee.id), attendanceStats);
@@ -256,13 +257,13 @@ export const dashboardService = {
     const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
     const todayUtc = new Date(todayKolkataStr);
     const [employees, pendingWfh, pendingExpenses, payrollRuns, attendanceToday, recentEmployees, terminatedCount, attendanceStats, jobApplicants] = await Promise.all([
-      prisma.employee.count({ where: { status: "ACTIVE" } }),
+      prisma.employee.count({ where: { ...activeEmployeeWhere() } }),
       prisma.wFHRequest.count({ where: { status: "PENDING" } }),
       prisma.expenseClaim.count({ where: { OR: [{ managerStatus: "PENDING" }, { hrStatus: "PENDING" }] } }),
       prisma.payrollRun.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),
       prisma.attendance.count({ where: { workDate: { gte: monthStart } } }),
       prisma.employee.findMany({
-        where: { status: "ACTIVE", dateOfExit: null },
+        where: { ...activeEmployeeWhere() },
         take: 50,
         include: {
           company: true,
@@ -289,7 +290,7 @@ export const dashboardService = {
       prisma.jobApplicant.count()
     ]);
     const employeeIds = await prisma.employee.findMany({
-      where: { status: "ACTIVE" },
+      where: { ...activeEmployeeWhere() },
       select: { id: true }
     });
     const workTrackStats = await getWorkTrackStats(employeeIds.map((employee) => employee.id), attendanceStats);
@@ -415,12 +416,12 @@ export const dashboardService = {
       const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
       const todayUtc = new Date(todayKolkataStr);
       const [reports, pendingWfh, pendingExpenses, attendancePunches, recentEmployees, terminatedCount, attendanceStats] = await Promise.all([
-        prisma.employee.count({ where: { companyId: scopedCompanyId, managerId: employee.id, status: "ACTIVE" } }),
+        prisma.employee.count({ where: { companyId: scopedCompanyId, managerId: employee.id, ...activeEmployeeWhere() } }),
         prisma.wFHRequest.count({ where: { employee: { managerId: employee.id }, status: "PENDING" } }),
         prisma.expenseClaim.count({ where: { employee: { managerId: employee.id }, managerStatus: "PENDING" } }),
         prisma.attendance.count({ where: { employee: { managerId: employee.id }, workDate: { gte: monthStart } } }),
         prisma.employee.findMany({
-          where: { companyId: scopedCompanyId, managerId: employee.id, status: "ACTIVE", dateOfExit: null },
+          where: { companyId: scopedCompanyId, managerId: employee.id, ...activeEmployeeWhere() },
           take: 50,
           include: {
             designation: true,
@@ -445,7 +446,7 @@ export const dashboardService = {
         getAttendanceStats({ managerId: employee.id }, scopedCompanyId)
       ]);
       const reportIds = await prisma.employee.findMany({
-        where: { companyId: scopedCompanyId, managerId: employee.id, status: "ACTIVE" },
+        where: { companyId: scopedCompanyId, managerId: employee.id, ...activeEmployeeWhere() },
         select: { id: true }
       });
       const workTrackStats = await getWorkTrackStats(reportIds.map((report) => report.id), attendanceStats);

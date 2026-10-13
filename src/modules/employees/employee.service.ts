@@ -1,3 +1,4 @@
+import { assertActiveEmployee } from "../../lib/employeeEligibility.js";
 import bcrypt from "bcryptjs";
 import { LetterType, Prisma, Role } from "@prisma/client";
 import { queueEmployeeDeviceSync, queueEmployeeTemplateDownload, queueEmployeeTemplateSync } from "../../lib/biometricDeviceSync.js";
@@ -282,6 +283,7 @@ export const employeeService = {
     taxId?: string;
     salary?: { basic: number; allowances: number; deductions: number; effectiveFrom: string };
   }) {
+    if (data.managerId) await assertActiveEmployee(data.managerId, companyId);
     const createdEmployee = await prisma.$transaction(async (tx) => {
       const resolvedEmployeeCode = data.employeeCode?.trim() || await nextEmployeeCode(companyId);
       const superAdminCount = await tx.user.count({
@@ -377,6 +379,8 @@ export const employeeService = {
       where: isFullAdmin ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
     });
     if (!employee) throw notFound("Employee");
+    if (status === "TERMINATED") throw new ApiError(400, "Use the employee exit process to record reason and last working day");
+    if (employee.dateOfExit && status === "ACTIVE") throw new ApiError(400, "An exited employee cannot be reactivated through status changes");
     const updatedEmployee = await prisma.employee.update({ where: { id: employeeId }, data: { status } });
     if (employee.userId) {
       await prisma.user.update({
@@ -446,6 +450,7 @@ export const employeeService = {
       }
     }
 
+    if (data.managerId && data.managerId !== employee.managerId) await assertActiveEmployee(data.managerId, data.companyId || employee.companyId);
     const updatedEmployee = await prisma.$transaction(async (tx) => {
       const userUpdateData: any = {};
       if (data.role) userUpdateData.role = data.role;
@@ -689,6 +694,8 @@ export const employeeService = {
       where: isFullAdmin ? { id: employeeId } : { id: employeeId, companyId: user.companyId || undefined }
     });
     if (!employee) throw notFound("Employee");
+
+    if (employee.dateOfExit || employee.status === "TERMINATED") throw new ApiError(400, "Exit history is protected; employee records cannot be deleted");
 
     const result = await prisma.$transaction(async (tx) => {
       await tx.employee.updateMany({ where: { managerId: employeeId }, data: { managerId: null } });

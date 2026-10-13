@@ -1,3 +1,4 @@
+import { isActiveEmployee, calendarDate } from "../../lib/employment.js";
 import bcrypt from "bcryptjs";
 import { createHash, randomInt } from "node:crypto";
 import jwt from "jsonwebtoken";
@@ -84,7 +85,7 @@ export const authService = {
   async login(email: string, password: string) {
     const user = await findUserByIdentifier(email);
     if (!user || !user.isActive) throw new ApiError(401, "Invalid credentials");
-    if (user.employee && (user.employee.status !== "ACTIVE" || user.employee.dateOfExit)) {
+    if (user.employee && !isActiveEmployee(user.employee)) {
       throw new ApiError(401, "Account has been offboarded");
     }
 
@@ -171,7 +172,7 @@ export const authService = {
     if (!user?.isActive || !user.refreshHash || !(await bcrypt.compare(refreshToken, user.refreshHash))) {
       throw new ApiError(401, "Invalid refresh token");
     }
-    if (user.employee && (user.employee.status !== "ACTIVE" || Boolean(user.employee.dateOfExit))) {
+    if (user.employee && !isActiveEmployee(user.employee)) {
       throw new ApiError(401, "Account has been offboarded");
     }
     const freshPayload = {
@@ -319,7 +320,7 @@ export const authService = {
     const employees = await prisma.employee.findMany({
       where: {
         status: "ACTIVE",
-        dateOfExit: null,
+        OR: [{ dateOfExit: null }, { dateOfExit: { gte: new Date(calendarDate(new Date())) } }],
         ...(isSuperAdmin ? {} : { companyId: companyId ?? undefined }),
         // Exclude the real admin's own employee record from the list
         user: {
@@ -432,7 +433,7 @@ export const authService = {
       throw new ApiError(404, "Target user account not found");
     }
 
-    if (!targetUser.isActive || (targetUser.employee && (targetUser.employee.status !== "ACTIVE" || targetUser.employee.dateOfExit))) {
+    if (!targetUser.isActive || (targetUser.employee && !isActiveEmployee(targetUser.employee))) {
       throw new ApiError(400, "Cannot switch to an offboarded or inactive employee account");
     }
 

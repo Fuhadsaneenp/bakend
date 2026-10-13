@@ -1,3 +1,4 @@
+import { isActiveEmployee } from "../lib/employment.js";
 import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { Role } from "@prisma/client";
@@ -49,7 +50,7 @@ export const requireAuth = async (req: Request, _res: Response, next: NextFuncti
       return next(new ApiError(401, "Account is deactivated or not found"));
     }
 
-    if (dbUser.employee && (dbUser.employee.status !== "ACTIVE" || Boolean(dbUser.employee.dateOfExit))) {
+    if (dbUser.employee && !isActiveEmployee(dbUser.employee)) {
       return next(new ApiError(403, "Account has been offboarded"));
     }
 

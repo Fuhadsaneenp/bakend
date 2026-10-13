@@ -352,7 +352,7 @@ workTrackRouter.get("/designers", async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const track = typeof req.query.track === "string" ? req.query.track : undefined;
-    res.json(await workTrackService.getDesigners(req.user.companyId, track));
+    res.json(await workTrackService.getDesigners(req.user.companyId, track, req.query.scope === "all"));
   } catch (error) {
     next(error);
   }

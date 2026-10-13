@@ -1,9 +1,11 @@
+import { assertActiveEmployee } from "../../lib/employeeEligibility.js";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError } from "../../lib/errors.js";
 import { ApprovalStatus } from "@prisma/client";
 
 export const advanceService = {
   async createAdvanceRequest(employeeId: string, purpose: string, amount: number, currency = "INR") {
+    await assertActiveEmployee(employeeId);
     return prisma.employeeAdvance.create({
       data: {
         employeeId,

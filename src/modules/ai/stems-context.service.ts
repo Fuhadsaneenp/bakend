@@ -1,3 +1,4 @@
+import { activeEmployeeWhere } from "../../lib/employeeEligibility.js";
 import { prisma } from "../../lib/prisma.js";
 import { UserContext } from "./ai.types.js";
 
@@ -168,7 +169,7 @@ export const stemsContextService = {
       [dbEmployees, dbAttendanceToday, dbWorkCards, dbClients, dbWFHRequests, dbLeaveAllocations] =
         await Promise.all([
           withQueryTimeout(prisma.employee.findMany({
-            where: { status: "ACTIVE" },
+            where: { ...activeEmployeeWhere() },
             include: {
               department: true,
               designation: true,

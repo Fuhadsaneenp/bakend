@@ -1,5 +1,7 @@
 import { deduplicateJobActivity } from "../../lib/jobActivityIdentity.js";
 import { buildWordPressActivitySheets } from "../../lib/wordpressActivitySheets.js";
+import { assertActiveEmployee, activeEmployeeWhere } from "../../lib/employeeEligibility.js";
+import { employedDuring } from "../../lib/employment.js";
 import { Prisma, Role } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError, notFound } from "../../lib/errors.js";
@@ -621,6 +623,8 @@ export const workTrackService = {
   },
 
   async createClient(companyId: string, data: { name: string; details?: string; contacts?: string; accountManagerId?: string }) {
+    if (data.accountManagerId) await assertActiveEmployee(data.accountManagerId, companyId);
+
     return prisma.client.create({
       data: {
         companyId,
@@ -646,6 +650,8 @@ export const workTrackService = {
       accountManagerId?: string | null;
     }
   ) {
+    if (data.accountManagerId) await assertActiveEmployee(data.accountManagerId, companyId);
+
     return prisma.client.update({
       where: { id: clientId, companyId },
       data: {
@@ -667,13 +673,17 @@ export const workTrackService = {
     });
   },
 
-  async getDesigners(companyId: string, track?: string) {
+  async getDesigners(companyId: string, track?: string, includeHistory = false) {
     const employees = await prisma.employee.findMany({
       where: {
-        companyId
+        companyId,
+        ...(includeHistory ? {} : activeEmployeeWhere())
       },
       select: {
         id: true,
+        status: true,
+        dateOfJoining: true,
+        dateOfExit: true,
         firstName: true,
         middleName: true,
         lastName: true,
@@ -964,6 +974,8 @@ export const workTrackService = {
     createdAt?: string;
     idempotencyKey?: string;
   }) {
+    if (data.assignedToId) await assertActiveEmployee(data.assignedToId, companyId);
+
     // 1. Check idempotency cache if key is provided
     const cleanIdempotencyKey = data.idempotencyKey?.trim();
     if (cleanIdempotencyKey) {
@@ -1502,6 +1514,8 @@ export const workTrackService = {
     const card = await prisma.workCard.findUnique({ where: { id } });
     if (!card || card.companyId !== companyId) throw notFound("Work Card");
 
+
+    if (data.assignedToId && data.assignedToId !== card.assignedToId) await assertActiveEmployee(data.assignedToId, companyId);
     const scope = {
       companyId: card.companyId,
       clientId: card.clientId,
@@ -2036,7 +2050,7 @@ export const workTrackService = {
       }
     });
 
-    const leaderboard = designers.map(designer => {
+    const leaderboard = designers.filter(designer => employedDuring(designer, start, end)).map(designer => {
       const dCards = designer.assignedWorkCards;
       const dApproved = dCards.filter(c => c.status === "APPROVED");
       const dTotalApproved = dApproved.length;
@@ -2935,6 +2949,8 @@ export const workTrackService = {
     assignedToId?: string;
     notes?: string;
   }) {
+    if (data.assignedToId) await assertActiveEmployee(data.assignedToId, companyId);
+
     return await prisma.metaLead.create({
       data: {
         companyId,
@@ -2974,6 +2990,8 @@ export const workTrackService = {
     conversionValue?: number;
     notes?: string;
   }) {
+    if (data.assignedToId) await assertActiveEmployee(data.assignedToId, companyId);
+
     const updateData: any = {};
     if (data.leadStatus !== undefined) updateData.leadStatus = data.leadStatus;
     if (data.qualificationStatus !== undefined) updateData.qualificationStatus = data.qualificationStatus;
@@ -3093,7 +3111,7 @@ export const workTrackService = {
   },
 
   async getPointsSummary(companyId: string, track?: string) {
-    const designers = await this.getDesigners(companyId, track);
+    const designers = await this.getDesigners(companyId, track, true);
     const employeeIds = designers.map(d => d.id);
 
     const [workCards, ledgers] = await Promise.all([

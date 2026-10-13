@@ -1,3 +1,4 @@
+import { employedDuring, calendarDate } from "../../lib/employment.js";
 import { ApprovalStatus, Role } from "@prisma/client";
 import { differenceInMinutes } from "date-fns";
 import { prisma } from "../../lib/prisma.js";
@@ -305,6 +306,7 @@ export const wfhService = {
   async request(userId: string, data: { startDate: string; endDate: string; reason: string }) {
     const employee = await getEmployeeByUserId(userId);
     if (!employee) throw notFound("Employee");
+    if (!employedDuring(employee, data.startDate, data.endDate) || (employee.dateOfExit && calendarDate(data.endDate) > calendarDate(employee.dateOfExit))) throw new ApiError(400, "Request is outside employment dates");
 
     if (!data.reason.startsWith("[Missed Punch]")) {
       const startKey = data.startDate.slice(0, 10);

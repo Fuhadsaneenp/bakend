@@ -1,3 +1,4 @@
+import { activeEmployeeWhere } from "../../lib/employeeEligibility.js";
 import { prisma } from "../../lib/prisma.js";
 import { UserContext, ExtractedEntities } from "./ai.types.js";
 
@@ -208,7 +209,7 @@ export const aiAnalyticsService = {
 
   async getManagerTeamStats(user: UserContext, entities: ExtractedEntities) {
     const employees = await prisma.employee.findMany({
-      where: { status: "ACTIVE" },
+      where: { ...activeEmployeeWhere() },
       include: { department: true, designation: true, assignedWorkCards: true }
     });
 
@@ -255,7 +256,7 @@ export const aiAnalyticsService = {
 
   async getCompanyOverviewStats(user: UserContext) {
     const [totalEmployees, departmentsCount, activeClientsCount, workCards] = await Promise.all([
-      prisma.employee.count({ where: { status: "ACTIVE" } }),
+      prisma.employee.count({ where: { ...activeEmployeeWhere() } }),
       prisma.department.count(),
       prisma.client.count(),
       prisma.workCard.findMany()
@@ -280,7 +281,7 @@ export const aiAnalyticsService = {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     const allEmployees = await prisma.employee.findMany({
-      where: { status: "ACTIVE" },
+      where: { ...activeEmployeeWhere() },
       include: { department: true }
     });
     const todayAttendance = await prisma.attendance.findMany({

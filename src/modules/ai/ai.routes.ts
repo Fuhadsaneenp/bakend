@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
-import jwt from "jsonwebtoken";
+import { requireAuth } from "../../middleware/auth.js";
+import { ApiError } from "../../lib/errors.js";
 import { env } from "../../config/env.js";
 import { prisma } from "../../lib/prisma.js";
 import { aiService } from "./ai.service.js";
@@ -9,121 +10,34 @@ import { UserContext } from "./ai.types.js";
 
 export const aiRouter = Router();
 
+aiRouter.use(requireAuth);
+
 async function resolveUserContext(req: any): Promise<UserContext> {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (token) {
-    try {
-      const payload: any = jwt.verify(token, env.JWT_ACCESS_SECRET);
-      const dbUser = await prisma.user.findUnique({
-        where: { id: payload.id },
-        include: { employee: true }
-      });
-      if (dbUser) {
-        return {
-          userId: dbUser.id,
-          employeeId: dbUser.employee?.id,
-          companyId: dbUser.companyId,
-          role: dbUser.role as any,
-          name: dbUser.employee?.firstName ? `${dbUser.employee.firstName} ${dbUser.employee.lastName || ""}`.trim() : dbUser.email.split("@")[0],
-          email: dbUser.email
-        };
-      }
-    } catch {
-      // token expired or invalid, proceed to fallback
-    }
-  }
-
-  // Graceful fallback for active session
-  try {
-    const defaultAdmin = await prisma.employee.findFirst({
-      include: { user: true }
-    });
-    if (defaultAdmin) {
-      return {
-        userId: defaultAdmin.userId || "usr-default",
-        employeeId: defaultAdmin.id,
-        companyId: defaultAdmin.companyId,
-        role: "SUPER_ADMIN",
-        name: `${defaultAdmin.firstName} ${defaultAdmin.lastName || ""}`.trim(),
-        email: defaultAdmin.user?.email || "saneen@secondtales.com"
-      };
-    }
-  } catch {
-    // ignore
-  }
-
-  return {
-    userId: "usr-default",
-    employeeId: undefined,
-    companyId: null,
-    role: "SUPER_ADMIN",
-    name: "Local Admin",
-    email: "local-admin@secondtales.local"
-  };
+  if (!req.user) throw new ApiError(401, "Authentication required");
+  const dbUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, role: true, companyId: true, email: true, employee: { select: { id: true, firstName: true, lastName: true } } } });
+  if (!dbUser) throw new ApiError(401, "Account not found");
+  return { userId: dbUser.id, employeeId: dbUser.employee?.id, companyId: dbUser.companyId, role: dbUser.role, name: dbUser.employee ? `${dbUser.employee.firstName} ${dbUser.employee.lastName}`.trim() : "STEMS user", email: dbUser.email };
 }
 
 aiRouter.post("/chat", async (req, res, next) => {
   try {
     const body = z.object({
-      message: z.string().min(1),
+      message: z.string().min(1).max(4000),
       language: z.enum(["en", "ml"]).optional().default("en"),
       voiceMode: z.boolean().optional().default(false),
       history: z.array(z.object({
         role: z.enum(["user", "assistant"]),
-        text: z.string()
-      })).optional().default([])
+        text: z.string().max(8000)
+      })).max(30).optional().default([])
     }).parse(req.body);
 
     const user = await resolveUserContext(req);
     const response = await aiService.processQuestion(user, body.message, body.language, body.history);
 
 
-    // Generate ultra-realistic, natural conversational spoken reply
-    let spokenReply: string | undefined = undefined;
-    const lang = body.language === "ml" ? "Malayalam (മലയാളം)" : "English";
-
-    if (geminiClient.isConfigured()) {
-      try {
-        const spokenPrompt = `You are Tale Buddy, a friendly and executive AI assistant at Second Tales speaking to ${user.name}.
-The user asked: "${body.message}"
-Full answer data:
-${response.markdown.slice(0, 600)}
-
-Write a SHORT, NATURAL, HUMAN spoken response (1 to 2 sentences max) in ${lang}.
-CRITICAL SPOKEN VOICE RULES:
-- Sound like a real person talking, NOT a robot reading a report.
-- DO NOT say "Summary", "Details", "Insights", "Action Required", bullet points, or list numbers.
-- Give the key answer directly in a warm, helpful conversational tone.
-- Output ONLY the spoken words.`;
-
-        const generatedSpoken = await geminiClient.generate({
-          prompt: spokenPrompt,
-          maxTokens: 80,
-          temperature: 0.3
-        });
-        if (generatedSpoken && generatedSpoken.trim().length > 5) {
-          spokenReply = generatedSpoken.trim().replace(/^["']|["']$/g, "");
-        }
-      } catch {
-        // Fall through to deterministic spoken extraction
-      }
-    }
-
-    if (!spokenReply) {
-      // Extract the Summary text directly and clean it
-      const summaryMatch = response.markdown.match(/###\s*Summary:?\s*([\s\S]*?)(?=###|$)/i);
-      const rawSummary = summaryMatch ? summaryMatch[1].trim() : response.markdown.split("\n\n")[0];
-      spokenReply = rawSummary
-        .replace(/\*\*([^*]+)\*\*/g, "$1")
-        .replace(/\*([^*]+)\*/g, "$1")
-        .replace(/`([^`]+)`/g, "$1")
-        .replace(/^[•\-\*]\s*/gm, "")
-        .replace(/\n+/g, " ")
-        .slice(0, 200)
-        .trim();
-    }
-
-    response.spokenReply = spokenReply;
+    const plain = (response.spokenReply || response.markdown)
+      .replace(/[#*`]/g, "").replace(/^[•\-]\s*/gm, "").replace(/\s+/g, " ").trim();
+    response.spokenReply = plain.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ").slice(0, 500);
 
     res.json(response);
   } catch (error) {
@@ -136,8 +50,8 @@ CRITICAL SPOKEN VOICE RULES:
 aiRouter.post("/voice-transcribe", async (req, res, next) => {
   try {
     const body = z.object({
-      audio: z.string().min(1),
-      mimeType: z.string().optional()
+      audio: z.string().min(1).max(8_000_000),
+      mimeType: z.enum(["audio/webm", "audio/webm;codecs=opus", "audio/mp4", "audio/wav", "audio/mpeg", "audio/ogg"]).optional()
     }).parse(req.body);
 
     const { geminiClient } = await import("./gemini-client.service.js");
@@ -163,7 +77,7 @@ aiRouter.get("/suggested-prompts", async (req, res, next) => {
 aiRouter.post("/voice-speak", async (req, res, next) => {
   try {
     const body = z.object({
-      text: z.string().min(1).max(2000),
+      text: z.string().max(8000).min(1).max(2000),
       language: z.enum(["en", "ml"]).optional().default("en")
     }).parse(req.body);
 

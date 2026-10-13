@@ -1,3 +1,4 @@
+import { isActiveEmployee, employedDuring } from "../../lib/employment.js";
 import { Role } from "@prisma/client";
 import { differenceInMinutes } from "date-fns";
 import { prisma } from "../../lib/prisma.js";
@@ -119,6 +120,7 @@ export const attendanceService = {
   async checkIn(userId: string, location?: { latitude?: number; longitude?: number }) {
     const employee = await prisma.employee.findUnique({ where: { userId }, include: { shift: true } });
     if (!employee) throw notFound("Employee");
+    if (!isActiveEmployee(employee)) throw new ApiError(400, "Employee has exited or is inactive");
 
     const now = new Date();
     const workDate = getKolkataStartOfDay(now);
@@ -178,6 +180,7 @@ export const attendanceService = {
   async checkOut(userId: string) {
     const employee = await prisma.employee.findUnique({ where: { userId }, include: { shift: true } });
     if (!employee) throw notFound("Employee");
+    if (!isActiveEmployee(employee)) throw new ApiError(400, "Employee has exited or is inactive");
     const now = new Date();
     const workDate = getKolkataStartOfDay(now);
     const attendance = await prisma.attendance.findUnique({ where: { employeeId_workDate: { employeeId: employee.id, workDate } } });
@@ -338,6 +341,7 @@ export const attendanceService = {
       punchTime = new Date(isoStr);
     }
 
+    if (!employedDuring(employee, punchTime, punchTime)) throw new ApiError(400, "Punch is outside employment dates");
     const workDate = getKolkataStartOfDay(punchTime);
     const shiftParams = getShiftParams(employee);
     const shiftStart = getShiftTime(workDate, shiftParams.startTime);

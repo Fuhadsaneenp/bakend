@@ -1,3 +1,4 @@
+import { EXIT_REASONS, calendarDate, hasExited, isActiveEmployee, employedDuring } from "../../lib/employment.js";
 import { LetterType, Role } from "@prisma/client";
 import { Router } from "express";
 import multer from "multer";
@@ -82,8 +83,10 @@ employeeRouter.get("/", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAG
     if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
       throw new ApiError(400, "Company context required");
     }
-    const query = z.object({ companyId: z.string().optional() }).parse(req.query);
-    res.json(await employeeService.listForUser(req.user!, query.companyId));
+    const query = z.object({ companyId: z.string().optional(), scope: z.enum(["active", "all", "history", "period"]).default("active"), start: z.string().date().optional(), end: z.string().date().optional() }).parse(req.query);
+    if (query.scope === "period" && (!query.start || !query.end || query.start > query.end)) throw new ApiError(400, "A valid report period is required");
+    const employees = await employeeService.listForUser(req.user!, query.companyId);
+    res.json(employees.filter(employee => query.scope === "all" || (query.scope === "history" ? hasExited(employee) : query.scope === "period" ? employedDuring(employee, query.start!, query.end!) : isActiveEmployee(employee))));
   } catch (error) {
     next(error);
   }
@@ -377,44 +380,52 @@ employeeRouter.post("/:id/letters", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_A
   }
 });
 
+// Read-only archive. Keep original foreign keys and paginate records without moving or deleting rows.
+employeeRouter.get("/:id/history", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const employee = await prisma.employee.findFirst({ where: { id: req.params.id, ...(req.user!.role === Role.SUPER_ADMIN ? {} : { companyId: req.user!.companyId || "" }) } });
+    if (!employee) throw new ApiError(404, "Employee not found");
+    const { kind, page } = z.object({ kind: z.enum(["attendance", "tasks", "performance", "goals"]).default("attendance"), page: z.coerce.number().int().min(1).default(1) }).parse(req.query);
+    const paging = { skip: (page - 1) * 50, take: 51 };
+    const records = kind === "attendance"
+      ? await prisma.attendance.findMany({ where: { employeeId: employee.id }, orderBy: { workDate: "desc" }, ...paging })
+      : kind === "tasks"
+      ? await prisma.workCard.findMany({ where: { companyId: employee.companyId, OR: [{ assignedToId: employee.id }, { assignedById: employee.id }] }, include: { client: { select: { name: true } } }, orderBy: { createdAt: "desc" }, ...paging })
+      : kind === "goals"
+      ? await prisma.goal.findMany({ where: { employeeId: employee.id }, orderBy: { createdAt: "desc" }, ...paging })
+      : await prisma.appraisal.findMany({ where: { employeeId: employee.id }, include: { appraisalCycle: true }, orderBy: { createdAt: "desc" }, ...paging });
+    res.json({ records: records.slice(0, 50), page, hasMore: records.length > 50 });
+  } catch (error) { next(error); }
+});
+
 employeeRouter.post("/:id/exit", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     if (req.user!.role !== Role.SUPER_ADMIN && !req.user!.companyId) {
       throw new ApiError(400, "Company context required");
     }
     const body = z.object({
-      dateOfExit: z.string(),
-      exitReason: z.string(),
-      exitRemarks: z.string().optional()
+      dateOfExit: z.string().refine(value => /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value.slice(0, 10)).toISOString().slice(0, 10) === value.slice(0, 10), "Invalid exit date"),
+      exitReason: z.preprocess(value => ({ Resignation: "Resigned", Termination: "Terminated", Retirement: "Retired", Other: "Others" }[String(value)] || value), z.enum(EXIT_REASONS)),
+      exitRemarks: z.string().max(5000).optional()
     }).parse(req.body);
-
-    const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN || await isRequesterHr(req.user!);
     const employee = await prisma.employee.findFirst({
-      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+      where: { id: req.params.id, ...(req.user!.role === Role.SUPER_ADMIN ? {} : { companyId: req.user!.companyId! }) }
     });
     if (!employee) throw new ApiError(404, "Employee not found");
-
-    const updated = await prisma.employee.update({
-      where: { id: employee.id },
-      data: {
-        status: "TERMINATED",
-        dateOfExit: new Date(body.dateOfExit),
-        exitReason: body.exitReason,
-        exitRemarks: body.exitRemarks || null,
-        settlementStatus: "PENDING"
-      }
+    if (hasExited(employee) && employee.dateOfExit) throw new ApiError(409, "Employee exit is already recorded");
+    const exitDay = body.dateOfExit.slice(0, 10);
+    if (exitDay < calendarDate(employee.dateOfJoining)) throw new ApiError(400, "Exit date cannot precede joining date");
+    const effective = exitDay < calendarDate(new Date());
+    const updated = await prisma.$transaction(async tx => {
+      const updated = await tx.employee.update({ where: { id: employee.id }, data: {
+        status: effective ? (body.exitReason === "Terminated" ? "TERMINATED" : "INACTIVE") : "ACTIVE",
+        dateOfExit: new Date(exitDay), exitReason: body.exitReason,
+        exitRemarks: body.exitRemarks || null, settlementStatus: "PENDING"
+      } });
+      if (effective) await tx.user.update({ where: { id: employee.userId }, data: { isActive: false, refreshHash: null } });
+      await tx.auditLog.create({ data: { actorUserId: req.user!.id, action: "EMPLOYEE_EXIT", entity: "Employee", entityId: employee.id, metadata: { dateOfExit: exitDay, exitReason: body.exitReason, previousStatus: employee.status } } });
+      return updated;
     });
-
-    if (employee.userId) {
-      await prisma.user.update({
-        where: { id: employee.userId },
-        data: {
-          isActive: false,
-          refreshHash: null
-        }
-      }).catch((e) => console.warn(`[Employee Offboard] Failed to deactivate user ${employee.userId}:`, e));
-    }
-
     res.json(updated);
   } catch (error) {
     next(error);
@@ -432,7 +443,7 @@ employeeRouter.patch("/:id/settlement", requireHrOrRoles(Role.SUPER_ADMIN, Role.
 
     const isFullAdmin = req.user!.role === Role.SUPER_ADMIN || req.user!.role === Role.HR_ADMIN || await isRequesterHr(req.user!);
     const employee = await prisma.employee.findFirst({
-      where: isFullAdmin ? { id: req.params.id } : { id: req.params.id, companyId: req.user!.companyId || undefined }
+      where: { id: req.params.id, ...(req.user!.role === Role.SUPER_ADMIN ? {} : { companyId: req.user!.companyId || "" }) }
     });
     if (!employee) throw new ApiError(404, "Employee not found");
 

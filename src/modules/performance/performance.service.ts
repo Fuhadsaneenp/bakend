@@ -1,3 +1,4 @@
+import { assertActiveEmployee, assertEmployedDuring } from "../../lib/employeeEligibility.js";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError } from "../../lib/errors.js";
 
@@ -43,6 +44,7 @@ export const performanceService = {
 
   // Key Result Areas (KRAs)
   async createKRA(employeeId: string, title: string, weightage: number, description?: string) {
+    await assertActiveEmployee(employeeId);
     return prisma.kRA.create({
       data: {
         employeeId,
@@ -81,6 +83,8 @@ export const performanceService = {
     description?: string,
     kraId?: string
   ) {
+    const employee = await assertActiveEmployee(employeeId);
+    if (employee.dateOfExit && endDate.toISOString().slice(0, 10) > employee.dateOfExit.toISOString().slice(0, 10)) throw new ApiError(400, "Goal ends after employee exit");
     return prisma.goal.create({
       data: {
         employeeId,
@@ -128,6 +132,10 @@ export const performanceService = {
 
   // Appraisals
   async createAppraisal(companyId: string, employeeId: string, appraisalCycleId: string, selfScore?: number, selfFeedback?: string) {
+    const cycle = await prisma.appraisalCycle.findFirst({ where: { id: appraisalCycleId, companyId } });
+    if (!cycle) throw new ApiError(404, "Appraisal cycle not found");
+    const employee = await assertEmployedDuring(employeeId, cycle.startDate, cycle.endDate);
+    if (employee.companyId !== companyId) throw new ApiError(400, "Employee company does not match appraisal cycle");
     const existing = await prisma.appraisal.findFirst({
       where: { employeeId, appraisalCycleId }
     });

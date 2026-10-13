@@ -709,8 +709,8 @@ export const payrollService = {
                 ]
               }
             : {
-                status: "ACTIVE",
-                dateOfJoining: { lte: endOfDay(endOfMonthDate) }
+                dateOfJoining: { lte: endOfDay(endOfMonthDate) },
+                OR: [{ dateOfExit: null, status: { not: "TERMINATED" } }, { dateOfExit: { gte: new Date(year, month - 1, 1) } }]
               }
         )
       },
