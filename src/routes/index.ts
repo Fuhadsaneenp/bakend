@@ -1,4 +1,5 @@
-import { mcpEvidenceRouter } from '../integrations/mcp-evidence.js';
+import { mcpEvidenceRouter } from "../integrations/mcp-evidence.js";
+import { jobMonitoringRouter } from "../modules/job-monitoring/routes.js";
 import { Router } from "express";
 import { wordpressRouter } from "../integrations/wordpress/wordpress.routes.js";
 import { authRouter } from "../modules/auth/auth.routes.js";
@@ -11,7 +12,9 @@ import { notificationRouter } from "../modules/notifications/notification.routes
 import { dashboardRouter } from "../modules/dashboard/dashboard.routes.js";
 import { orgRouter } from "../modules/org/org.routes.js";
 import { workTrackRouter } from "../modules/work-track/work-track.routes.js";
+import { hrMonitoringRouter } from "../modules/hr-monitoring/hr-monitoring.routes.js";
 import { performanceRouter } from "../modules/performance/performance.routes.js";
+import { kpiRouter } from "../modules/performance/kpi.routes.js";
 import { lifecycleRouter } from "../modules/lifecycle/lifecycle.routes.js";
 import { recruitmentRouter } from "../modules/recruitment/recruitment.routes.js";
 import { authorityRouter } from "../modules/authority/authority.routes.js";
@@ -180,6 +183,9 @@ apiRouter.use("/notifications", notificationRouter);
 apiRouter.use("/dashboard", dashboardRouter);
 apiRouter.use("/work-track", workTrackRouter);
 apiRouter.use("/performance", performanceRouter);
+apiRouter.use("/kpi", kpiRouter);
+apiRouter.use("/hr-monitoring", hrMonitoringRouter);
+apiRouter.use("/job-monitoring", jobMonitoringRouter);
 apiRouter.use("/lifecycle", lifecycleRouter);
 apiRouter.use("/recruitment", recruitmentRouter);
 apiRouter.use("/crm", crmRouter);

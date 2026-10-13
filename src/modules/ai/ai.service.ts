@@ -1,15 +1,18 @@
+import { dataEntryAnswer } from "./data-entry-answer.service.js";
 import type { UserContext, AIResponsePayload } from './ai.types.js';
 import { geminiClient } from './gemini-client.service.js';
 import { verifiedAnalyticsService } from './verified-analytics.service.js';
 import { directAnswerRules } from './answer-style.js';
 const numericTokens = (text: string) => text.match(/\d+(?:[.:/-]\d+)*/g)?.sort().join('|') || '';
 export const aiService = {
-  async processQuestion(user: UserContext, question: string, language = 'en', history: {role:'user'|'assistant';text:string}[] = []): Promise<AIResponsePayload> {
+  async processQuestion(user: UserContext, question: string, language = 'en', history: {role:'user'|'assistant';text:string}[] = [], voiceMode = false): Promise<AIResponsePayload> {
     const q = question.trim();
     if (/^(hi|hello|hey|hai|good morning|good evening|namaskaram|നമസ്കാരം)[!. ]*$/i.test(q)) return { intent:'GENERAL_WORKPLACE_QUERY',markdown:language==='ml'?'നമസ്കാരം! ഞാൻ STEMS AI — Tale Buddy. എന്താണ് അറിയേണ്ടത്?':"Hello! I'm STEMS AI — Tale Buddy. What would you like to know?" };
     if (/who are you|your name|created you|ആരാണ് നീ/i.test(q)) return { intent:'GENERAL_WORKPLACE_QUERY',markdown:language==='ml'?'ഞാൻ STEMS AI — Tale Buddy. അനുമതിയുള്ള STEMS രേഖകളിൽ നിന്ന് ജോലിയും ഹാജറും സംബന്ധിച്ച ചോദ്യങ്ങൾക്ക് മറുപടി നൽകുന്നു.':"I'm STEMS AI — Tale Buddy, Second Tales' assistant for authorized attendance, work and employee reporting." };
     if (/\b(delete|terminate|fire|resign|change salary|update employee|approve leave)\b/i.test(q) && !/who|show|history|report|employees who/.test(q.toLowerCase())) return {intent:'GENERAL_WORKPLACE_QUERY',markdown:'This assistant supports read-only reporting. Use the authorized STEMS workflow for employee or record changes.'};
     if (/keyword ranking|seo ranking|google position|page 1/i.test(q)) return { intent:'SEO_KEYWORD_RANKINGS', markdown:'A verified SEO keyword ranking source is not connected to this assistant. Ranking values cannot be confirmed.' };
+    const dataEntryReply = await dataEntryAnswer(user, q, language);
+    if (dataEntryReply) return dataEntryReply;
     const {report,markdown} = await verifiedAnalyticsService.answer(user,q,history);
     let answer = markdown;
     if (language==='ml' && geminiClient.isConfigured()) {

@@ -95,6 +95,7 @@ wordpressRouter.post("/:site/uploads", async (req, res, next) => {
     }
 
     const uploaderEmail = input.uploaderEmail.trim().toLowerCase();
+    if (req.params.site === "mediyox" && uploaderEmail === "workhopewin@gmail.com") { res.json({ synced: false, ignored: true, reason: "Non-employee uploader excluded" }); return; }
 
     // 1. Check User by email in site company first, then fallback to any active company
     let user = await prisma.user.findFirst({
@@ -153,81 +154,7 @@ wordpressRouter.post("/:site/uploads", async (req, res, next) => {
       });
     }
 
-    // Direct sync into Data Entry spreadsheet rows so it appears immediately in the employee's table
-    try {
-      const brand = site.brand || "Trikonet";
-      const subSheet = input.type === "job" ? "Jobs" : "Employer";
-      // Group by the timestamp displayed in Work Track, not the later sync time.
-      const { activityType, timestamp: activityTimestamp } = resolveWordPressActivity(input);
-      const uploadDate = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Asia/Kolkata",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit"
-      }).format(new Date(activityTimestamp || Date.now()));
-
-      const memberKey = `${brand}-${subSheet}-${uploadDate}-${employee.id}`;
-      const companyKey = `${brand}-${subSheet}-${uploadDate}`;
-      const primaryCompanyId = employee.companyId || site.companyId;
-
-      const currentSheets = await workTrackService.getDataEntrySheets(primaryCompanyId);
-
-      const insertOrUpdateRow = (rows: any[] = []) => {
-        const nextRows = Array.isArray(rows) ? [...rows] : [];
-        const existingIdx = nextRows.findIndex(
-          r => r && (r.sourceUrl === input.url || (r.postId && r.postId === input.postId))
-        );
-
-        let resolvedCompanyName = (input.companyName || "").trim();
-        if (resolvedCompanyName.toLowerCase() === "nmc") {
-          resolvedCompanyName = "NMC Healthcare";
-        }
-
-        const rowData = {
-          count: existingIdx >= 0 ? (nextRows[existingIdx]?.count || existingIdx + 1) : nextRows.length + 1,
-          companyName: resolvedCompanyName,
-          jobCount: 1,
-          category: input.categories[0] || "",
-          sourceUrl: input.url,
-          status: input.status === "publish" ? "Uploaded" : "Not Uploaded",
-          jobTitle: input.title,
-          notes: input.title,
-          postId: input.postId,
-          createdAt: input.createdAt || input.uploadedAt,
-          uploadedAt: input.uploadedAt,
-          uploadedBy: name,
-          activityType,
-          editedBy: input.editedBy,
-          editedAt: input.editedAt,
-          updatedAt: input.updatedAt,
-          date: uploadDate
-        };
-
-        if (existingIdx >= 0) {
-          nextRows[existingIdx] = { ...nextRows[existingIdx], ...rowData };
-        } else {
-          const emptyIdx = nextRows.findIndex(r => !r || (!r.companyName && !r.sourceUrl));
-          if (emptyIdx >= 0) {
-            nextRows[emptyIdx] = { ...rowData, count: emptyIdx + 1 };
-          } else {
-            nextRows.push(rowData);
-          }
-        }
-        return nextRows;
-      };
-
-      const updatedMemberRows = insertOrUpdateRow(currentSheets[memberKey] || []);
-      const updatedCompanyRows = insertOrUpdateRow(currentSheets[companyKey] || []);
-
-      await workTrackService.upsertDataEntrySheets(primaryCompanyId, {
-        [memberKey]: updatedMemberRows,
-        [companyKey]: updatedCompanyRows
-      });
-    } catch (sheetSyncErr) {
-      console.error("Failed to sync row directly into data entry sheet table:", sheetSyncErr);
-      throw new ApiError(503, "Upload recorded; employee sheet sync failed. Retry this upload.");
-    }
-
+    // Durable upload records are rebuilt into employee/company sheets on read.
     res.json({ synced: true, employeeId: employee.id, employeeName: name });
   } catch (error) {
     next(error);

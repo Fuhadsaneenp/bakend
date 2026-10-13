@@ -6,7 +6,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { createServer } from './server.js';
 import { createOAuthProvider } from './oauth.js';
 
-export function createHttpRouter({ issuerUrl, baseUrl, store, authenticate, validateUser, getBackendToken }) {
+export function createHttpRouter({ issuerUrl, baseUrl, store, authenticate, validateUser, getBackendToken, registerExtraTools }) {
   const router = express.Router();
   const issuer = new URL(issuerUrl);
   const resource = new URL('/mcp', issuer);
@@ -21,6 +21,7 @@ export function createHttpRouter({ issuerUrl, baseUrl, store, authenticate, vali
     try {
       const token = await getBackendToken(req.auth.extra.userId);
       server = createServer({ baseUrl, token, oauth: true });
+      if (registerExtraTools) await registerExtraTools(server, req.auth.extra.userId);
       transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
       res.on('close', () => { void transport.close(); void server.close(); });
       await server.connect(transport);

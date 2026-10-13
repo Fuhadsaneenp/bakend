@@ -203,6 +203,9 @@ function calculateDataEntrySheetTotalCount(rows: DataEntrySheetRow[] = [], key =
 }
 
 function chooseBestDataEntryRows(key: string, candidates: DataEntrySheetRow[][]) {
+  if (key === "__DELETED_MASTER_SHEET_ENTRIES__") {
+    return [...new Map(candidates.flat().map(row => [row.notes, row])).values()];
+  }
   // Automatic activity is a set of permanent records, not a positional snapshot.
   const automaticRows = candidates.flat().filter(row => row?.uploadedAt && row?.sourceUrl);
   if (automaticRows.length && /-(Jobs|Employer)-/.test(key)) {
@@ -249,20 +252,44 @@ function mergeDataEntrySheetMaps(...maps: DataEntrySheetMap[]) {
   return merged;
 }
 
-async function readDataEntrySheets(companyId: string) {
-  const settings = await prisma.companySetting.findMany({
-    where: { key: DATA_ENTRY_SHEETS_SETTING_KEY },
-    orderBy: [{ companyId: "asc" }, { updatedAt: "asc" }]
+const sheetReadCache = new Map<string, { expiresAt: number; value: DataEntrySheetMap }>();
+const sheetReadsInFlight = new Map<string, Promise<DataEntrySheetMap>>();
+let sheetReadVersion = 0;
+
+async function readDataEntrySheets(companyId: string): Promise<DataEntrySheetMap> {
+  const cached = sheetReadCache.get(companyId);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const pending = sheetReadsInFlight.get(companyId);
+  if (pending) return pending;
+  const version = sheetReadVersion;
+  const request = queryDataEntrySheets(companyId).then(value => {
+    if (version === sheetReadVersion) {
+      if (sheetReadCache.size >= 100) sheetReadCache.clear();
+      sheetReadCache.set(companyId, { value, expiresAt: Date.now() + 15000 });
+    }
+    return value;
+  }).finally(() => {
+    if (sheetReadsInFlight.get(companyId) === request) sheetReadsInFlight.delete(companyId);
   });
+  sheetReadsInFlight.set(companyId, request);
+  return request;
+}
+
+async function queryDataEntrySheets(companyId: string, includeUploads = true) {
+  // These independent reads used to add their network delays together.
+  const [settings, uploads] = await Promise.all([prisma.companySetting.findMany({
+    where: { key: DATA_ENTRY_SHEETS_SETTING_KEY },
+    orderBy: [{ companyId: "asc" }, { updatedAt: "asc" }],
+    select: { companyId: true, value: true }
+  }), includeUploads ? prisma.companySetting.findMany({
+    // A range also avoids MySQL's incompatible LIKE parameter collation.
+    where: { key: { gte: "wordpress_upload_v1_", lt: "wordpress_upload_v2_" } },
+    select: { value: true },
+  }) : Promise.resolve([])]);
 
   const companySetting = settings.find((setting) => setting.companyId === companyId);
   const otherSettings = settings.filter((setting) => setting.companyId !== companyId);
 
-  const uploads = await prisma.companySetting.findMany({
-    // A range also avoids MySQL's incompatible LIKE parameter collation.
-    where: { key: { gte: "wordpress_upload_v1_", lt: "wordpress_upload_v2_" } },
-    select: { value: true },
-  });
   return mergeDataEntrySheetMaps(
     ...otherSettings.map((setting) => normalizeDataEntrySheets(setting.value)),
     normalizeDataEntrySheets(companySetting?.value),
@@ -539,12 +566,17 @@ export const workTrackService = {
     }
   },
 
+  async getAssignmentSheets(companyId: string) {
+    return queryDataEntrySheets(companyId, false);
+  },
+
   async getDataEntrySheets(companyId: string) {
     return readDataEntrySheets(companyId);
   },
 
-  async upsertDataEntrySheets(companyId: string, sheets: DataEntrySheetMap) {
-    const existing = await readDataEntrySheets(companyId);
+  async upsertDataEntrySheets(companyId: string, sheets: DataEntrySheetMap, deletedMasterEntryIds: string[] = [], restoredMasterEntryIds: string[] = [], freshAssignmentSheets?: DataEntrySheetMap) {
+    // Writes merge against fresh database state, never a cached response.
+    const existing = freshAssignmentSheets || await queryDataEntrySheets(companyId, false);
     const incoming = normalizeDataEntrySheets(sheets);
     const next: DataEntrySheetMap = { ...existing };
 
@@ -584,6 +616,15 @@ export const workTrackService = {
       next[key] = chooseBestDataEntryRows(key, [existingRows, incomingRows, mergedRows]);
     }
 
+    // Durable deletion markers prevent stale autosaves from resurrecting removed entries.
+    const deletionKey = "__DELETED_MASTER_SHEET_ENTRIES__";
+    const deleted = new Set((existing[deletionKey] || []).map(row => String(row.notes || "")));
+    deletedMasterEntryIds.forEach(id => deleted.add(id));
+    restoredMasterEntryIds.forEach(id => deleted.delete(id));
+    next[deletionKey] = [...deleted].filter(Boolean).map((id, index) => ({ count: index + 1, category: "", sourceUrl: "", status: "Deleted", notes: id }));
+    const masterKey = "__COMPANY_MASTER_SHEET_ENTRIES__";
+    if (next[masterKey]) next[masterKey] = next[masterKey].filter(row => !deleted.has(String(row.notes || "")));
+
     const existingSettingCompanyIds = await prisma.companySetting.findMany({
       where: { key: DATA_ENTRY_SHEETS_SETTING_KEY },
       select: { companyId: true }
@@ -603,9 +644,23 @@ export const workTrackService = {
             value: next as Prisma.InputJsonValue
           }
         })
-      )
+      ),
+      { maxWait: 10000, timeout: 30000 }
     );
 
+    if (deletedMasterEntryIds.length) {
+      const { job, saveJob } = await import("../job-monitoring/store.js");
+      for (const entryId of deletedMasterEntryIds) {
+        const previous = existing[masterKey]?.find(row => row.notes === entryId);
+        if (!entryId.startsWith("master-job:") || previous?.uploadStatus === "Uploaded") continue;
+        const collected = job(companyId, entryId.slice("master-job:".length));
+        if (collected) saveJob({ ...collected, status: "New", assignedToId: null, assignedToName: undefined, assignedAt: null, departmentId: null, startedAt: null, completedAt: null, updatedAt: new Date().toISOString(), version: collected.version + 1 });
+      }
+    }
+
+    sheetReadVersion++;
+    sheetReadCache.clear();
+    sheetReadsInFlight.clear();
     return next;
   },
 
@@ -971,6 +1026,7 @@ export const workTrackService = {
     complexity: string;
     deadline: string;
     assignedToId?: string;
+    workQuantity?: number;
     createdAt?: string;
     idempotencyKey?: string;
   }) {
@@ -1113,6 +1169,7 @@ export const workTrackService = {
           deadline: new Date(data.deadline),
           createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
           assignedToId: data.assignedToId || null,
+          workQuantity: data.workQuantity ?? 1,
           assignedById: creatorEmployee?.id || null,
           status: "PENDING"
         },
@@ -1510,6 +1567,7 @@ export const workTrackService = {
     createdAt?: string;
     files?: string;
     videoDuration?: string;
+    workQuantity?: number;
   }) {
     const card = await prisma.workCard.findUnique({ where: { id } });
     if (!card || card.companyId !== companyId) throw notFound("Work Card");
@@ -1613,7 +1671,9 @@ export const workTrackService = {
     let updateData: any = {};
     if (data.priority) updateData.priority = data.priority.toUpperCase();
     if (data.assignedToId !== undefined) updateData.assignedToId = data.assignedToId || null;
+    if (data.workQuantity !== undefined) updateData.workQuantity = data.workQuantity;
     if (data.status) updateData.status = data.status.toUpperCase();
+    if (data.status?.toUpperCase() === "APPROVED" && previousStatus !== "APPROVED") updateData.completedAt = new Date();
     if (data.title) updateData.title = data.title;
     if (data.brief !== undefined) updateData.brief = data.brief;
     if (data.deadline !== undefined) updateData.deadline = new Date(data.deadline);
@@ -1759,6 +1819,7 @@ export const workTrackService = {
     }
 
     let updateData: any = { status: newStatus };
+    if (newStatus === "APPROVED" && prevStatus !== "APPROVED") updateData.completedAt = new Date();
     if (data.finalFileUrl) {
       // Append final files
       let filesList = card.files ? JSON.parse(card.files) : [];

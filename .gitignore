@@ -7,3 +7,9 @@ coverage
 .DS_Store
 scratch/
 tmp/
+
+.env.*
+*.pre-*
+*.before-*
+._*
+*.sqlite*

@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import { z } from "zod";
 
+dotenv.config({ path: ".env.ai" });
 dotenv.config();
 
 const envSchema = z.object({
@@ -38,7 +39,22 @@ const envSchema = z.object({
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_API_VERSION: z.string().default("v20.0"),
   WHATSAPP_VERIFY_TOKEN: z.string().default("secondtales_whatsapp_verify_2026"),
-  GEMINI_API_KEY: z.string().optional()
+  AI_PROVIDER: z.enum(["gemini", "vertex", "ollama", "direct"]).default("direct"),
+  GOOGLE_CLOUD_PROJECT: z.string().regex(/^[a-z][a-z0-9-]+$/).optional(),
+  SPEECH_PROVIDER: z.enum(["gemini", "azure", "google_cloud"]).default("gemini"),
+  GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
+  AZURE_SPEECH_KEY: z.string().optional(),
+  AZURE_SPEECH_REGION: z.string().regex(/^[a-z0-9]+$/).optional(),
+  AZURE_SPEECH_VOICE_ML: z.enum(["ml-IN-SobhanaNeural", "ml-IN-MidhunNeural"]).default("ml-IN-SobhanaNeural"),
+  OLLAMA_BASE_URL: z.string().url().default("http://127.0.0.1:11434"),
+  OLLAMA_MODEL: z.string().default("gemma3:4b"),
+  GEMINI_API_KEY: z.string().optional(),
+  GOOGLE_API_KEY: z.string().optional(),
+  GEMINI_MODEL: z.string().default("gemini-3.6-flash"),
+  GEMINI_FALLBACK_MODEL: z.string().default("gemini-3.8-flash"),
+  GEMINI_TRANSCRIPTION_MODEL: z.string().default("gemini-3.6-flash"),
+  GEMINI_TTS_MODEL: z.string().default("gemini-3.8-flash-tts"),
+  GEMINI_TTS_FALLBACK_MODEL: z.string().default("gemini-3.1-flash-tts-preview")
 }).superRefine((value, ctx) => {
   if (value.NODE_ENV === "production" && !value.BIOMETRIC_API_KEY) {
     console.warn("⚠️ Warning: BIOMETRIC_API_KEY is not configured for production environment.");

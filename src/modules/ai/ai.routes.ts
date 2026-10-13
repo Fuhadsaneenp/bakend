@@ -6,39 +6,118 @@ import { env } from "../../config/env.js";
 import { prisma } from "../../lib/prisma.js";
 import { aiService } from "./ai.service.js";
 import { geminiClient } from "./gemini-client.service.js";
+import { generateNaturalSpeech } from "./voice.service.js";
 import { UserContext } from "./ai.types.js";
+import { stemsMcpService } from "../mcp/stems-mcp.service.js";
 
 export const aiRouter = Router();
 
 aiRouter.use(requireAuth);
 
+aiRouter.get("/mcp", (_req, res) => { res.setHeader("Allow", "POST"); res.sendStatus(405); });
+aiRouter.post("/mcp", async (req, res, next) => {
+  try {
+    if (!req.accepts("application/json") || !req.get("Accept")?.includes("text/event-stream")) return res.status(406).json({ error: "Accept application/json and text/event-stream" });
+    const user = await resolveUserContext(req);
+    const result = await stemsMcpService.handle(user, req.body);
+    if (result === undefined) return res.status(202).end();
+    res.json(result);
+  } catch (error) { next(error); }
+});
+
 async function resolveUserContext(req: any): Promise<UserContext> {
   if (!req.user) throw new ApiError(401, "Authentication required");
-  const dbUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, role: true, companyId: true, email: true, employee: { select: { id: true, firstName: true, lastName: true } } } });
+  const dbUser = await prisma.user.findUnique({
+    where: { id: req.user.id }, include: { employee: true }
+  });
   if (!dbUser) throw new ApiError(401, "Account not found");
-  return { userId: dbUser.id, employeeId: dbUser.employee?.id, companyId: dbUser.companyId, role: dbUser.role, name: dbUser.employee ? `${dbUser.employee.firstName} ${dbUser.employee.lastName}`.trim() : "STEMS user", email: dbUser.email };
+  return {
+    userId: dbUser.id,
+    employeeId: dbUser.employee?.id,
+    companyId: dbUser.companyId,
+    role: dbUser.role,
+    name: dbUser.employee?.firstName
+      ? `${dbUser.employee.firstName} ${dbUser.employee.lastName || ""}`.trim()
+      : dbUser.email.split("@")[0],
+    email: dbUser.email
+  };
 }
 
 aiRouter.post("/chat", async (req, res, next) => {
   try {
     const body = z.object({
-      message: z.string().min(1).max(4000),
-      language: z.enum(["en", "ml"]).optional().default("en"),
+      message: z.string().trim().min(1).max(6000),
+      language: z.enum(["en", "ml"]).optional().default("ml"),
       voiceMode: z.boolean().optional().default(false),
       history: z.array(z.object({
         role: z.enum(["user", "assistant"]),
-        text: z.string().max(8000)
-      })).max(30).optional().default([])
+        text: z.string().max(6000)
+      })).max(20).optional().default([])
     }).parse(req.body);
 
     const user = await resolveUserContext(req);
-    const response = await aiService.processQuestion(user, body.message, body.language, body.history);
+    const replyLanguage = /[\u0D00-\u0D7F]/.test(body.message) ? "ml" : body.language;
+    const response = await aiService.processQuestion(user, body.message, replyLanguage, body.history, body.voiceMode);
 
 
-    const plain = (response.spokenReply || response.markdown)
-      .replace(/[#*`]/g, "").replace(/^[•\-]\s*/gm, "").replace(/\s+/g, " ").trim();
-    response.spokenReply = plain.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ").slice(0, 500);
+    // Generate ultra-realistic, natural conversational spoken reply
+    let spokenReply: string | undefined = response.spokenReply;
+    const lang = replyLanguage === "ml" ? "Malayalam (മലയാളം)" : "English";
 
+    const plainReply = response.markdown.replace(/[#*`]/g, "").trim();
+    if (body.voiceMode && !spokenReply && plainReply.length < 1200 && !response.markdown.includes("|")) {
+      spokenReply = plainReply;
+    }
+    if (body.voiceMode && !spokenReply && ["gemini", "vertex"].includes(env.AI_PROVIDER) && geminiClient.isConfigured()) {
+      try {
+        const spokenPrompt = `You are Tale Buddy, a friendly and executive AI assistant at Second Tales speaking to ${user.name}.
+The user asked: "${body.message}"
+Full answer data:
+${response.markdown.slice(0, 4000)}
+
+Write a natural spoken explanation in ${lang}. For a work report use 4 to 6 short conversational sentences, preserving the main numbers, actual task names, deadlines and attendance from the answer. For a simple question use 1 or 2 sentences. Do not add facts. Keep it under 120 words.
+CRITICAL SPOKEN VOICE RULES:
+- Sound like a real person talking, NOT a robot reading a report.
+- DO NOT say "Summary", "Details", "Insights", "Action Required", bullet points, or list numbers.
+- Give the key answer directly in a warm, helpful conversational tone.
+- Output ONLY the spoken words.`;
+
+        const generatedSpoken = await geminiClient.generate({
+          prompt: spokenPrompt,
+          maxTokens: 700,
+          timeoutMs: 8000,
+          temperature: 0.3
+        });
+        if (generatedSpoken && generatedSpoken.trim().length > 5) {
+          spokenReply = generatedSpoken.trim().replace(/^["']|["']$/g, "");
+        }
+      } catch {
+        // Fall through to deterministic spoken extraction
+      }
+    }
+
+    if (body.voiceMode && !spokenReply) {
+      // Extract the Summary text directly and clean it
+      const summaryMatch = response.markdown.match(/###\s*Summary:?\s*([\s\S]*?)(?=###|$)/i);
+      const rawSummary = summaryMatch ? summaryMatch[1].trim() : response.markdown.split("\n\n")[0];
+      spokenReply = rawSummary
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/\*([^*]+)\*/g, "$1")
+        .replace(/`([^`]+)`/g, "$1")
+        .replace(/^[•\-\*]\s*/gm, "")
+        .replace(/\n+/g, " ")
+        .slice(0, 1000)
+        .trim();
+    }
+
+    response.spokenReply = spokenReply;
+
+    if (body.voiceMode && spokenReply) {
+      try {
+        const audio = await generateNaturalSpeech(spokenReply.slice(0, 1200), replyLanguage);
+        if (audio) return res.json({ ...response, ...audio });
+      } catch { console.warn("Combined voice response unavailable"); }
+    }
     res.json(response);
   } catch (error) {
     next(error);
@@ -50,14 +129,15 @@ aiRouter.post("/chat", async (req, res, next) => {
 aiRouter.post("/voice-transcribe", async (req, res, next) => {
   try {
     const body = z.object({
-      audio: z.string().min(1).max(8_000_000),
-      mimeType: z.enum(["audio/webm", "audio/webm;codecs=opus", "audio/mp4", "audio/wav", "audio/mpeg", "audio/ogg"]).optional()
+      audio: z.string().min(1).max(10_000_000).regex(/^[A-Za-z0-9+/]*={0,2}$/),
+      mimeType: z.enum(["audio/webm", "audio/webm;codecs=opus", "audio/ogg", "audio/ogg;codecs=opus", "audio/wav", "audio/mp4", "audio/mpeg"]).optional()
     }).parse(req.body);
 
     const { geminiClient } = await import("./gemini-client.service.js");
     const text = await geminiClient.transcribeAudio(body.audio, body.mimeType || "audio/webm");
 
-    res.json({ text: text || "" });
+    if (!text) throw new ApiError(503, "Voice transcription is unavailable. Please type your message or try again.");
+    res.json({ text });
   } catch (error) {
     next(error);
   }
@@ -77,54 +157,21 @@ aiRouter.get("/suggested-prompts", async (req, res, next) => {
 aiRouter.post("/voice-speak", async (req, res, next) => {
   try {
     const body = z.object({
-      text: z.string().max(8000).min(1).max(2000),
-      language: z.enum(["en", "ml"]).optional().default("en")
+      text: z.string().min(1).max(2000),
+      language: z.enum(["en", "ml"]).optional().default("ml"),
+      naturalOnly: z.boolean().optional().default(false)
     }).parse(req.body);
 
     const isMalayalam = body.language === "ml";
-    const textToSpeak = body.text.slice(0, 200); // keep it short for TTS
+    const textToSpeak = body.text.slice(0, 1200);
 
-    // ── Tier 1: Gemini 2.5 Flash TTS (best voice, works when quota available) ──
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    if (apiKey) {
-      try {
-        const voiceName = isMalayalam ? "Kore" : "Charon";
-        const languageCode = isMalayalam ? "ml-IN" : "en-IN";
-        const ttsBody = {
-          contents: [{ parts: [{ text: textToSpeak }] }],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: { prebuiltVoiceConfig: { voiceName } },
-              languageCode
-            }
-          }
-        };
-
-        const ttsRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(ttsBody),
-            signal: AbortSignal.timeout(8000)
-          }
-        );
-
-        if (ttsRes.ok) {
-          const ttsData = (await ttsRes.json()) as any;
-          const part = ttsData?.candidates?.[0]?.content?.parts?.[0];
-          if (part?.inlineData?.data) {
-            return res.json({
-              audio: part.inlineData.data,
-              mimeType: part.inlineData.mimeType || "audio/wav"
-            });
-          }
-        }
-      } catch {
-        // fall through to Google Translate TTS
-      }
+    try {
+      const audio = await generateNaturalSpeech(textToSpeak, body.language);
+      if (audio) return res.json(audio);
+    } catch {
+      console.warn("Natural speech request timed out or failed");
     }
+    if (body.naturalOnly) throw new ApiError(503, "The natural voice is temporarily unavailable. Please try again shortly.");
 
     // ── Tier 2: Google Translate TTS (free, no key, real Google voices for ml & en) ──
     try {

@@ -1,7 +1,8 @@
+import { Role } from "@prisma/client";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { requireAnyPermission, requireAuth, requirePermission } from "../../middleware/auth.js";
+import { requireAnyPermission, requireAuth, requirePermission, requireRoles } from "../../middleware/auth.js";
 import { ApiError } from "../../lib/errors.js";
 import { workTrackService } from "./work-track.service.js";
 import { prisma } from "../../lib/prisma.js";
@@ -70,6 +71,51 @@ async function resolveDataEntryCatalogCompanyId(companyId?: string | null) {
 
 workTrackRouter.use(requireAuth);
 
+// HR data is kept separate from shared department tasks. Grants cannot bypass this role guard.
+const hrTaskSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().trim().min(1).max(200),
+  description: z.string().max(5000).default(""),
+  category: z.enum(["Recruitment", "Onboarding", "Employee Requests", "General"]),
+  status: z.enum(["To Do", "In Progress", "Done"]),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal(""))
+});
+const HR_WORK_TRACK_KEY = "hr_work_track_tasks_v1";
+
+workTrackRouter.get("/hr/tasks", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const setting = await prisma.companySetting.findUnique({
+      where: { companyId_key: { companyId: req.user.companyId, key: HR_WORK_TRACK_KEY } }
+    });
+    res.json({ tasks: Array.isArray(setting?.value) ? setting.value : [], version: setting?.updatedAt.toISOString() ?? null });
+  } catch (error) { next(error); }
+});
+
+workTrackRouter.put("/hr/tasks", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    if (!req.user?.companyId) throw new ApiError(400, "Company context required");
+    const { tasks, version } = z.object({ tasks: z.array(hrTaskSchema).max(2000), version: z.string().datetime().nullable() }).parse(req.body);
+    if (new Set(tasks.map(task => task.id)).size !== tasks.length) throw new ApiError(400, "Duplicate task IDs");
+    const updatedAt = new Date(Math.max(Date.now(), version ? Date.parse(version) + 1 : 0));
+    if (version === null) {
+      try {
+        await prisma.companySetting.create({ data: { companyId: req.user.companyId, key: HR_WORK_TRACK_KEY, value: tasks, updatedAt } });
+      } catch (error: any) {
+        if (error?.code === "P2002") throw new ApiError(409, "HR tasks changed. Refresh before saving.");
+        throw error;
+      }
+    } else {
+      const result = await prisma.companySetting.updateMany({
+        where: { companyId: req.user.companyId, key: HR_WORK_TRACK_KEY, updatedAt: new Date(version) },
+        data: { value: tasks, updatedAt }
+      });
+      if (result.count !== 1) throw new ApiError(409, "HR tasks changed. Refresh before saving.");
+    }
+    res.json({ tasks, version: updatedAt.toISOString() });
+  } catch (error) { next(error); }
+});
+
 const dataEntrySheetRowSchema = z.object({
   count: z.number().default(0),
   category: z.string().default(""),
@@ -78,7 +124,8 @@ const dataEntrySheetRowSchema = z.object({
 }).passthrough();
 
 const dataEntrySheetsSchema = z.object({
-  sheets: z.record(z.string(), z.array(dataEntrySheetRowSchema))
+  sheets: z.record(z.string(), z.array(dataEntrySheetRowSchema)),
+  deletedMasterEntryIds: z.array(z.string().min(1)).max(1000).optional()
 });
 
 // Settings
@@ -113,7 +160,7 @@ workTrackRouter.put("/data-entry-sheets", async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const body = dataEntrySheetsSchema.parse(req.body);
-    res.json(await workTrackService.upsertDataEntrySheets(req.user.companyId, body.sheets));
+    res.json(await workTrackService.upsertDataEntrySheets(req.user.companyId, body.sheets, body.deletedMasterEntryIds));
   } catch (error) {
     next(error);
   }
@@ -424,7 +471,8 @@ workTrackRouter.post("/cards", requirePermission("worktrack.task.create"), async
       deadline: z.string(),
       assignedToId: z.string().optional(),
       createdAt: z.string().optional(),
-      idempotencyKey: z.string().optional()
+      idempotencyKey: z.string().optional(),
+      workQuantity: z.number().positive().default(1)
     }).parse(req.body);
 
     res.status(201).json(await workTrackService.createWorkCard(req.user.companyId, req.user.id, body));
@@ -480,7 +528,8 @@ workTrackRouter.patch("/cards/:id", requireAnyPermission(["worktrack.task.edit",
       deadline: z.string().optional(),
       createdAt: z.string().optional(),
       files: z.string().optional(),
-      videoDuration: z.string().optional()
+      videoDuration: z.string().optional(),
+      workQuantity: z.number().positive().optional()
     }).parse(req.body);
 
     res.json(await workTrackService.updateWorkCardFields(req.user.companyId, req.params.id, { ...body, userId: req.user.id }));

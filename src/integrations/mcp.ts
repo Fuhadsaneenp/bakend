@@ -6,6 +6,8 @@ import { env } from '../config/env.js';
 // @ts-expect-error The shared MCP adapter is JavaScript, copied into dist by the build.
 import { createHttpRouter } from '../../mcp/src/http.js';
 
+import { registerKpiTools } from "../modules/performance/kpi.mcp.js";
+
 const issuerUrl = process.env.MCP_PUBLIC_URL || 'https://api.secondtales.com';
 const keyFor = (key: string) => `mcp_oauth_v1_${createHash('sha256').update(key).digest('hex')}`;
 const store = {
@@ -37,6 +39,11 @@ export const mcpRouter = createHttpRouter({
   baseUrl: issuerUrl,
   store,
   validateUser,
+  async registerExtraTools(server: any, userId: string) {
+    const user = await validateUser(userId);
+    const employee = await prisma.employee.findUnique({ where: { userId }, select: { id: true } });
+    registerKpiTools(server, { id: user.id, companyId: user.companyId!, role: user.role, employeeId: employee?.id || null });
+  },
   async authenticate(identifier: string, password: string) {
     const normalized = identifier.trim().toLowerCase();
     const user = await prisma.user.findFirst({ where: { OR: [{ email: normalized }, { employee: { employeeCode: identifier.trim().toUpperCase() } }] } });

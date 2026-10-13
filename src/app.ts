@@ -1,3 +1,4 @@
+import { startJobMonitor } from "./modules/job-monitoring/worker.js";
 import cors from "cors";
 import express from "express";
 import rateLimit from "express-rate-limit";
@@ -9,6 +10,7 @@ import { errorHandler } from "./middleware/error.js";
 import { prisma } from "./lib/prisma.js";
 import { iclockRouter } from "./routes/iclock.js";
 import { storageService } from "./storage/storage.service.js";
+import { handleKpiMcp } from "./modules/performance/kpi.mcp.js";
 import { mcpRouter } from "./integrations/mcp.js";
 
 const productionOrigins = [
@@ -158,8 +160,10 @@ export const createApp = () => {
     res.setHeader("Surrogate-Control", "no-store");
     next();
   });
+  app.all("/mcp/kpi", handleKpiMcp);
   app.use(mcpRouter);
   app.use("/api", apiRouter);
   app.use(errorHandler);
+  if (process.env.JOB_MONITORING_DISABLED !== "1") startJobMonitor();
   return app;
 };

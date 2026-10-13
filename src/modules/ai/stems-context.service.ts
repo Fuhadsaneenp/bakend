@@ -4,6 +4,9 @@ import { UserContext } from "./ai.types.js";
 
 export interface StemsLiveContext {
   todayDateStr: string;
+  dataAvailable: boolean;
+  retrievedAt: string;
+  taskRecords: { id: string; title: string; client: string; assignedTo: string; status: string; category: string; priority: string; deadline: string; updatedAt: string }[];
   attendance: {
     totalEmployees: number;
     presentCount: number;
@@ -125,13 +128,13 @@ const getLeaveBalance = (allocations: any[], employeeId: string) => {
   };
 };
 
-const withQueryTimeout = async <T>(query: Promise<T>, fallback: T, timeoutMs = 2500): Promise<T> => {
+const withQueryTimeout = async <T>(query: Promise<T>, fallback: T, timeoutMs = 2500, onUnavailable?: () => void): Promise<T> => {
   let timeout: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([
-      query.catch(() => fallback),
+      query.catch(() => { onUnavailable?.(); return fallback; }),
       new Promise<T>((resolve) => {
-        timeout = setTimeout(() => resolve(fallback), timeoutMs);
+        timeout = setTimeout(() => { onUnavailable?.(); resolve(fallback); }, timeoutMs);
       })
     ]);
   } finally {
@@ -141,6 +144,21 @@ const withQueryTimeout = async <T>(query: Promise<T>, fallback: T, timeoutMs = 2
 
 export const stemsContextService = {
   async getLiveContext(user: UserContext): Promise<StemsLiveContext> {
+    // Fail closed for accounts without a company; only super admins may span companies.
+    const privileged = ["SUPER_ADMIN", "HR_ADMIN", "COMPANY_ADMIN"].includes(user.role);
+    const companyId = user.role === "SUPER_ADMIN" ? undefined : user.companyId || "__no_company__";
+    const employeeScope: any = {
+      ...(companyId ? { companyId } : {}),
+      ...(!privileged ? { id: user.employeeId || "__no_employee__" } : {})
+    };
+    const taskScope: any = {
+      ...(companyId ? { companyId } : {}),
+      ...(!privileged ? { assignedToId: user.employeeId || "__no_employee__" } : {})
+    };
+    const clientScope: any = {
+      ...(companyId ? { companyId } : {}),
+      ...(!privileged ? { workCards: { some: taskScope } } : {})
+    };
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
     const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
@@ -152,6 +170,10 @@ export const stemsContextService = {
       day: "numeric"
     });
 
+    let dataAvailable = true;
+    const query = <T>(promise: Promise<T>, fallback: T, timeoutMs = 6000) =>
+      withQueryTimeout(promise, fallback, timeoutMs, () => { dataAvailable = false; });
+
     let dbEmployees: any[] = [];
     let dbAttendanceToday: any[] = [];
     let dbWorkCards: any[] = [];
@@ -160,49 +182,50 @@ export const stemsContextService = {
     let dbLeaveAllocations: any[] = [];
 
     try {
-      const dbAvailable = await withQueryTimeout(prisma.$queryRaw`SELECT 1`, null, 1000);
-
-      if (!dbAvailable) {
-        throw new Error("Local database is not responding");
-      }
-
       [dbEmployees, dbAttendanceToday, dbWorkCards, dbClients, dbWFHRequests, dbLeaveAllocations] =
         await Promise.all([
-          withQueryTimeout(prisma.employee.findMany({
-            where: { ...activeEmployeeWhere() },
+          query(prisma.employee.findMany({
+            where: { ...employeeScope, ...activeEmployeeWhere() },
             include: {
               department: true,
               designation: true,
               manager: true,
-              user: true
+              user: { select: { email: true } }
             }
           }), []),
-          withQueryTimeout(prisma.attendance.findMany({
-            where: { workDate: { gte: todayStart, lte: todayEnd } },
+          query(prisma.attendance.findMany({
+            where: { employee: employeeScope, workDate: { gte: todayStart, lte: todayEnd } },
             include: { employee: { include: { department: true } } }
           }), []),
-          withQueryTimeout(prisma.workCard.findMany({
-            include: {
-              client: true,
-              assignedTo: { include: { department: true } }
+          query(prisma.workCard.findMany({
+            where: taskScope,
+            select: {
+              id: true, title: true, status: true, category: true, priority: true,
+              deadline: true, updatedAt: true, pointsEarned: true, assignedToId: true, clientId: true,
+              client: { select: { name: true } },
+              assignedTo: { select: { firstName: true, middleName: true, lastName: true, department: { select: { name: true } } } }
             }
           }), []),
-          withQueryTimeout(prisma.client.findMany({
-            include: { accountManager: true, workCards: true }
+          query(prisma.client.findMany({
+            where: clientScope,
+            include: { accountManager: true, workCards: { where: taskScope, select: { id: true } } }
           }), []),
-          withQueryTimeout(prisma.wFHRequest.findMany({
+          query(prisma.wFHRequest.findMany({
             where: {
+              employee: employeeScope,
               startDate: { lte: todayEnd },
               endDate: { gte: todayStart },
               status: "APPROVED"
             },
             include: { employee: { include: { department: true } } }
           }), []),
-          withQueryTimeout(prisma.leaveAllocation.findMany({
+          query(prisma.leaveAllocation.findMany({
+            where: { employee: employeeScope },
             include: { employee: true }
           }), [])
         ]);
     } catch {
+      dataAvailable = false;
       // Return empty live data rather than inventing records.
     }
 
@@ -457,6 +480,15 @@ export const stemsContextService = {
     ].filter(Boolean);
 
     return {
+      dataAvailable,
+      retrievedAt: new Date().toISOString(),
+      taskRecords: dbWorkCards.map(task => ({
+        id: task.id, title: task.title, client: task.client?.name || "Unassigned",
+        assignedTo: task.assignedTo ? fullName(task.assignedTo) : "Unassigned",
+        status: task.status, category: task.category, priority: task.priority,
+        deadline: task.deadline ? new Date(task.deadline).toISOString() : "Not recorded",
+        updatedAt: task.updatedAt ? new Date(task.updatedAt).toISOString() : "Not recorded"
+      })),
       todayDateStr,
       attendance: {
         totalEmployees,

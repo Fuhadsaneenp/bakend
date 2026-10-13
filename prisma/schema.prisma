@@ -127,6 +127,9 @@ model Company {
   metaAdAccounts      MetaAdAccount[]
   metaCampaigns       MetaCampaign[]
   metaLeads           MetaLead[]
+  kpiActivity         KpiActivity[]
+  kpiLeave            KpiLeave[]
+  kpiConfiguration    KpiConfiguration?
 }
 
 model CompanySetting {
@@ -285,6 +288,9 @@ model Employee {
   ledTeams          Team[]
   assignedMetaCampaigns MetaCampaign[] @relation("AssignedMetaCampaigns")
   assignedMetaLeads     MetaLead[]     @relation("AssignedMetaLeads")
+  kpiSnapshots     EmployeeKpiSnapshot[]
+  kpiActivity      KpiActivity[]
+  kpiLeave         KpiLeave[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   @@unique([companyId, employeeCode])
@@ -749,6 +755,7 @@ model WorkCard {
   reworkCount   Int             @default(0)
   files         String?         @db.LongText // JSON string with base64 deliverable previews
   pointsEarned  Float?          @default(0)
+  workQuantity  Float           @default(1)
   ratings       Rating[]
   statusHistory StatusHistory[]
   comments      Comment[]
@@ -756,6 +763,7 @@ model WorkCard {
   pointsLedgers PointsLedger[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
+  completedAt   DateTime?
 }
 
 model StatusHistory {
@@ -800,6 +808,99 @@ model Rating {
   ratedById  String?
   ratedBy    Employee? @relation("RatingsGiven", fields: [ratedById], references: [id])
   createdAt  DateTime @default(now())
+}
+
+model KpiConfiguration {
+  id                String   @id @default(cuid())
+  companyId         String   @unique
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  weights           Json
+  levels            Json
+  maxOutputScore    Float    @default(110)
+  minimumActiveRatio Float   @default(0.6)
+  ruleDefaultsVersion Int    @default(0)
+  rules             KpiWorkUnitRule[]
+  targets           KpiTarget[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model KpiWorkUnitRule {
+  id              String @id @default(cuid())
+  configurationId String
+  configuration   KpiConfiguration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+  taskType        String
+  quantity        Float  @default(1)
+  workUnits       Float
+  @@unique([configurationId, taskType])
+}
+
+model KpiTarget {
+  id              String @id @default(cuid())
+  configurationId String
+  configuration   KpiConfiguration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+  scope           String
+  scopeId         String?
+  dailyWorkUnits  Float
+  expectedMinutes Int    @default(480)
+  @@unique([configurationId, scope, scopeId])
+}
+
+model KpiActivity {
+  id                String   @id @default(cuid())
+  companyId         String
+  employeeId        String
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee          Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  workDate          DateTime
+  activeMinutes     Int      @default(0)
+  idleMinutes       Int      @default(0)
+  breakMinutes      Int      @default(0)
+  firstActivityAt   DateTime?
+  lastActivityAt    DateTime?
+  validEntries      Int      @default(0)
+  incorrectEntries  Int      @default(0)
+  duplicateEntries  Int      @default(0)
+  rejectedItems     Int      @default(0)
+  updatedAt         DateTime @updatedAt
+  @@unique([employeeId, workDate])
+  @@index([companyId, workDate])
+}
+
+model KpiLeave {
+  id        String   @id @default(cuid())
+  companyId String
+  employeeId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee  Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  startDate DateTime
+  endDate   DateTime
+  status    String   // APPROVED, REJECTED, PENDING
+  halfDay   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  @@index([companyId, employeeId, startDate, endDate])
+}
+
+model EmployeeKpiSnapshot {
+  id                String   @id @default(cuid())
+  companyId         String
+  employeeId        String
+  employee          Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  period            String
+  periodStart       DateTime
+  periodEnd         DateTime
+  attendanceScore   Float
+  activeWorkScore   Float?
+  outputScore       Float
+  qualityScore      Float?
+  efficiencyScore   Float?
+  reliabilityScore  Float
+  workUnits         Float
+  finalKpiScore     Float
+  breakdown         Json
+  generatedAt       DateTime @default(now())
+  @@unique([employeeId, period, periodStart])
+  @@index([companyId, period, periodStart])
 }
 
 model Comment {
