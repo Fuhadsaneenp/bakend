@@ -1,7 +1,9 @@
 import dotenv from "dotenv";
 import { z } from "zod";
 
-dotenv.config({ path: ".env.ai" });
+dotenv.config({ path: process.env.AI_ENV_FILE || ".env.ai" });
+// Hostinger keeps private AI credentials outside versioned release directories.
+dotenv.config({ path: "../../../config/.env.ai" });
 dotenv.config();
 
 const envSchema = z.object({
