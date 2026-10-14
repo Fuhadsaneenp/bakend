@@ -1,3 +1,4 @@
+import { matchEmployeeMention } from "./employee-name.service.js";
 import { getShiftParams, getShiftTime } from "../attendance/attendance.service.js";
 import { identifyReadOnlyQuery } from "./query-intent.service.js";
 import { workloadRulesSchema, taskWeight } from "./workload-rules.js";
@@ -27,23 +28,14 @@ function bounds(plan: QueryPlan) { return { start: new Date(`${plan.start}T00:00
 export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Promise<VerifiedReport> {
   const where = await authorizedEmployeeWhere(user);
   let employees = checkLimit(await prisma.employee.findMany({ where, select: employeeSelect, take: limit }));
-  if (!plan.employee) {
-    let q = plan.currentQuestion.toLowerCase();
-    const mention = (token: string) => token.length > 1 && new RegExp(`(?:^|[^\\p{L}\\p{N}])${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\p{L}\\p{N}])`, 'iu').test(q);
-    const findExplicit = () => employees.filter(employee => mention(fullName(employee).toLowerCase()) || mention(employee.employeeCode.toLowerCase()) || mention(employee.id) || mention(employee.firstName.toLowerCase()));
-    if (!findExplicit().length) q = plan.subjectText.toLowerCase();
-    const exact = employees.filter(employee => mention(fullName(employee).toLowerCase()) || mention(employee.employeeCode.toLowerCase()) || mention(employee.id));
-    const matched = exact.length ? exact : employees.filter(employee => mention(employee.firstName.toLowerCase()));
-    if (matched.length > 1 && new Set(matched.map(employee => employee.firstName.toLowerCase())).size === 1) throw new ApiError(400, `Several authorized employees share that name. Use employee code: ${matched.map(employee => employee.employeeCode).join(', ')}`);
-    if (matched.length) employees = matched;
-    else if (/what did|hours did|show [\w'-]+(?:'s)? (?:performance|attendance)|performance of [\w'-]+[?.]?$/i.test(plan.subjectText) && !plan.department) throw new ApiError(404, 'No authorized employee matched. Please use an employee code.');
-  }
-  if (plan.employee && !/^(me|my|our|the|team|work|today|employees|designers|attendance)$/i.test(plan.employee)) {
-    const token = plan.employee.toLowerCase();
-    const matches = employees.filter(employee => fullName(employee).toLowerCase() === token || employee.id === token || employee.employeeCode.toLowerCase() === token || fullName(employee).toLowerCase().split(' ').includes(token));
-    if (matches.length > 1) throw new ApiError(400, `Several authorized employees match. Please use employee code: ${matches.map(employee => employee.employeeCode).join(', ')}`);
-    if (matches.length === 0) throw new ApiError(404, 'No authorized employee matches that name or code');
-    employees = matches;
+  const explicitPerson=plan.employee&&!/^(me|my|our|the|team|work|today|employees|designers|attendance)$/i.test(plan.employee);
+  if(!/^(me|my)$/i.test(plan.employee||'')) {
+    let matched=matchEmployeeMention(plan.currentQuestion,employees);
+    if(!matched.matches.length&&explicitPerson)matched=matchEmployeeMention(plan.employee!,employees);
+    if(!matched.matches.length&&plan.subjectText!==plan.currentQuestion)matched=matchEmployeeMention(plan.subjectText,employees);
+    if(matched.ambiguous)throw new ApiError(400,`Several authorized employees match. Please use employee code: ${matched.matches.map(person=>person.employeeCode).join(', ')}`);
+    if(matched.matches.length)employees=matched.matches;
+    else if(explicitPerson || /what did|hours did|performance of/i.test(plan.currentQuestion))throw new ApiError(404,'No authorized employee matched. Please use the full name or employee code.');
   }
   if (/^(me|my)$/i.test(plan.employee || '')) employees = employees.filter(employee => employee.id === user.employeeId);
   if (plan.department) employees = employees.filter(employee => `${employee.department?.name || ''} ${employee.designation?.title || ''}`.toLowerCase().includes(plan.department!.replace(' editing', '')));

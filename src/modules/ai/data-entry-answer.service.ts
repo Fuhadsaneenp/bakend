@@ -1,3 +1,4 @@
+import { matchEmployeeMention } from "./employee-name.service.js";
 import type { QueryPlan } from "./verified-query.js";
 import { workTrackService } from "../work-track/work-track.service.js";
 import { prisma } from "../../lib/prisma.js";
@@ -17,14 +18,11 @@ export async function dataEntryAnswer(user: UserContext, question: string, langu
   const start=plan?.start || today, end=plan?.end || today;
   const sheets=await workTrackService.getDataEntrySheets(user.companyId);
   const visible=admin?await prisma.employee.findMany({where:{...(allCompanies?{}:{companyId:user.companyId}),status:"ACTIVE"},select:{id:true,employeeCode:true,firstName:true,middleName:true,lastName:true,designation:{select:{title:true}},department:{select:{name:true}}}}):employee?[employee]:[];
-  const q=(plan?.employee && !/^(me|my)$/i.test(plan.employee)?`${question} ${plan.employee}`:question).toLowerCase();
-  const aliases:Record<string,string>={"റിഷാന":"rishana","രിഷാന":"rishana","സഫ്ന":"safna","ഹസ്ന":"hasna","സജ്ന":"sajna","സഹാന":"sahana","ഷിംന":"shimna","ഷംന":"shimna","ഫാത്തിമ":"fathima"};
-  const normalizedQuestion=Object.entries(aliases).reduce((v,[from,to])=>v.replaceAll(from,to),q);
-  const scoredNames=visible.map(e=>({e,score:(e.employeeCode&&normalizedQuestion.includes(e.employeeCode.toLowerCase())?10:0)+[e.firstName,e.middleName,e.lastName].filter(Boolean).reduce((n,v)=>n+(String(v).length>2&&normalizedQuestion.includes(String(v).toLowerCase())?1:0),0)}));
-  const bestNameScore=Math.max(0,...scoredNames.map(e=>e.score));
-  const targetNames=plan?.employee === "me" && employee ? [[employee.firstName,employee.middleName,employee.lastName].filter(Boolean).join(" ").toLowerCase()] : scoredNames.filter(e=>bestNameScore>0&&e.score===bestNameScore).map(({e})=>[e.firstName,e.middleName,e.lastName].filter(Boolean).join(" ").toLowerCase());
+  let localMatch=matchEmployeeMention(question,visible);
+  if(!localMatch.matches.length && plan?.employee && !/^(me|my)$/i.test(plan.employee)) localMatch=matchEmployeeMention(plan.employee,visible);
+  const targetNames=plan?.employee==='me'&&employee?[[employee.firstName,employee.middleName,employee.lastName].filter(Boolean).join(' ').toLowerCase()]:localMatch.matches.map(person=>[person.firstName,person.middleName,person.lastName].filter(Boolean).join(' ').toLowerCase());
   if(plan?.employee && !/^(me|my)$/i.test(plan.employee) && !targetNames.length) return {intent:'GENERAL_WORKPLACE_QUERY',markdown:language==='ml'?'ഈ പേരിൽ നിങ്ങളുടെ അനുമതിയിൽ ഉൾപ്പെടുന്ന ജീവനക്കാരനെ കണ്ടെത്താനായില്ല. മുഴുവൻ പേരോ employee code-ഓ പറയാമോ?':'No authorized employee matched. Please give the full name or employee code.'};
-  if(plan?.employee && targetNames.length>1) return {intent:'GENERAL_WORKPLACE_QUERY',markdown:language==='ml'?'ഈ പേരിൽ ഒന്നിലധികം ജീവനക്കാരുണ്ട്. employee code പറയാമോ?':'Several employees match. Please give the employee code.'};
+  if(localMatch.ambiguous || plan?.employee && targetNames.length>1) return {intent:'GENERAL_WORKPLACE_QUERY',markdown:language==='ml'?'ഈ പേരിൽ ഒന്നിലധികം ജീവനക്കാരുണ്ട്. employee code പറയാമോ?':'Several employees match. Please give the employee code.'};
   const platforms=[[/medbiomate|medbimate|mbm|മെഡ്ബ/i,"medbiomate.com"],[/trikonet|tkt|ട്രികോ/i,"trikonet.com"],[/mediyox|മെഡിയോ/i,"mediyox.com"]] as const;
   const selectedPlatforms=platforms.filter(([pattern])=>pattern.test(question)).map(([,host])=>host);
   const platform=selectedPlatforms.length===1?selectedPlatforms[0]:null;
