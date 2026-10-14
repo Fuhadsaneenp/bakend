@@ -2,7 +2,7 @@ import { calendarDate } from '../../lib/employment.js';
 export type QueryKind = 'attendance' | 'tasks' | 'data-entry' | 'kpi' | 'leave' | 'exits' | 'clients' | 'overview';
 export interface QueryPlan {
   kind: QueryKind; start: string; end: string; employee?: string; department?: string; category?: 'design' | 'video'; groupByDepartment?: boolean;
-  metric: 'summary' | 'count' | 'most' | 'least' | 'missing-checkout' | 'late' | 'early' | 'early-arrival' | 'absent' | 'wfh' | 'leave' | 'pending' | 'overdue' | 'hours' | 'present' | 'approval' | 'not-started';
+  metric: 'summary' | 'count' | 'most' | 'least' | 'missing-checkout' | 'late' | 'early' | 'early-arrival' | 'absent' | 'wfh' | 'leave' | 'pending' | 'overdue' | 'hours' | 'in-progress' | 'present' | 'approval' | 'not-started';
   compare: boolean; detailed: boolean; publishedOnly: boolean; updatedOnly: boolean; employerOnly: boolean; resignationOnly: boolean; subjectText: string; currentQuestion: string; leaveHistory: boolean; average: boolean;
 }
 export function shiftDay(day: string, days: number): string {
@@ -43,18 +43,19 @@ export function planQuestion(question: string, history: { role: string; text: st
   const previous = [...userTurns].reverse().find(text => !/^(what about|and |compare|how about)/i.test(text.trim())) || userTurns.at(-1) || '';
   const subject = followup ? `${previous} ${question}` : question;
   const q = subject.toLowerCase();
+  const currentWork = /current(?:ly)?\s+(?:work|task)|working\s+(?:on|now)|what.*(?:doing|working)|ഇപ്പോൾ.*(?:ജോലി|ചെയ്യ|വർക്ക്)|നിലവിൽ.*(?:ജോലി|വർക്ക്)|ചെയ്തുകൊണ്ടിരിക്കുന്ന|ചെയ്യുന്ന.*(?:ജോലി|വർക്ക്)/i.test(question);
   const earlyArrival = /(?:early|earlier).*(?:arriv|came|come|check.?in)|(?:arriv|came|come|check.?in).*early|നേരത്തെ.*(?:വന്ന|വര|എത്ത|ചെക്ക് ഇൻ)|(?:വന്ന|എത്ത).*നേരത്തെ|nerathe.*(?:vann|eth)/i.test(question);
   const earlyDeparture = /early.*(?:depart|leav|left|check.?out)|(?:depart|leav|left|check.?out).*early|നേരത്തെ.*(?:പോയ|പോക|പുറപ്പെട്ട|ഇറങ്ങ)|nerathe.*poy/i.test(question);
   const companyOverview = /(?:company|our team|all departments).*(?:status|overview|summary|report)|(?:കമ്പനി|കമ്പനിയുടെ|എല്ലാ വിഭാഗ|നമ്മുടെ ടീം).*(?:സ്ഥിതി|സംഗ്രഹം|റിപ്പോർട്ട്|എന്തൊക്കെ)|ഇന്നത്തെ.*(?:complete|പൂർണ്ണ).*work report/i.test(q);
   const groupByDepartment = /each department|department.*progress|ഓരോ department|ഓരോ വിഭാഗ/.test(q) || (/design|poster|ഡിസൈൻ/.test(q) && /video|reel|വീഡിയോ/.test(q));
   const category = groupByDepartment ? undefined : /video|reel|വീഡിയോ|വീഡിയോകൾ|റീൽ|എഡിറ്റർ/.test(q) ? 'video' as const : /design|poster|creative|ഡിസൈൻ|പോസ്റ്റർ|ഡിസൈനർ/.test(q) ? 'design' as const : undefined;
-  const kind: QueryKind = earlyArrival || earlyDeparture ? 'attendance' : companyOverview ? 'overview' : /client|project/.test(q) ? 'clients' : /data\s*entr|ഡാറ്റാ?.*എൻട്രി|ഡേറ്റാ?.*എൻട്രി|entries|records.*add|upload.*job|job.*upload|job.*publish|publish.*job|updat.*job|job.*updat|add.*compan|compan.*add|employer.*entr|ജോബ്|ജോബു/.test(q) ? 'data-entry'
+  const kind: QueryKind = currentWork ? 'tasks' : earlyArrival || earlyDeparture ? 'attendance' : companyOverview ? 'overview' : /client|project/.test(q) ? 'clients' : /data\s*entr|ഡാറ്റാ?.*എൻട്രി|ഡേറ്റാ?.*എൻട്രി|entries|records.*add|upload.*job|job.*upload|job.*publish|publish.*job|updat.*job|job.*updat|add.*compan|compan.*add|employer.*entr|ജോബ്|ജോബു/.test(q) ? 'data-entry'
     : /resign|retir|terminat|exit|former|offboard|internship|രാജി/.test(q) ? 'exits'
     : /kpi|performance|best|worst|productiv|compare.*designer|പ്രകടനം/.test(q) ? 'kpi'
     : /leave balance|leave history|ലീവ്/.test(q) ? 'leave'
     : /attend|hours|check.?in|check.?out|absen|late|early depart|\bbreak(?:s| duration)?\b|missing.*record|longest|wfh|home|on leave|worked today|working time|അറ്റൻഡ|മണിക്കൂർ|ഹാജർ|ജോലിക്ക് വന്നു|ഓഫീസ|ലേറ്റ്|വർക്ക് ഫ്രം ഹോം|absent/.test(q) ? 'attendance'
     : /task|work|design|poster|creative|video|reel|pending|overdue|deadline|approval|ടാസ്ക്|ജോലി|ഡിസൈൻ|പോസ്റ്റർ|വീഡിയോ|റീൽ|പെൻഡിംഗ്|അപ്രൂവൽ/.test(q) ? 'tasks' : 'overview';
-  const metric: QueryPlan['metric'] = earlyArrival ? 'early-arrival' : earlyDeparture ? 'early' : /not start|yet to start|start ചെയ്യാത്ത|തുടങ്ങാത്ത/.test(q) ? 'not-started' : /await.*approv|waiting.*approv|approval.*wait|അപ്രൂവൽ|approval കാത്തിരി/.test(q) ? 'approval' : /who.*(?:came|present)|ജോലിക്ക് വന്നു|ഹാജരായ|ആരൊക്കെ.*ഓഫീസ|ഓഫീസ.*ആരൊക്കെ/.test(q) ? 'present' : /missing.*check.?out|checkout.*missing/.test(q) ? 'missing-checkout' : /early depart/.test(q) ? 'early' : /late|വൈകി|ലേറ്റ്/.test(q) ? 'late'
+  const metric: QueryPlan['metric'] = currentWork ? 'in-progress' : earlyArrival ? 'early-arrival' : earlyDeparture ? 'early' : /not start|yet to start|start ചെയ്യാത്ത|തുടങ്ങാത്ത/.test(q) ? 'not-started' : /await.*approv|waiting.*approv|approval.*wait|അപ്രൂവൽ|approval കാത്തിരി/.test(q) ? 'approval' : /who.*(?:came|present)|ജോലിക്ക് വന്നു|ഹാജരായ|ആരൊക്കെ.*ഓഫീസ|ഓഫീസ.*ആരൊക്കെ/.test(q) ? 'present' : /missing.*check.?out|checkout.*missing/.test(q) ? 'missing-checkout' : /early depart/.test(q) ? 'early' : /late|വൈകി|ലേറ്റ്/.test(q) ? 'late'
     : /absen|ഹാജരാകാത്ത/.test(q) ? 'absent' : /on leave|approved leave|ആരൊക്കെ.*leave|ആരൊക്കെയാണ് leave/.test(q) ? 'leave' : /wfh|home|വർക്ക് ഫ്രം ഹോം/.test(q) ? 'wfh'
     : /overdue|delayed/.test(q) ? 'overdue' : /pending|hasn.t completed|not complet|incomplete|പെൻഡിംഗ്|പൂർത്തിയാകാത്ത/.test(q) ? 'pending'
     : /lowest|least|worst|കുറവ്|കുറഞ്ഞ/.test(q) ? 'least' : /most|highest|best|longest|കൂടുതൽ/.test(q) ? 'most'

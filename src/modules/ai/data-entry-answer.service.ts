@@ -63,7 +63,7 @@ export async function dataEntryAnswer(user: UserContext, question: string, langu
    if(date<start||date>end)continue;
    let url:URL;try{url=new URL(r.sourceUrl);}catch{continue;}if(platform&&url.hostname.replace(/^www\./,"")!==platform)continue;const id=r.postId||url.searchParams.get("p");
    const identity=(/-Employer-/.test(key)?"company:":"job:")+(r.activityType==="edited"?"edited:":"created:")+(id?`${url.hostname}:${id}`:url.href);
-   const prior=unique.get(identity);if(!prior||Date.parse(at)>Date.parse(prior.at))unique.set(identity,{actor,at,edited:r.activityType==="edited",company:/-Employer-/.test(key),host:url.hostname.replace(/^www\./,"")});
+   const prior=unique.get(identity);if(!prior||Date.parse(at)>Date.parse(prior.at))unique.set(identity,{actor,at,title:typeof r.jobTitle==='string'?r.jobTitle:'',employer:typeof r.companyName==='string'?r.companyName:'',edited:r.activityType==="edited",company:/-Employer-/.test(key),host:url.hostname.replace(/^www\./,"")});
   }
   const totals=new Map<string,{created:number;edited:number;companies:number}>();
   for(const r of unique.values()){const n=totals.get(r.actor)||{created:0,edited:0,companies:0};r.company?n.companies++:r.edited?n.edited++:n.created++;totals.set(r.actor,n);}
@@ -111,6 +111,9 @@ export async function dataEntryAnswer(user: UserContext, question: string, langu
    const siteNames:Record<string,string>={'medbiomate.com':'Medbiomate','trikonet.com':'Trikonet','mediyox.com':'Mediyox'};
    const siteLines=sites.flatMap(host=>{const rows=reportRecords.filter(r=>!r.company&&r.host===host);if(!rows.length)return [];const dates=rows.map(r=>Date.parse(r.at)).sort((a,b)=>a-b);return [ml?`${siteNames[host]}-ൽ ആദ്യ എൻട്രി ${time(dates[0])}-നും അവസാന എൻട്രി ${time(dates[dates.length-1])}-നുമാണ് രേഖപ്പെടുത്തിയിരിക്കുന്നത്. ഈ സമയങ്ങൾ എൻട്രികളുടെ സമയമാണ്; ജോലി തുടങ്ങിയതും അവസാനിപ്പിച്ചതുമായ സമയമായി കണക്കാക്കാനാവില്ല.`:`On ${siteNames[host]}, the first entry was recorded at ${time(dates[0])} and the last at ${time(dates[dates.length-1])} IST. These are entry timestamps, not confirmed work start and finish times.`];});
    if(siteLines.length)markdown+='\n\n'+siteLines.join(' ');
+   const detailRecords=reportRecords.filter(row=>row.title||row.employer).slice(0,plan?.detailed?10:3);
+   if(detailRecords.length)markdown+='\n\n'+detailRecords.map(row=>ml?`${row.actor} ${row.employer?'“'+row.employer+'” എന്ന കമ്പനിയുടെ ':''}${row.title?'“'+row.title+'” എന്ന ജോബ് ':row.company?'കമ്പനി വിവരം ':'ജോബ് വിവരം '}${row.edited?'അപ്ഡേറ്റ് ചെയ്തു':'ചേർത്തു'}. രേഖപ്പെടുത്തിയ സമയം ${time(Date.parse(row.at))} ആണ്.`:`${row.actor} ${row.edited?'updated':'added'} ${row.title?'“'+row.title+'”':'the company entry'}${row.employer?' for “'+row.employer+'”':''} at ${time(Date.parse(row.at))} IST.`).join(' ');
+
   }
   const summaryNames=activeTotals.filter(([,n])=>n.created+n.edited>0).map(([name])=>name);
   const spokenReply=language==="ml"?`${summaryNames.length===1?summaryNames[0]:"ഡാറ്റാ എൻട്രി ടീം"} ${start===today&&end===today?"ഇന്ന്":"തിരഞ്ഞെടുത്ത കാലയളവിൽ"} ${createdTotal+editedTotal} ജോബ് എൻട്രികൾ രേഖപ്പെടുത്തി.${first&&last?` ആദ്യ എൻട്രി ${first}. അവസാന എൻട്രി ${last}.`:""} വിശദാംശങ്ങൾ ചാറ്റിൽ കാണാം.`:`${summaryNames.length===1?summaryNames[0]:"The Data Entry team"} recorded ${createdTotal+editedTotal} job entries for the selected period.${first&&last?` First entry ${first}. Last entry ${last}.`:""} The details are in the chat.`;

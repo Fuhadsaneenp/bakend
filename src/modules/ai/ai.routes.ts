@@ -116,7 +116,7 @@ CRITICAL SPOKEN VOICE RULES:
 
     if (body.voiceMode && spokenReply) {
       try {
-        const audio = await generateNaturalSpeech(spokenReply.slice(0, 1200), replyLanguage);
+        const audio = await generateNaturalSpeech(spokenReply, replyLanguage);
         if (audio) return res.json({ ...response, ...audio });
       } catch { console.warn("Combined voice response unavailable"); }
     }
@@ -164,13 +164,18 @@ aiRouter.get("/suggested-prompts", async (req, res, next) => {
 aiRouter.post("/voice-speak", async (req, res, next) => {
   try {
     const body = z.object({
-      text: z.string().min(1).max(2000),
+      text: z.string().min(1).max(4000),
       language: z.enum(["en", "ml"]).optional().default("ml"),
       naturalOnly: z.boolean().optional().default(false)
     }).parse(req.body);
 
     const isMalayalam = body.language === "ml";
-    const textToSpeak = body.text.slice(0, 1200);
+    let textToSpeak = '';
+    for(const sentence of body.text.split(/(?<=[.!?])\s+/u)){
+      if(textToSpeak.length+sentence.length>2600)break;
+      textToSpeak+=(textToSpeak?' ':'')+sentence;
+    }
+    if(!textToSpeak)textToSpeak=body.text.slice(0,2600).replace(/\s+\S*$/u,'');
 
     try {
       const audio = await generateNaturalSpeech(textToSpeak, body.language);

@@ -29,12 +29,24 @@ function dateLabel(day: string): string {
 }
 export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: string): {markdown:string;spokenReply:string} {
  const {plan,totals:t}=report;
+ const statusLabels:Record<string,string>={IN_PROGRESS:'ചെയ്തുകൊണ്ടിരിക്കുന്നു',REWORK:'വീണ്ടും ചെയ്യാനുണ്ട്',PENDING:'തുടങ്ങാനുണ്ട്',ASSIGNED:'അസൈൻ ചെയ്തിട്ടുണ്ട്',TODO:'തുടങ്ങാനുണ്ട്',WAITING:'കാത്തിരിക്കുന്നു',FINISHED:'പൂർത്തിയാക്കി',APPROVED:'അംഗീകരിച്ചു',OUT_TO_DELIVER:'ഡെലിവറിക്ക് തയ്യാറാണ്',SUBMITTED:'പരിശോധനയ്ക്ക് നൽകിയിട്ടുണ്ട്',IN_REVIEW:'പരിശോധനയിലാണ്',WAITING_REVIEW:'പരിശോധന കാത്തിരിക്കുന്നു',PENDING_APPROVAL:'അപ്രൂവൽ കാത്തിരിക്കുന്നു',REJECTED:'നിരസിച്ചു',CLIENT_REJECTED:'ക്ലയന്റ് നിരസിച്ചു'};
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  const yesterday=new Date(Date.parse(today+'T12:00:00Z')-86400000).toISOString().slice(0,10);
  const period=plan.start===plan.end?(plan.start===today?'ഇന്ന് ഇതുവരെ':plan.start===yesterday?'ഇന്നലെ':dateLabel(plan.start)+'-ന്'):`${dateLabel(plan.start)} മുതൽ ${dateLabel(plan.end)} വരെയുള്ള കാലയളവിൽ`;
  if (/cannot be verified|ranking is unavailable|ranking cannot|cannot be confirmed|not connected/i.test(verifiedEnglish) && ['most','least'].includes(plan.metric)) {
   const answer='ഈ താരതമ്യം ഉറപ്പിക്കാൻ ആവശ്യമായ പൂർണ്ണവും താരതമ്യയോഗ്യവുമായ രേഖകൾ ലഭ്യമല്ല. ലഭ്യമായ കണക്കുകൾ മാത്രം ഉപയോഗിച്ച് ഒരാളുടെ പ്രകടനം മികച്ചതാണെന്ന് പറയാനാവില്ല.';
   return {markdown:answer,spokenReply:answer};
+ }
+ if(plan.kind==='attendance' && plan.metric==='early') {
+  const early=report.rows.filter(row=>row.value>0);
+  const clock=(value:string)=>new Date(value).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:true});
+  const descriptions=early.flatMap(row=>(row.attendanceEvents||[]).filter(event=>event.isEarlyLeave).map(event=>`${row.name} ${plan.start!==plan.end?dateLabel(event.date)+'-ന് ':''}${event.checkOutAt?clock(event.checkOutAt)+'-നാണ് ചെക്ക് ഔട്ട് ചെയ്തത്':'നേരത്തെ പോയതായി രേഖയുണ്ട്; പക്ഷേ ചെക്ക് ഔട്ട് സമയം ലഭ്യമല്ല'}. ഷിഫ്റ്റ് അവസാനിക്കേണ്ടത് ${clock(event.scheduledEnd)}-നാണ്.${event.earlyDepartureMinutes!=null?` അതിനേക്കാൾ ${event.earlyDepartureMinutes} മിനിറ്റ് നേരത്തെയാണ് ചെക്ക് ഔട്ട് ചെയ്തത്.`:' എത്ര നേരം മുമ്പാണ് പോയതെന്ന് ഉറപ്പിക്കാനാവില്ല.'}`));
+  const intro=early.length?`${period} ${peopleEmphasis(early.length)} ഷിഫ്റ്റ് തീരുന്നതിന് മുമ്പ് ചെക്ക് ഔട്ട് ചെയ്തത്.`:`${period} നേരത്തെ ചെക്ക് ഔട്ട് ചെയ്തതായി ഹാജർ രേഖകളിൽ കണ്ടെത്തിയില്ല.`;
+  const note=early.length?'സമയങ്ങൾ ഇന്ത്യൻ സമയത്തിലാണ്. ലഭ്യമായ ഷിഫ്റ്റ് സമയമാണ് താരതമ്യത്തിന് ഉപയോഗിച്ചത്; പഴയ ഷിഫ്റ്റ് മാറ്റങ്ങളുടെ ചരിത്രം ലഭ്യമല്ല.':'';
+  const markdown=[intro,...descriptions,note].filter(Boolean).join('\n\n');
+  const spoken=[intro];for(const description of descriptions){if(spoken.join(' ').length+description.length>1050)break;spoken.push(description);}
+  if(spoken.length-1<descriptions.length)spoken.push('ബാക്കിയുള്ളവരുടെ സമയങ്ങൾ ചാറ്റിൽ കാണാം.');
+  return {markdown,spokenReply:spoken.join(' ')};
  }
  if(plan.kind==='attendance' && plan.metric==='late') {
   const late=report.rows.filter(row=>row.value>0);
@@ -86,6 +98,8 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
  let rows=report.rows.filter(row=>row.value>0 || plan.kind==='attendance' && (plan.metric==='hours'||clockQuestion) && row.attendanceEvents?.some(event=>event.checkInAt));
  if(['most','least'].includes(plan.metric)&&report.rows.length){const value=(plan.metric==='most'?Math.max:Math.min)(...report.rows.map(row=>row.value));rows=report.rows.filter(row=>row.value===value);}
  const rowSentence=(row:typeof report.rows[number])=>{
+  if(row.workSummary){const n=row.workSummary;return `${row.name}: `+[n.completed?`${taskCount(n.completed)} പൂർത്തിയാക്കി`:'',n.inProgress?`${taskCount(n.inProgress)} ചെയ്തുകൊണ്ടിരിക്കുന്നതായി സ്റ്റാറ്റസ് കാണിക്കുന്നു`:'',n.pending?`${taskCount(n.pending)} പൂർത്തിയാക്കാൻ ബാക്കിയുണ്ട്`:'',n.approval?`${taskCount(n.approval)} അപ്രൂവൽ കാത്തിരിക്കുന്നു`:''].filter(Boolean).join('. ');}
+  if(row.unit==='tasks in progress')return `${row.name} ${taskCount(row.value)} ചെയ്തുകൊണ്ടിരിക്കുന്നതായി സ്റ്റാറ്റസ് കാണിക്കുന്നു`;
   if(row.value===0&&row.attendanceEvents?.some(event=>event.checkInAt&&!event.checkOutAt))return `${row.name} ചെക്ക് ഇൻ ചെയ്തിട്ടുണ്ട്. പക്ഷേ ചെക്ക് ഔട്ട് സമയം ഇല്ലാത്തതിനാൽ ആകെ എത്രനേരം ജോലി ചെയ്തെന്ന് പറയാൻ പറ്റുന്നില്ല`;
   if(row.value===0)return `${row.name}-ന്റെ ഈ പ്രവർത്തനത്തെക്കുറിച്ചുള്ള വിവരം ഇപ്പോൾ ലഭ്യമല്ല`;
   if(row.unit==='employees checked in')return `${row.name} ചെക്ക് ഇൻ ചെയ്തിട്ടുണ്ട്`;
@@ -125,7 +139,7 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
    const selected=rows.slice(0,plan.detailed?30:6);
    paragraphs.push(selected.map(row=>{
     let answer=rowSentence(row)+'.';
-    if(row.workItems?.length && (plan.detailed || ["pending","overdue","approval","not-started"].includes(plan.metric))){const items=row.workItems.slice(0,plan.detailed?10:3);answer+=' '+items.map(item=>`“${item.title}” പൂർത്തിയാക്കേണ്ടത് ${new Date(item.deadline).toLocaleString('ml-IN',{timeZone:'Asia/Kolkata',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}-നാണ്.`).join(' ');if(row.workItems.length>items.length)answer+=` മറ്റു ${row.workItems.length-items.length} ജോലികളുടെ വിവരങ്ങളും ലഭ്യമാണ്.`;}
+    if(row.workItems?.length){const items=row.workItems.slice(0,plan.detailed?10:3);answer+=' '+items.map(item=>`${item.clientName?'“'+item.clientName+'” എന്ന ക്ലയന്റിനുവേണ്ടിയുള്ള ':''}“${item.title}” — ${statusLabels[item.status||'']||'സ്റ്റാറ്റസ് ഉറപ്പിക്കാനായില്ല'}.${['pending','overdue','approval','not-started','in-progress'].includes(plan.metric)||plan.detailed?` ഡെഡ്‌ലൈൻ ${new Date(item.deadline).toLocaleString('ml-IN',{timeZone:'Asia/Kolkata',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})} ആണ്.${item.overdueMinutes?` ഇത് ${Math.floor(item.overdueMinutes/1440)?Math.floor(item.overdueMinutes/1440)+' ദിവസം ':''}${Math.floor(item.overdueMinutes%1440/60)?Math.floor(item.overdueMinutes%1440/60)+' മണിക്കൂർ ':''}${item.overdueMinutes%60?item.overdueMinutes%60+' മിനിറ്റ് ':''}മുമ്പ് കഴിഞ്ഞതാണ്.`:''}`:''}`).join(' ');if(row.value>items.length)answer+=` മറ്റ് ${row.value-items.length} ജോലികളും ഈ കണക്കിൽ ഉൾപ്പെടുന്നു.`;}
     else if(plan.detailed&&row.details&&!attendance)answer+=` രേഖയിൽ ലഭ്യമായ വിശദാംശങ്ങൾ: ${row.details}.`;
     if(attendance && row.attendanceEvents?.length && (plan.metric==='hours'||/check.?in|check.?out|എത്ര മണി|എപ്പോൾ|തുടങ്ങിയ സമയം/.test(plan.currentQuestion))){
      const clock=(value:string)=>new Date(value).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:true});
@@ -136,13 +150,14 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
    if(rows.length>selected.length)paragraphs.push(`ഇതിനു പുറമേ ${people(rows.length-selected.length,"possessive")} രേഖകളും ലഭ്യമാണ്. എല്ലാവരുടെയും വിശദാംശങ്ങൾ വേണമെങ്കിൽ ചോദിക്കാം.`);
   }
  }
+ if(!paragraphs.length&&plan.metric==='in-progress')paragraphs.push(`${period} ചെയ്തുകൊണ്ടിരിക്കുന്നതായി സ്റ്റാറ്റസുള്ള ടാസ്കുകൾ കണ്ടെത്തിയില്ല. അതുകൊണ്ട് ജോലി ചെയ്യുന്നില്ലെന്ന് ഉറപ്പിക്കാനാവില്ല.`);
  if(!paragraphs.length)paragraphs.push(`${period} നിങ്ങൾ ചോദിച്ച പ്രവർത്തനത്തെക്കുറിച്ചുള്ള വിവരം ഇപ്പോൾ ലഭ്യമല്ല. അതുകൊണ്ട് ജോലി ചെയ്തിട്ടില്ലെന്ന് പറയാനാവില്ല.`);
  const important=report.gaps.filter(gap=>/Missing checkout|No approved|No leave allocation|No authorized/.test(gap)||plan.metric==='hours'&&/Attendance hours/.test(gap));
  const gaps=[...new Set(important.map(gapText))];if(gaps.length)paragraphs.push(gaps.join(' '));
  if(report.comparison){const old=report.comparison;const changes=Object.entries(t).filter(([key,value])=>labels[key]&&(value>0||old.totals[key]>0)&&old.totals[key]!=null&&key!=='employees').map(([key,value])=>`${labels[key]} മുൻ കാലയളവിൽ ${old.totals[key]} ആയിരുന്നത് ഇപ്പോൾ ${value} ആണ്`);if(changes.length)paragraphs.push(`${dateLabel(old.plan.start)}–${dateLabel(old.plan.end)} കാലയളവുമായി താരതമ്യം ചെയ്യുമ്പോൾ, ${changes.join('. ')}.`);}
  const markdown=paragraphs.join('\n\n');
  const spoken:string[]=[];
- const speechText=(plan.metric==='present'?paragraphs:paragraphs.slice(0,2)).join(' ');
- for(const sentence of speechText.split(/(?<=[.!?])\s+/)) {if(spoken.join(' ').length+sentence.length>1100)break;spoken.push(sentence);}
+ const speechText=paragraphs.join(' ');
+ for(const sentence of speechText.split(/(?<=[.!?])\s+/)) {if(spoken.join(' ').length+sentence.length>(plan.detailed?2600:1600))break;spoken.push(sentence);}
  return {markdown,spokenReply:spoken.join(' ')||'വിശദമായ വിവരങ്ങൾ ചാറ്റിൽ കാണാം.'};
 }
