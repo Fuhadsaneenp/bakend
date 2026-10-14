@@ -21,8 +21,8 @@ export async function authorizedEmployeeWhere(user: UserContext): Promise<any> {
 const employeeSelect = { id: true, userId: true, employeeCode: true, firstName: true, middleName: true, lastName: true, dateOfJoining: true, dateOfExit: true, exitReason: true, status: true, department: { select: { name: true } }, designation: { select: { title: true } }, shift: { select: { startTime:true,endTime:true,gracePeriod:true,earlyPunchTolerance:true,workMinutesFix:true } } } as const;
 const limit = 10001;
 function checkLimit<T>(rows: T[]) { if (rows.length >= limit) throw new ApiError(400, 'Too many source records; choose a shorter period or specific employee'); return rows; }
-export type AttendanceEvent = { date:string; checkInAt:string|null; checkOutAt:string|null; scheduledStart:string; graceMinutes:number; lateMinutes:number|null; minutesAfterGrace:number|null; isLate:boolean; scheduleBasis:'assigned_shift'|'attendance_default_policy' };
-export type VerifiedReport = { plan: QueryPlan; sourceTimestamp: string; timezone: string; employees: { id: string; name: string; code: string; department: string; exitReason: string | null; dateOfExit: Date | null }[]; rows: { employeeId: string; name: string; value: number; unit: string; details?: string; attendanceEvents?: AttendanceEvent[] }[]; gaps: string[]; totals: Record<string, number>; attendanceGroups?: { checkedIn: string[]; approvedWfh: string[]; approvedLeave: string[]; noAttendanceRecord: string[]; wfhCheckedIn: string[] }; comparison?: VerifiedReport; sources: string[] };
+export type AttendanceEvent = { date:string; workMinutes:number; checkInAt:string|null; checkOutAt:string|null; scheduledStart:string; graceMinutes:number; lateMinutes:number|null; minutesAfterGrace:number|null; isLate:boolean; scheduleBasis:'assigned_shift'|'attendance_default_policy' };
+export type VerifiedReport = { plan: QueryPlan; sourceTimestamp: string; timezone: string; employees: { id: string; name: string; code: string; department: string; exitReason: string | null; dateOfExit: Date | null }[]; rows: { employeeId: string; name: string; value: number; unit: string; details?: string; attendanceEvents?: AttendanceEvent[]; workItems?: {title:string;deadline:string;status:string|null}[] }[]; gaps: string[]; totals: Record<string, number>; attendanceGroups?: { checkedIn: string[]; approvedWfh: string[]; approvedLeave: string[]; noAttendanceRecord: string[]; wfhCheckedIn: string[] }; comparison?: VerifiedReport; sources: string[] };
 function bounds(plan: QueryPlan) { return { start: new Date(`${plan.start}T00:00:00+05:30`), end: new Date(`${plan.end}T23:59:59.999+05:30`) }; }
 export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Promise<VerifiedReport> {
   const where = await authorizedEmployeeWhere(user);
@@ -78,7 +78,7 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
       const attendanceEvents:AttendanceEvent[]=records.map(record=>{
         const expected=getShiftTime(record.workDate,shift.startTime);
         const minutes=record.checkInAt && Number.isFinite(expected.getTime())?Math.max(0,Math.floor((record.checkInAt.getTime()-expected.getTime())/60000)):null;
-        return {date:calendarDate(record.workDate),checkInAt:record.checkInAt?.toISOString()||null,checkOutAt:record.checkOutAt?.toISOString()||null,scheduledStart:expected.toISOString(),graceMinutes:shift.gracePeriod,lateMinutes:minutes,minutesAfterGrace:minutes==null?null:Math.max(0,minutes-shift.gracePeriod),isLate:record.isLate,scheduleBasis:employee.shift?'assigned_shift':'attendance_default_policy'};
+        return {date:calendarDate(record.workDate),workMinutes:record.workMinutes,checkInAt:record.checkInAt?.toISOString()||null,checkOutAt:record.checkOutAt?.toISOString()||null,scheduledStart:expected.toISOString(),graceMinutes:shift.gracePeriod,lateMinutes:minutes,minutesAfterGrace:minutes==null?null:Math.max(0,minutes-shift.gracePeriod),isLate:record.isLate,scheduleBasis:employee.shift?'assigned_shift':'attendance_default_policy'};
       });
       const incomplete = records.some(record => record.checkInAt && !record.checkOutAt);
       const valid = records.filter(record => record.checkInAt && record.checkOutAt);
@@ -122,7 +122,7 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
     for (const employee of employees) {
       const own = tasks.filter(task => task.assignedToId === employee.id);
       const selected = plan.metric === 'approval' ? own.filter(task => awaitingApproval.includes(task)) : plan.metric === 'not-started' ? own.filter(task => notStarted.includes(task)) : plan.metric === 'pending' ? own.filter(task => pending.includes(task)) : plan.metric === 'overdue' ? own.filter(task => pending.includes(task) && task.deadline < asOf) : own.filter(task => completed.has(task.id));
-      report.rows.push({ employeeId: employee.id, name: fullName(employee), value: selected.length, unit: plan.metric === 'approval' ? 'tasks awaiting approval' : plan.metric === 'not-started' ? 'tasks not started' : plan.metric === 'pending' ? 'pending tasks' : plan.metric === 'overdue' ? 'overdue tasks' : 'completed tasks', details: selected.slice(0, 10).map(task => task.title).join('; ') });
+      report.rows.push({ employeeId: employee.id, name: fullName(employee), value: selected.length, workItems:selected.slice(0,10).map(task=>({title:task.title,deadline:task.deadline.toISOString(),status:statusAtEnd(task)})), unit: plan.metric === 'approval' ? 'tasks awaiting approval' : plan.metric === 'not-started' ? 'tasks not started' : plan.metric === 'pending' ? 'pending tasks' : plan.metric === 'overdue' ? 'overdue tasks' : 'completed tasks', details: selected.slice(0, 10).map(task => task.title).join('; ') });
       if (own.some(task => task.statusHistory.length === 0)) addGap('Some tasks have no status history; their past completion dates cannot be verified.');
     }
     if (rules && ['most','least'].includes(plan.metric)) {
@@ -151,7 +151,7 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
         if(plan.metric==='approval') return ['FINISHED','OUT_TO_DELIVER','WAITING_REVIEW','IN_REVIEW'].includes(status||'');
         const first=task.statusHistory.find(event=>['APPROVED','FINISHED'].includes(event.status));return first && first.createdAt>=times.start;
       });
-      return {employeeId:client.id,name:client.name,value:selected.length,unit:plan.metric==='pending'?'pending client deliverables':plan.metric==='overdue'?'overdue client deliverables':plan.metric==='approval'?'client deliverables awaiting approval':'completed client deliverables',details:selected.slice(0,10).map(task=>task.title).join('; ')};
+      return {employeeId:client.id,name:client.name,value:selected.length,workItems:selected.slice(0,10).map(task=>({title:task.title,deadline:task.deadline.toISOString(),status:task.statusHistory.at(-1)?.status||(plan.end>=calendarDate(new Date())?task.status:null)})),unit:plan.metric==='pending'?'pending client deliverables':plan.metric==='overdue'?'overdue client deliverables':plan.metric==='approval'?'client deliverables awaiting approval':'completed client deliverables',details:selected.slice(0,10).map(task=>task.title).join('; ')};
     });
     report.totals.visibleClients = clients.length;
     addGap('Client visibility and deliverable counts are limited to authorized company and employee assignments. Project-specific metrics require a connected project source.');

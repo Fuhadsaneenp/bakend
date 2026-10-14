@@ -66,15 +66,29 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
   const facts=[t.completedTasks>0?`${t.completedTasks} ടാസ്കുകൾ പൂർത്തിയാക്കിയതായി രേഖയുണ്ട്`:'',t.approvedTasks>0?`${t.approvedTasks} ടാസ്കുകൾ അപ്രൂവ് ചെയ്തിട്ടുണ്ട്`:'',t.pendingTasks>0?`${t.pendingTasks} ടാസ്കുകൾ ഇനിയും പൂർത്തിയാകാനുണ്ട്`:'',t.awaitingApproval>0?`${t.awaitingApproval} ടാസ്കുകൾ അപ്രൂവൽ കാത്തിരിക്കുന്നു`:'',t.overdueTasks>0?`${t.overdueTasks} ടാസ്കുകളുടെ ഡെഡ്‌ലൈൻ കഴിഞ്ഞിട്ടുണ്ട്`:''].filter(Boolean);
   if(facts.length && (plan.kind==='overview'||['summary','count'].includes(plan.metric))) paragraphs.push(`${plan.kind==='overview'?'ജോലിയുടെ പുരോഗതി നോക്കുമ്പോൾ':period}, ${facts.join('. ')}.`);
  }
- let rows=report.rows.filter(row=>row.value>0);
+ const clockQuestion=plan.kind==='attendance'&&/check.?in time|check.?out time|when.*(?:start|arriv)|എപ്പോൾ|എത്ര മണി|തുടങ്ങിയ സമയം/i.test(plan.currentQuestion);
+ let rows=report.rows.filter(row=>row.value>0 || plan.kind==='attendance' && (plan.metric==='hours'||clockQuestion) && row.attendanceEvents?.some(event=>event.checkInAt));
  if(['most','least'].includes(plan.metric)&&report.rows.length){const value=(plan.metric==='most'?Math.max:Math.min)(...report.rows.map(row=>row.value));rows=report.rows.filter(row=>row.value===value);}
  const rowSentence=(row:typeof report.rows[number])=>{
+  if(row.value===0&&row.attendanceEvents?.some(event=>event.checkInAt&&!event.checkOutAt))return `${row.name}യുടെ ചെക്ക് ഇൻ രേഖ ലഭ്യമാണ്; ചെക്ക് ഔട്ട് പൂർത്തിയായിട്ടില്ലാത്തതിനാൽ മുഴുവൻ ജോലി സമയം ഉറപ്പിക്കാനാവില്ല`;
   if(row.value===0)return `${row.name}യുടെ ഈ പ്രവർത്തനത്തിന് രേഖ കണ്ടെത്തിയില്ല`;
   if(row.unit==='employees checked in')return `${row.name} ചെക്ക് ഇൻ ചെയ്തതായി രേഖയുണ്ട്`;
   if(row.unit==='employees with no attendance record')return `${row.name}യുടെ ഹാജർ രേഖ കണ്ടെത്തിയില്ല`;
   if(row.unit==='employees on approved leave')return `${row.name}ക്ക് ലീവ് അനുവദിച്ചിട്ടുണ്ട്`;
   if(row.unit==='employees with approved WFH')return `${row.name}ക്ക് വർക്ക് ഫ്രം ഹോം അനുമതിയുണ്ട്`;
-  if(row.unit==='recorded attendance hours')return `${row.name}യുടെ ഹാജർ രേഖയിൽ ${row.value} മണിക്കൂർ ജോലി സമയം രേഖപ്പെടുത്തിയിട്ടുണ്ട്`;
+  if(row.unit==='recorded attendance hours'){const minutes=(row.attendanceEvents||[]).filter(event=>event.checkInAt&&event.checkOutAt).reduce((sum,event)=>sum+Math.max(0,event.workMinutes),0);const duration=minutes?`${Math.floor(minutes/60)?Math.floor(minutes/60)+' മണിക്കൂർ ':''}${minutes%60?minutes%60+' മിനിറ്റ്':''}`.trim():`${row.value} മണിക്കൂർ`;return `${row.name}യുടെ പൂർത്തിയായ ഹാജർ രേഖയിൽ ${duration} ജോലി സമയം രേഖപ്പെടുത്തിയിട്ടുണ്ട്`;}
+  if(row.unit==='pending tasks')return `${row.name}ക്ക് ${row.value} ടാസ്കുകൾ ഇനിയും പൂർത്തിയാക്കാനുണ്ട്`;
+  if(row.unit==='overdue tasks')return `${row.name}യുടെ ${row.value} ടാസ്കുകളുടെ ഡെഡ്‌ലൈൻ കഴിഞ്ഞിട്ടുണ്ട്`;
+  if(row.unit==='tasks awaiting approval')return `${row.name}യുടെ ${row.value} ടാസ്കുകൾ അപ്രൂവൽ കാത്തിരിക്കുന്നു`;
+  if(row.unit==='tasks not started')return `${row.name}ക്ക് നൽകിയ ${row.value} ടാസ്കുകൾ തുടങ്ങിയതായി ഇതുവരെ രേഖയില്ല`;
+  if(row.unit==='pending client deliverables')return `${row.name} ക്ലയന്റിന്റെ ${row.value} ജോലികൾ പൂർത്തിയാകാനുണ്ട്`;
+  if(row.unit==='overdue client deliverables')return `${row.name} ക്ലയന്റിന്റെ ${row.value} ജോലികളുടെ ഡെഡ്‌ലൈൻ കഴിഞ്ഞിട്ടുണ്ട്`;
+  if(row.unit==='client deliverables awaiting approval')return `${row.name} ക്ലയന്റിന്റെ ${row.value} ജോലികൾ അപ്രൂവൽ കാത്തിരിക്കുന്നു`;
+  if(row.unit==='completed client deliverables')return `${row.name} ക്ലയന്റിന് വേണ്ടിയുള്ള ${row.value} ജോലികൾ പൂർത്തിയായതായി രേഖയുണ്ട്`;
+  if(row.unit==='approved appraisal score')return `${row.name}ക്ക് രേഖപ്പെടുത്തിയ അംഗീകൃത അപ്രൈസൽ സ്കോർ ${row.value} ആണ്`;
+  if(row.unit.endsWith(' remaining days'))return `${row.name}ക്ക് ${row.unit.replace(' remaining days','')} വിഭാഗത്തിൽ ${row.value} ദിവസത്തെ ലീവ് ബാക്കിയുണ്ട്`;
+  if(row.unit==='missing checkout records')return `${row.name}യുടെ ${row.value} ഹാജർ എൻട്രികളിൽ ചെക്ക് ഔട്ട് സമയം രേഖപ്പെടുത്തിയിട്ടില്ല`;
+  if(row.unit==='early departure records')return `${row.name} നേരത്തെ പോയതായി ${row.value} ദിവസത്തെ ഹാജർ രേഖകളിൽ കാണുന്നു`;
   if(row.unit==='completed tasks')return `${row.name} ${row.value} ടാസ്കുകൾ പൂർത്തിയാക്കിയതായി രേഖയുണ്ട്`;
   return `${row.name}യുടെ രേഖയിൽ ${row.value} ${units[row.unit]||row.unit} ഉണ്ട്`;
  };
@@ -89,9 +103,18 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
    if(wfh.length)paragraphs.push(`${joinNames(wfh)} ${wfh.length===1?'ആൾക്കാണ്':'എന്നിവർക്കാണ്'} വർക്ക് ഫ്രം ഹോം അനുവദിച്ചിരിക്കുന്നത്.`);
    if(/office|ഓഫീസ/i.test(plan.currentQuestion))paragraphs.push('ഹാജർ രേഖകൾ മാത്രം നോക്കി ഇവരെല്ലാം ഓഫീസിൽ നേരിട്ട് വന്നതാണെന്ന് ഉറപ്പിക്കാനാവില്ല.');
   }
-  else if(!(plan.kind==='attendance'&&['summary','count'].includes(plan.metric))) {
+  else if(clockQuestion || !(plan.kind==='attendance'&&['summary','count'].includes(plan.metric))) {
    const selected=rows.slice(0,plan.detailed?30:6);
-   paragraphs.push(selected.map(row=>rowSentence(row)+'.'+(plan.detailed&&row.details&&!attendance?` രേഖപ്പെടുത്തിയ ജോലികൾ: ${row.details}.`:'')).join(' '));
+   paragraphs.push(selected.map(row=>{
+    let answer=rowSentence(row)+'.';
+    if(row.workItems?.length && (plan.detailed || ["pending","overdue","approval","not-started"].includes(plan.metric))){const items=row.workItems.slice(0,plan.detailed?10:3);answer+=' '+items.map(item=>`“${item.title}” എന്ന ജോലിയുടെ ഡെഡ്‌ലൈൻ ${new Date(item.deadline).toLocaleString('ml-IN',{timeZone:'Asia/Kolkata',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})} ആണ്.`).join(' ');if(row.workItems.length>items.length)answer+=` മറ്റു ${row.workItems.length-items.length} ജോലികളുടെ വിവരങ്ങളും ലഭ്യമാണ്.`;}
+    else if(plan.detailed&&row.details&&!attendance)answer+=` രേഖയിൽ ലഭ്യമായ വിശദാംശങ്ങൾ: ${row.details}.`;
+    if(attendance && row.attendanceEvents?.length && (plan.metric==='hours'||/check.?in|check.?out|എത്ര മണി|എപ്പോൾ|തുടങ്ങിയ സമയം/.test(plan.currentQuestion))){
+     const clock=(value:string)=>new Date(value).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:true});
+     answer+=' '+row.attendanceEvents.slice(0,plan.detailed?10:2).map(event=>`${plan.start!==plan.end?dateLabel(event.date)+'-ന് ':''}${event.checkInAt?clock(event.checkInAt)+'-നാണ് ചെക്ക് ഇൻ ചെയ്തത്':'ചെക്ക് ഇൻ സമയം ലഭ്യമല്ല'}.${event.checkOutAt?` ചെക്ക് ഔട്ട് ചെയ്തത് ${clock(event.checkOutAt)}-നാണ്.`:' ചെക്ക് ഔട്ട് സമയം ലഭ്യമല്ലാത്തതിനാൽ മുഴുവൻ ജോലി സമയം ഉറപ്പിക്കാനാവില്ല.'}`).join(' ');
+    }
+    return answer;
+   }).join(' '));
    if(rows.length>selected.length)paragraphs.push(`ഇതിനു പുറമേ ${rows.length-selected.length} പേരുടെ രേഖകളും ലഭ്യമാണ്. എല്ലാവരുടെയും വിശദാംശങ്ങൾ വേണമെങ്കിൽ ചോദിക്കാം.`);
   }
  }
