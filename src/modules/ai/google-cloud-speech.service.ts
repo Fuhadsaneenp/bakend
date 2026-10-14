@@ -3,15 +3,22 @@ import jwt from "jsonwebtoken";
 import { env } from "../../config/env.js";
 
 export function speechChunks(text: string, maxBytes = 800): string[] {
-  const chunks: string[] = []; let current = "";
-  for (const word of text.replace(/[*#`]/g, "").split(/\s+/).filter(Boolean)) {
-    for (const char of (current ? " " : "") + word) {
-      if (Buffer.byteLength(current + char, "utf8") > maxBytes) { chunks.push(current); current = ""; }
-      current += char;
+  if(!Number.isInteger(maxBytes)||maxBytes<16)throw new Error('Invalid speech chunk size');
+  const chunks:string[]=[];let current='';
+  const clean=text.replace(/[*#`]/g,'').trim();
+  const flush=()=>{if(current.trim())chunks.push(current.trim());current='';};
+  const sentences=new Intl.Segmenter('ml',{granularity:'sentence'}).segment(clean);
+  for(const {segment} of sentences){
+    const sentence=segment.trim();if(!sentence)continue;
+    if(Buffer.byteLength(sentence,'utf8')<=maxBytes){if(current&&Buffer.byteLength(current+' '+sentence,'utf8')>maxBytes)flush();current+=(current?' ':'')+sentence;continue;}
+    flush();
+    for(const word of sentence.split(/\s+/).filter(Boolean)){
+      if(Buffer.byteLength(word,'utf8')<=maxBytes){if(current&&Buffer.byteLength(current+' '+word,'utf8')>maxBytes)flush();current+=(current?' ':'')+word;}
+      else {flush();for(const {segment:grapheme} of new Intl.Segmenter('ml',{granularity:'grapheme'}).segment(word)){if(Buffer.byteLength(current+grapheme,'utf8')>maxBytes)flush();current+=grapheme;}}
     }
+    flush();
   }
-  if (current.trim()) chunks.push(current.trim());
-  return chunks;
+  flush();return chunks;
 }
 
 let cached: { path: string; token: string; expires: number } | undefined;

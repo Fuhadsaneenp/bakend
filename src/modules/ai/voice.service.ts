@@ -1,3 +1,4 @@
+import { prepareMalayalamSpeech } from "./malayalam-language.js";
 import { env } from "../../config/env.js";
 import { geminiClient } from "./gemini-client.service.js";
 import { googleCloudSpeech } from "./google-cloud-speech.service.js";
@@ -18,6 +19,7 @@ const pending = new Map<string, Promise<SpeechResult | null>>();
 const cooldown = new Map<string, number>();
 
 export async function generateNaturalSpeech(text: string, language: "en" | "ml"): Promise<SpeechResult | null> {
+  if(language==="ml")text=prepareMalayalamSpeech(text);
   const google = env.SPEECH_PROVIDER === "google_cloud";
   const azure = env.SPEECH_PROVIDER === "azure" || Boolean(env.AZURE_SPEECH_KEY && env.AZURE_SPEECH_REGION);
   const key = google ? env.GOOGLE_APPLICATION_CREDENTIALS : azure ? env.AZURE_SPEECH_KEY : geminiClient.getApiKey(); if (!key) return null;

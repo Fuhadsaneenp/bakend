@@ -21,7 +21,7 @@ export async function authorizedEmployeeWhere(user: UserContext): Promise<any> {
 const employeeSelect = { id: true, userId: true, employeeCode: true, firstName: true, middleName: true, lastName: true, dateOfJoining: true, dateOfExit: true, exitReason: true, status: true, department: { select: { name: true } }, designation: { select: { title: true } }, shift: { select: { startTime:true,endTime:true,gracePeriod:true,earlyPunchTolerance:true,workMinutesFix:true } } } as const;
 const limit = 10001;
 function checkLimit<T>(rows: T[]) { if (rows.length >= limit) throw new ApiError(400, 'Too many source records; choose a shorter period or specific employee'); return rows; }
-export type AttendanceEvent = { date:string; workMinutes:number; checkInAt:string|null; checkOutAt:string|null; scheduledStart:string; graceMinutes:number; lateMinutes:number|null; minutesAfterGrace:number|null; isLate:boolean; scheduleBasis:'assigned_shift'|'attendance_default_policy' };
+export type AttendanceEvent = { date:string; workMinutes:number; checkInAt:string|null; checkOutAt:string|null; scheduledStart:string; graceMinutes:number; lateMinutes:number|null; earlyArrivalMinutes:number|null; minutesAfterGrace:number|null; isLate:boolean; scheduleBasis:'assigned_shift'|'attendance_default_policy' };
 export type VerifiedReport = { plan: QueryPlan; sourceTimestamp: string; timezone: string; employees: { id: string; name: string; code: string; department: string; exitReason: string | null; dateOfExit: Date | null }[]; rows: { employeeId: string; name: string; value: number; unit: string; details?: string; attendanceEvents?: AttendanceEvent[]; workItems?: {title:string;deadline:string;status:string|null}[] }[]; gaps: string[]; totals: Record<string, number>; attendanceGroups?: { checkedIn: string[]; approvedWfh: string[]; approvedLeave: string[]; noAttendanceRecord: string[]; wfhCheckedIn: string[] }; comparison?: VerifiedReport; sources: string[] };
 function bounds(plan: QueryPlan) { return { start: new Date(`${plan.start}T00:00:00+05:30`), end: new Date(`${plan.end}T23:59:59.999+05:30`) }; }
 export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Promise<VerifiedReport> {
@@ -78,7 +78,7 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
       const attendanceEvents:AttendanceEvent[]=records.map(record=>{
         const expected=getShiftTime(record.workDate,shift.startTime);
         const minutes=record.checkInAt && Number.isFinite(expected.getTime())?Math.max(0,Math.floor((record.checkInAt.getTime()-expected.getTime())/60000)):null;
-        return {date:calendarDate(record.workDate),workMinutes:record.workMinutes,checkInAt:record.checkInAt?.toISOString()||null,checkOutAt:record.checkOutAt?.toISOString()||null,scheduledStart:expected.toISOString(),graceMinutes:shift.gracePeriod,lateMinutes:minutes,minutesAfterGrace:minutes==null?null:Math.max(0,minutes-shift.gracePeriod),isLate:record.isLate,scheduleBasis:employee.shift?'assigned_shift':'attendance_default_policy'};
+        return {date:calendarDate(record.workDate),workMinutes:record.workMinutes,checkInAt:record.checkInAt?.toISOString()||null,checkOutAt:record.checkOutAt?.toISOString()||null,scheduledStart:expected.toISOString(),graceMinutes:shift.gracePeriod,lateMinutes:minutes,earlyArrivalMinutes:record.checkInAt?Math.max(0,Math.floor((expected.getTime()-record.checkInAt.getTime())/60000)):null,minutesAfterGrace:minutes==null?null:Math.max(0,minutes-shift.gracePeriod),isLate:record.isLate,scheduleBasis:employee.shift?'assigned_shift':'attendance_default_policy'};
       });
       const incomplete = records.some(record => record.checkInAt && !record.checkOutAt);
       const valid = records.filter(record => record.checkInAt && record.checkOutAt);
@@ -86,6 +86,7 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
       let value = minutes / 60; let unit = 'recorded attendance hours';
       if (plan.average) { value = valid.length ? value / valid.length : 0; unit = 'average recorded hours per complete attendance record'; }
       if (plan.metric === 'present') { value = present.has(employee.id) ? 1 : 0; unit = 'employees checked in'; }
+      if(plan.metric==='early-arrival'){value=attendanceEvents.filter(event=>event.checkInAt&&Date.parse(event.checkInAt)<Date.parse(event.scheduledStart)).length;unit='early arrival records';}
       if (plan.metric === 'early') { value = records.filter(record => record.isEarlyLeave).length; unit = 'early departure records'; }
       if (plan.metric === 'late') { value = records.filter(record => record.isLate).length; unit = 'late attendance records'; }
       if (plan.metric === 'missing-checkout') { value = records.filter(record => record.checkInAt && !record.checkOutAt).length; unit = 'missing checkout records'; }
@@ -216,6 +217,12 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
 }
 export function formatVerifiedReport(report: VerifiedReport): string {
   const { plan, rows } = report;
+  if(plan.kind==='attendance'&&plan.metric==='early-arrival'){
+    const early=rows.filter(row=>row.value>0);
+    if(!early.length)return `No check-ins before shift start were found for ${plan.start}–${plan.end}.`;
+    const clock=(value:string)=>new Date(value).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:true});
+    return `${early.length} ${early.length===1?'employee has':'employees have'} a check-in before shift start for ${plan.start}–${plan.end}.\n\n`+early.slice(0,50).flatMap(row=>(row.attendanceEvents||[]).filter(event=>event.checkInAt&&Date.parse(event.checkInAt)<Date.parse(event.scheduledStart)).map(event=>`${row.name} checked in at ${clock(event.checkInAt!)}${plan.start!==plan.end?' on '+event.date:''}. The available shift start is ${clock(event.scheduledStart)}, so this is ${event.earlyArrivalMinutes?event.earlyArrivalMinutes+' minutes':'less than a minute'} before shift start.`)).join('\n\n')+'\n\nThe calculation uses the available shift settings; historical shift changes cannot be reconstructed.';
+  }
   if(plan.kind==='attendance' && plan.metric==='late') {
     const late=rows.filter(row=>row.value>0);
     if(!late.length)return `No late attendance records were found for ${plan.start}–${plan.end}.`;
@@ -242,7 +249,7 @@ export function formatVerifiedReport(report: VerifiedReport): string {
     return [...groups].filter(([,count])=>count>0).map(([department,count])=>`- **${department}**: **${count}** recorded task completions`).join('\n')+'\nRaw completion counts do not establish comparable performance across different types of work.';
   }
   const summary = Object.entries(report.totals).map(([key,value]) => `${key.replace(/([A-Z])/g,' $1').toLowerCase()}: **${value}**`).join('; ');
-  const selected = ['late','early','absent','wfh','leave','missing-checkout','pending','overdue','present','approval','not-started'].includes(plan.metric) ? rows.filter(row => row.value > 0) : rows.filter(row => row.value > 0);
+  const selected = ['late','early','early-arrival','absent','wfh','leave','missing-checkout','pending','overdue','present','approval','not-started'].includes(plan.metric) ? rows.filter(row => row.value > 0) : rows.filter(row => row.value > 0);
   const showRecordedTimes = /check.?in|check.?out|break/i.test(plan.subjectText);
   const detail = selected.slice(0, plan.detailed ? 50 : 5).map(row => `- **${row.name}**: **${row.value} ${row.unit}**${(plan.detailed || showRecordedTimes) && row.details ? ` — ${row.details}` : ''}`).join('\n');
   let answer = plan.metric === 'count' && summary ? summary + '.' : detail || summary || `No verified ${plan.kind} records found for ${plan.start}–${plan.end}.`;

@@ -1,6 +1,8 @@
+import { normalizeMalayalamProse } from "./malayalam-language.js";
 import type { AIResponsePayload } from './ai.types.js';
 /** Preserve verified wording and values while presenting legacy sources as prose. */
 export function conversationalAnswer(reply: AIResponsePayload, language: string): AIResponsePayload {
+ if(language==='ml')reply={...reply,markdown:normalizeMalayalamProse(reply.markdown),spokenReply:reply.spokenReply?normalizeMalayalamProse(reply.spokenReply):undefined};
  const text=reply.markdown;
  const t=reply.metrics?.totals;
  if(language!=='ml' && t && /recorded attendance hours|employees checked in|Company overview/.test(text) && !/\b(most|least|longest|late|early|missing|absent)\b/i.test(text)) {
