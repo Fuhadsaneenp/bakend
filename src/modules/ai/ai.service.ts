@@ -1,7 +1,7 @@
 import { previousPeriod } from "./verified-query.js";
 import { identifyReadOnlyQuery } from "./query-intent.service.js";
 import { formatMalayalamReport } from "./malayalam-report.js";
-import { dataEntryAnswer } from "./data-entry-answer.service.js";
+import { dataEntryAnswer, shouldUseDataEntryTrack } from "./data-entry-answer.service.js";
 import type { UserContext, AIResponsePayload } from './ai.types.js';
 import { verifiedAnalyticsService } from './verified-analytics.service.js';
 export const aiService = {
@@ -12,6 +12,7 @@ export const aiService = {
     if (/\b(delete|terminate|fire|resign|change salary|update employee|approve leave)\b/i.test(q) && !/who|show|history|report|employees who/.test(q.toLowerCase())) return {intent:'GENERAL_WORKPLACE_QUERY',markdown:'This assistant supports read-only reporting. Use the authorized STEMS workflow for employee or record changes.'};
     if (/keyword ranking|seo ranking|google position|page 1/i.test(q)) return { intent:'SEO_KEYWORD_RANKINGS', markdown:'A verified SEO keyword ranking source is not connected to this assistant. Ranking values cannot be confirmed.' };
     const plan = await identifyReadOnlyQuery(q, history);
+    if(await shouldUseDataEntryTrack(user,q,plan))plan.kind='data-entry';
     const dataEntryReply = plan.kind === "data-entry" ? await dataEntryAnswer(user, plan.subjectText, language, plan) : null;
     if (dataEntryReply) {
       if(plan.compare && dataEntryReply.metrics?.source === 'live_data_entry_sheets') {

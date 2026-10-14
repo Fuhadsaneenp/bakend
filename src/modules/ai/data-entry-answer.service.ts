@@ -1,9 +1,25 @@
+import { authorizedEmployeeWhere } from './verified-analytics.service.js';
+import { currentDataEntryTasks, describeDataEntryTasks } from './data-entry-current.service.js';
 import { matchEmployeeMention } from "./employee-name.service.js";
 import type { QueryPlan } from "./verified-query.js";
 import { workTrackService } from "../work-track/work-track.service.js";
 import { prisma } from "../../lib/prisma.js";
 import { db, jobs, sources } from "../job-monitoring/store.js";
 import type { UserContext, AIResponsePayload } from "./ai.types.js";
+async function visibleDataEntryRoster(user:UserContext){
+ const where=user.role==='SUPER_ADMIN'?{status:'ACTIVE' as const}:{...await authorizedEmployeeWhere(user),status:'ACTIVE' as const};
+ return prisma.employee.findMany({where,select:{id:true,userId:true,employeeCode:true,firstName:true,middleName:true,lastName:true,designation:{select:{title:true}},department:{select:{name:true}}}});
+}
+export async function shouldUseDataEntryTrack(user:UserContext,question:string,plan:QueryPlan):Promise<boolean>{
+ if(!user.companyId||!['tasks','overview'].includes(plan.kind))return false;
+ if(/data[\s_-]*entry|ഡാറ്റാ?.*എൻട്രി|ഡേറ്റാ?.*എൻട്രി|medbiomate|medbimate|mebiomate|mbm|trikonet|mediyox|മെഡ്ബ|ട്രികോ|മെഡിയോ/i.test(question))return true;
+ if(plan.kind!=='tasks')return false;
+ const roster=await visibleDataEntryRoster(user);
+ let matches=matchEmployeeMention(question,roster).matches;
+ if(!matches.length&&plan.employee&&!/^(me|my)$/i.test(plan.employee))matches=matchEmployeeMention(plan.employee,roster).matches;
+ if(!matches.length&&plan.employee&&/^(me|my)$/i.test(plan.employee))matches=roster.filter(person=>person.id===user.employeeId||person.userId===user.userId);
+ return matches.length>0&&matches.every(person=>/data[\s_-]*entry/i.test(`${person.department?.name||''} ${person.designation?.title||''}`));
+}
 export async function dataEntryAnswer(user: UserContext, question: string, language = "en", plan?: QueryPlan): Promise<AIResponsePayload | null> {
  if (!plan && !/trikonet|mediyox|ട്രികോനെറ്റ്|മെഡിയോക്സ്|data[\s_-]*entry|mbm|tkt|job sources|portal checks|collected jobs|medbiomate|medbimate|hf\d+|rishana|റിഷാന|രിഷാന|safna|സഫ്ന|hasna|ഹസ്ന|sajna|സജ്ന|sahana|സഹാന|shimna|ഷിംന|shamna|ഷംന|fathima|ഫാത്തിമ|മെഡ്ബയോമേറ്റ്|മെഡ്ബയോമേറ്റ്|ഡാറ്റാ?\s*എൻട്രി|ഡേറ്റാ?\s*എൻട്രി/i.test(question)) return null;
  if (!user.companyId) return null;
@@ -17,13 +33,13 @@ export async function dataEntryAnswer(user: UserContext, question: string, langu
   const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
   const start=plan?.start || today, end=plan?.end || today;
   const sheets=await workTrackService.getDataEntrySheets(user.companyId);
-  const visible=admin?await prisma.employee.findMany({where:{...(allCompanies?{}:{companyId:user.companyId}),status:"ACTIVE"},select:{id:true,employeeCode:true,firstName:true,middleName:true,lastName:true,designation:{select:{title:true}},department:{select:{name:true}}}}):employee?[employee]:[];
-  let localMatch=matchEmployeeMention(question,visible);
+  const visible=await visibleDataEntryRoster(user);
+  let localMatch=matchEmployeeMention(plan?.currentQuestion||question,visible);
   if(!localMatch.matches.length && plan?.employee && !/^(me|my)$/i.test(plan.employee)) localMatch=matchEmployeeMention(plan.employee,visible);
   const targetNames=plan?.employee==='me'&&employee?[[employee.firstName,employee.middleName,employee.lastName].filter(Boolean).join(' ').toLowerCase()]:localMatch.matches.map(person=>[person.firstName,person.middleName,person.lastName].filter(Boolean).join(' ').toLowerCase());
   if(plan?.employee && !/^(me|my)$/i.test(plan.employee) && !targetNames.length) return {intent:'GENERAL_WORKPLACE_QUERY',markdown:language==='ml'?'ഈ പേരിൽ നിങ്ങളുടെ അനുമതിയിൽ ഉൾപ്പെടുന്ന ജീവനക്കാരനെ കണ്ടെത്താനായില്ല. മുഴുവൻ പേരോ employee code-ഓ പറയാമോ?':'No authorized employee matched. Please give the full name or employee code.'};
   if(localMatch.ambiguous || plan?.employee && targetNames.length>1) return {intent:'GENERAL_WORKPLACE_QUERY',markdown:language==='ml'?'ഈ പേരിൽ ഒന്നിലധികം ജീവനക്കാരുണ്ട്. employee code പറയാമോ?':'Several employees match. Please give the employee code.'};
-  const platforms=[[/medbiomate|medbimate|mbm|മെഡ്ബ/i,"medbiomate.com"],[/trikonet|tkt|ട്രികോ/i,"trikonet.com"],[/mediyox|മെഡിയോ/i,"mediyox.com"]] as const;
+  const platforms=[[/medbiomate|medbimate|mebiomate|mbm|മെഡ്ബ/i,"medbiomate.com"],[/trikonet|tkt|ട്രികോ/i,"trikonet.com"],[/mediyox|മെഡിയോ/i,"mediyox.com"]] as const;
   const selectedPlatforms=platforms.filter(([pattern])=>pattern.test(question)).map(([,host])=>host);
   const platform=selectedPlatforms.length===1?selectedPlatforms[0]:null;
   if(plan && /source|collect|സോഴ്സ്|ശേഖരി/i.test(question)) {
@@ -35,14 +51,13 @@ export async function dataEntryAnswer(user: UserContext, question: string, langu
    const markdown=language==='ml'?`${start} മുതൽ ${end} വരെയുള്ള ശേഖര വിവരങ്ങൾ നോക്കുമ്പോൾ, ${lines||'ഈ കാലയളവിലെ ശേഖര രേഖകൾ കണ്ടെത്തിയില്ല.'}\n\nഇവ ലഭ്യമായ ശേഖര രേഖകളാണ്; പ്രസിദ്ധീകരിച്ച ജോബുകളുടെയോ ജീവനക്കാരുടെ പൂർത്തിയായ ജോലിയുടെയോ എണ്ണമല്ല.`:`Collected records by source, ${start}–${end}:\n\n${lines||'No collection records found.'}\n\nThese are retained collection records, not published-job or employee completion counts.`;
    return {intent:'GENERAL_WORKPLACE_QUERY',markdown,spokenReply:language==='ml'?`ലഭ്യമായ രേഖകളിൽ ${records.length} ശേഖര എൻട്രികൾ കണ്ടെത്തി. സ്രോതസ്സുകൾ തിരിച്ചുള്ള വിവരങ്ങൾ ചാറ്റിൽ കാണാം.`:`Found ${records.length} retained collection records. Source details are in the chat.`,metrics:{source:'live_data_entry_collection',start,end,count:records.length,retrievedAt:new Date().toISOString()}};
   }
-  if(plan && ['pending','approval','not-started'].includes(plan.metric)) {
-   if(start!==today||end!==today) return {intent:'GENERAL_WORKPLACE_QUERY',markdown:language==='ml'?'പഴയ തീയതിയിലെ പെൻഡിംഗ് സ്റ്റാറ്റസ് പുനർനിർമിക്കാൻ ആവശ്യമായ ചരിത്രം ഈ ഡാറ്റാ എൻട്രി സ്രോതസ്സിൽ ലഭ്യമല്ല. നിലവിലെ പെൻഡിംഗ് ജോലികൾ ചോദിക്കാം.':'Historical pending state is unavailable in this collection. Ask for the current pending jobs.'};
-   const allowedIds=new Set(visible.map(person=>person.id));
-   const current=jobs(company).filter(row=>!row.unqualifiedAt && (admin ? !row.assignedToId||allowedIds.has(row.assignedToId) : row.assignedToId===employee?.id)).filter(row=>!targetNames.length||targetNames.includes((row.assignedToName||'').toLowerCase())).filter(row=>!platform || (platform==='medbiomate.com'?row.postingWebsite==='Medbiomate':platform==='trikonet.com'?row.postingWebsite==='Trikonet':false));
-   const selected=current.filter(row=>plan.metric==='approval'?row.status==='Pending Review':plan.metric==='not-started'?row.status==='Assigned'&&!row.startedAt:['New','Pending Review','Assigned','Verified'].includes(row.status));
-   const label=plan.metric==='approval'?'റിവ്യൂ കാത്തിരിക്കുന്ന ജോലികൾ':plan.metric==='not-started'?'തുടങ്ങിയതായി രേഖയില്ലാത്ത അസൈൻ ചെയ്ത ജോലികൾ':'നിലവിലെ പെൻഡിംഗ് ജോലികൾ';
-   const markdown=language==='ml'?`${selected.length?`${label} പരിശോധിച്ചപ്പോൾ ${selected.length} ജോലികൾ കണ്ടെത്തി. `+selected.slice(0,plan.detailed?30:10).map(row=>row.assignedToName?`${row.assignedToName}ക്ക് നൽകിയ “${row.title}” എന്ന ജോലിയുടെ സ്ഥിതി നോക്കുമ്പോൾ, ${row.status==='Pending Review'?'റിവ്യൂ കാത്തിരിക്കുന്നു':row.startedAt?'തുടങ്ങിയതായി രേഖയുണ്ട്; പൂർത്തിയായതായി രേഖയില്ല':'ഇനിയും പൂർത്തിയായിട്ടില്ല'}.`:`“${row.title}” എന്ന ജോലി ഇനിയും ജീവനക്കാരന് അസൈൻ ചെയ്തിട്ടില്ല.`).join(' '):'ഈ ചോദ്യത്തിന് അനുയോജ്യമായ ജോലികൾ നിലവിലെ രേഖകളിൽ കണ്ടെത്തിയില്ല.'}\n\nഇത് ഇപ്പോഴത്തെ ജോലിയുടെ സ്ഥിതിയാണ്; ഇന്നത്തെ പൂർത്തിയായ ജോലികളുടെ എണ്ണമല്ല.`:`There are ${selected.length} currently matching jobs. `+selected.slice(0,10).map(row=>`${row.assignedToName||'No employee'} is assigned to “${row.title}”, recorded as ${row.status}.`).join(' ');
-   return {intent:'GENERAL_WORKPLACE_QUERY',markdown,spokenReply:language==='ml'?selected.length?`ഇപ്പോൾ ${selected.length} ജോലികൾ ഈ വിഭാഗത്തിൽ ബാക്കിയുണ്ട്. ആരുടെ ജോലിയാണെന്നും എന്താണ് പൂർത്തിയാകാനുള്ളതെന്നും ചാറ്റിൽ വിശദമാക്കിയിട്ടുണ്ട്.`:`ആവശ്യപ്പെട്ട വിഭാഗത്തിലെ ജോലികൾ നിലവിലെ രേഖകളിൽ കണ്ടെത്തിയില്ല.`:`${selected.length} current matching jobs. Details are in the chat.`,metrics:{source:'live_data_entry_collection',scope:'current_snapshot',count:selected.length,retrievedAt:new Date().toISOString()}};
+  const currentTasks=start<=today&&end>=today?currentDataEntryTasks(company,sheets,visible,targetNames,platform,false):[];
+  if(plan && ['pending','approval','not-started','in-progress','overdue'].includes(plan.metric)) {
+   if(start!==today||end!==today)return {intent:'GENERAL_WORKPLACE_QUERY',markdown:language==='ml'?'പഴയ തീയതിയിലെ അസൈൻമെന്റ് സ്റ്റാറ്റസ് ഉറപ്പിക്കാൻ ആവശ്യമായ ചരിത്രം ഈ ഡാറ്റാ എൻട്രി ട്രാക്കിൽ ലഭ്യമല്ല. നിലവിലെ അസൈൻമെന്റുകൾ ചോദിക്കാം.':'Historical assignment states are unavailable in the Data Entry track. Ask for current assignments.'};
+   if(plan.metric==='overdue')return {intent:'GENERAL_WORKPLACE_QUERY',markdown:language==='ml'?'ഡാറ്റാ എൻട്രി ട്രാക്കിൽ സ്ഥിരീകരിക്കാവുന്ന അസൈൻമെന്റ് ഡെഡ്‌ലൈൻ ലഭ്യമല്ല. അതുകൊണ്ട് ഏതൊക്കെ ജോലികൾ വൈകിയെന്ന് ഉറപ്പിച്ച് പറയാനാവില്ല.':'Verified assignment deadlines are unavailable in the Data Entry track, so overdue work cannot be confirmed.'};
+   const selected=currentTasks.filter(row=>plan.metric==='approval'?/pending review/i.test(row.status):plan.metric==='not-started'?/assigned|not uploaded|pending|draft/i.test(row.status)&&!row.startedAt:plan.metric==='in-progress'?/in.progress|editing/i.test(row.status)||Boolean(row.startedAt)&&row.status==='Assigned':true);
+   const markdown=describeDataEntryTasks(selected,language,plan.detailed);
+   return {intent:'GENERAL_WORKPLACE_QUERY',markdown,spokenReply:markdown,metrics:{source:'live_data_entry_collection',scope:'current_snapshot',count:selected.length,retrievedAt:new Date().toISOString()}};
   }
   const names=new Set(visible.map(e=>[e.firstName,e.middleName,e.lastName].filter(Boolean).join(" ").trim().toLowerCase()));
   const unique=new Map<string,any>();
@@ -107,6 +122,7 @@ export async function dataEntryAnswer(user: UserContext, question: string, langu
    const plainParts=(n:{created:number;edited:number;companies:number})=>parts(n).replace(/\*\*/g,'').replace(/ · /g,'. ');
    markdown=activeTotals.length===1?`${when} ${activeTotals[0][0]} ${plainParts(activeTotals[0][1])}.`:`${when} ${ml?'ഡാറ്റാ എൻട്രിയിൽ':'the Data Entry records show'} ${plainParts({created:createdTotal,edited:editedTotal,companies:activeTotals.reduce((n,[,r])=>n+r.companies,0)})}.`;
    if(activeTotals.length>1) markdown+='\n\n'+activeTotals.map(([name,n])=>`${name} ${plainParts(n)}.`).join(' ');
+   if(currentTasks.length&&(!plan||['summary','count'].includes(plan.metric)))markdown+='\n\n'+describeDataEntryTasks(currentTasks,language,Boolean(plan?.detailed));
    const sites=['medbiomate.com','trikonet.com','mediyox.com'].filter(host=>!platform||host===platform);
    const siteNames:Record<string,string>={'medbiomate.com':'Medbiomate','trikonet.com':'Trikonet','mediyox.com':'Mediyox'};
    const siteLines=sites.flatMap(host=>{const rows=reportRecords.filter(r=>!r.company&&r.host===host);if(!rows.length)return [];const dates=rows.map(r=>Date.parse(r.at)).sort((a,b)=>a-b);return [ml?`${siteNames[host]}-ൽ ആദ്യ എൻട്രി ${time(dates[0])}-നും അവസാന എൻട്രി ${time(dates[dates.length-1])}-നുമാണ് രേഖപ്പെടുത്തിയിരിക്കുന്നത്. ഈ സമയങ്ങൾ എൻട്രികളുടെ സമയമാണ്; ജോലി തുടങ്ങിയതും അവസാനിപ്പിച്ചതുമായ സമയമായി കണക്കാക്കാനാവില്ല.`:`On ${siteNames[host]}, the first entry was recorded at ${time(dates[0])} and the last at ${time(dates[dates.length-1])} IST. These are entry timestamps, not confirmed work start and finish times.`];});
@@ -115,8 +131,10 @@ export async function dataEntryAnswer(user: UserContext, question: string, langu
    if(detailRecords.length)markdown+='\n\n'+detailRecords.map(row=>ml?`${row.actor} ${row.employer?'“'+row.employer+'” എന്ന കമ്പനിയുടെ ':''}${row.title?'“'+row.title+'” എന്ന ജോബ് ':row.company?'കമ്പനി വിവരം ':'ജോബ് വിവരം '}${row.edited?'അപ്ഡേറ്റ് ചെയ്തു':'ചേർത്തു'}. രേഖപ്പെടുത്തിയ സമയം ${time(Date.parse(row.at))} ആണ്.`:`${row.actor} ${row.edited?'updated':'added'} ${row.title?'“'+row.title+'”':'the company entry'}${row.employer?' for “'+row.employer+'”':''} at ${time(Date.parse(row.at))} IST.`).join(' ');
 
   }
+  if(!activeTotals.length&&currentTasks.length&&(!plan||['summary','count'].includes(plan.metric)))markdown+='\n\n'+describeDataEntryTasks(currentTasks,language,Boolean(plan?.detailed));
   const summaryNames=activeTotals.filter(([,n])=>n.created+n.edited>0).map(([name])=>name);
-  const spokenReply=language==="ml"?`${summaryNames.length===1?summaryNames[0]:"ഡാറ്റാ എൻട്രി ടീം"} ${start===today&&end===today?"ഇന്ന്":"തിരഞ്ഞെടുത്ത കാലയളവിൽ"} ${createdTotal+editedTotal} ജോബ് എൻട്രികൾ രേഖപ്പെടുത്തി.${first&&last?` ആദ്യ എൻട്രി ${first}. അവസാന എൻട്രി ${last}.`:""} വിശദാംശങ്ങൾ ചാറ്റിൽ കാണാം.`:`${summaryNames.length===1?summaryNames[0]:"The Data Entry team"} recorded ${createdTotal+editedTotal} job entries for the selected period.${first&&last?` First entry ${first}. Last entry ${last}.`:""} The details are in the chat.`;
+  let spokenReply=language==="ml"?`${summaryNames.length===1?summaryNames[0]:"ഡാറ്റാ എൻട്രി ടീം"} ${start===today&&end===today?"ഇന്ന്":"തിരഞ്ഞെടുത്ത കാലയളവിൽ"} ${createdTotal+editedTotal} ജോബ് എൻട്രികൾ രേഖപ്പെടുത്തി.${first&&last?` ആദ്യ എൻട്രി ${first}. അവസാന എൻട്രി ${last}.`:""} വിശദാംശങ്ങൾ ചാറ്റിൽ കാണാം.`:`${summaryNames.length===1?summaryNames[0]:"The Data Entry team"} recorded ${createdTotal+editedTotal} job entries for the selected period.${first&&last?` First entry ${first}. Last entry ${last}.`:""} The details are in the chat.`;
+  if(plan?.detailed||currentTasks.length){const spoken:string[]=[];for(const sentence of markdown.split(/(?<=[.!?])\s+/u)){if(spoken.join(' ').length+sentence.length>2600)break;spoken.push(sentence);}if(spoken.length)spokenReply=spoken.join(' ');}
   return {intent:"GENERAL_WORKPLACE_QUERY",markdown,spokenReply,metrics:{source:"live_data_entry_sheets",date:start,start,end,firstEntry:first,lastEntry:last,platform,created:[...totals.values()].reduce((n,r)=>n+r.created,0),edited:[...totals.values()].reduce((n,r)=>n+r.edited,0),retrievedAt:new Date().toISOString()},suggestedFollowUps:[]};
  }
  const team = allCompanies ? (await prisma.employee.findMany({include:{designation:true,department:true,company:{select:{name:true}}}})).filter(e=>/data|entry/i.test(`${e.designation?.title||""} ${e.department?.name||""}`)) : admin ? await workTrackService.getDesigners(user.companyId, "data-entry") : employee ? [employee] : [];
