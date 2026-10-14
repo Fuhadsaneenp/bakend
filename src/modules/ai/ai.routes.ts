@@ -1,3 +1,4 @@
+import { composeMalayalamReply } from "./malayalam-composition.service.js";
 import { conversationalAnswer } from "./conversational-answer.js";
 import { Router } from "express";
 import { z } from "zod";
@@ -58,7 +59,7 @@ aiRouter.post("/chat", async (req, res, next) => {
 
     const user = await resolveUserContext(req);
     const replyLanguage = /[\u0D00-\u0D7F]/.test(body.message) ? "ml" : body.language;
-    const response = conversationalAnswer(await aiService.processQuestion(user, body.message, replyLanguage, body.history, body.voiceMode), replyLanguage);
+    const response = conversationalAnswer(await composeMalayalamReply(await aiService.processQuestion(user, body.message, replyLanguage, body.history, body.voiceMode), replyLanguage), replyLanguage);
 
 
     // Generate ultra-realistic, natural conversational spoken reply
