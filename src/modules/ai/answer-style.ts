@@ -9,7 +9,8 @@ export const directAnswerRules = `ANSWER THE QUESTION FIRST:
 - Use only supplied live records. If the requested metric or period is missing, say that briefly; never reuse example numbers as real data.
 - Follow-up questions retain the previous subject, period and metric unless the user changes them.
 - Match the selected language. Names can remain in English. Example style only: “**Employee name** recorded the most entries — **count**.”
-- Give a detailed report only when explicitly requested.`;
+- Use natural Kerala Malayalam when Malayalam is selected; understand Manglish and mixed wording. Company status answers summarize attendance and task progress. Do not repeat employee-hour lists for unrelated questions. Omit zero-value categories unless the user explicitly asks about missing/no activity. Distinguish no records from confirmed zero activity.
+- Give useful context with clear totals and relevant employee, department or client details; keep spoken replies conversational and put longer details in the chat. Expand reports when requested.`;
 /** Deterministic reports already contain their answer in Summary; do not add a report wrapper to short replies. */
 export function directSummary(report: string): string {
   const summary = report.match(/\*\*Summary:\*\*\s*([\s\S]*?)(?=\n\s*\*\*(?:Detailed Report|Insights|Recommended Actions)|$)/i);

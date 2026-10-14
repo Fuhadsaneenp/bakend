@@ -73,6 +73,7 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
       const minutes = valid.reduce((sum, record) => sum + Math.max(0, record.workMinutes), 0);
       let value = minutes / 60; let unit = 'recorded attendance hours';
       if (plan.average) { value = valid.length ? value / valid.length : 0; unit = 'average recorded hours per complete attendance record'; }
+      if (plan.metric === 'present') { value = present.has(employee.id) ? 1 : 0; unit = 'employees checked in'; }
       if (plan.metric === 'early') { value = records.filter(record => record.isEarlyLeave).length; unit = 'early departure records'; }
       if (plan.metric === 'late') { value = records.filter(record => record.isLate).length; unit = 'late attendance records'; }
       if (plan.metric === 'missing-checkout') { value = records.filter(record => record.checkInAt && !record.checkOutAt).length; unit = 'missing checkout records'; }
@@ -96,16 +97,20 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
       employees = resignationOnly ? ex.filter(employee => /resign/i.test(employee.exitReason || '')) : ex;
     }
     const taskIds = employees.map(employee => employee.id);
-    const tasks = checkLimit(await prisma.workCard.findMany({ where: { companyId: user.companyId!, assignedToId: { in: taskIds }, createdAt: { lte: times.end } }, select: { id: true, assignedToId: true, title: true, category: true, complexity: true, deadline: true, createdAt: true, status: true, updatedAt: true, statusHistory: { where: { createdAt: { lte: times.end } }, select: { status: true, createdAt: true }, orderBy: { createdAt: 'asc' } } }, take: limit }));
+    let tasks = checkLimit(await prisma.workCard.findMany({ where: { companyId: user.companyId!, assignedToId: { in: taskIds }, createdAt: { lte: times.end } }, select: { id: true, assignedToId: true, title: true, category: true, complexity: true, deadline: true, createdAt: true, status: true, updatedAt: true, statusHistory: { where: { createdAt: { lte: times.end } }, select: { status: true, createdAt: true }, orderBy: { createdAt: 'asc' } } }, take: limit }));
+    if (plan.category) tasks = tasks.filter(task => plan.category === 'video' ? /video|reel|motion|edit/i.test(task.category) : /design|poster|creative|graphic/i.test(task.category));
     report.sources.push('WorkCard', 'StatusHistory');
     const completed = new Set(tasks.filter(task => { const first = task.statusHistory.find(event => ['APPROVED','FINISHED'].includes(event.status)); return first && first.createdAt >= times.start; }).map(task => task.id));
     const approved = new Set(tasks.filter(task => task.statusHistory.some(event => event.status === 'APPROVED' && event.createdAt >= times.start)).map(task => task.id));
     const pending = tasks.filter(task => { const status = task.statusHistory.at(-1)?.status || (plan.end >= calendarDate(new Date()) ? task.status : null); return status && !['APPROVED','FINISHED'].includes(status); });
-    report.totals = { ...report.totals, assignedTasks: tasks.filter(task => task.createdAt >= times.start).length, completedTasks: completed.size, approvedTasks: approved.size, pendingTasks: pending.length, overdueTasks: pending.filter(task => task.deadline < asOf).length };
+    const statusAtEnd = (task: typeof tasks[number]) => task.statusHistory.at(-1)?.status || (plan.end >= calendarDate(new Date()) ? task.status : null);
+    const awaitingApproval = tasks.filter(task => ['SUBMITTED', 'FINISHED', 'OUT_TO_DELIVER', 'WAITING_REVIEW', 'IN_REVIEW', 'PENDING_APPROVAL'].includes(statusAtEnd(task) || ''));
+    const notStarted = pending.filter(task => ['PENDING', 'ASSIGNED', 'TODO'].includes(statusAtEnd(task) || ''));
+    report.totals = { ...report.totals, awaitingApproval: awaitingApproval.length, notStartedTasks: notStarted.length, assignedTasks: tasks.filter(task => task.createdAt >= times.start).length, completedTasks: completed.size, approvedTasks: approved.size, pendingTasks: pending.length, overdueTasks: pending.filter(task => task.deadline < asOf).length };
     for (const employee of employees) {
       const own = tasks.filter(task => task.assignedToId === employee.id);
-      const selected = plan.metric === 'pending' ? own.filter(task => pending.includes(task)) : plan.metric === 'overdue' ? own.filter(task => pending.includes(task) && task.deadline < asOf) : own.filter(task => completed.has(task.id));
-      report.rows.push({ employeeId: employee.id, name: fullName(employee), value: selected.length, unit: plan.metric === 'pending' ? 'pending tasks' : plan.metric === 'overdue' ? 'overdue tasks' : 'completed tasks', details: selected.slice(0, 10).map(task => task.title).join('; ') });
+      const selected = plan.metric === 'approval' ? own.filter(task => awaitingApproval.includes(task)) : plan.metric === 'not-started' ? own.filter(task => notStarted.includes(task)) : plan.metric === 'pending' ? own.filter(task => pending.includes(task)) : plan.metric === 'overdue' ? own.filter(task => pending.includes(task) && task.deadline < asOf) : own.filter(task => completed.has(task.id));
+      report.rows.push({ employeeId: employee.id, name: fullName(employee), value: selected.length, unit: plan.metric === 'approval' ? 'tasks awaiting approval' : plan.metric === 'not-started' ? 'tasks not started' : plan.metric === 'pending' ? 'pending tasks' : plan.metric === 'overdue' ? 'overdue tasks' : 'completed tasks', details: selected.slice(0, 10).map(task => task.title).join('; ') });
       if (own.some(task => task.statusHistory.length === 0)) addGap('Some tasks have no status history; their past completion dates cannot be verified.');
     }
     if (rules && ['most','least'].includes(plan.metric)) {
@@ -121,10 +126,21 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
   }
   if (plan.kind === 'clients') {
     const admin = ['SUPER_ADMIN','HR_ADMIN'].includes(user.role);
-    const clients = checkLimit(await prisma.client.findMany({ where: { companyId: user.companyId!, ...(admin ? {} : { OR: [{ accountManagerId: { in: ids } }, { workCards: { some: { assignedToId: { in: ids } } } }] }) }, select: { id: true, name: true, workCards: { where: { ...(admin ? {} : { assignedToId: { in: ids } }), createdAt: { lte: times.end } }, select: { id: true, deadline: true, title: true, statusHistory: { where: { createdAt: { lte: times.end } }, select: { status: true, createdAt: true }, orderBy: { createdAt: 'asc' } } }, take: limit } }, take: limit }));
+    const clients = checkLimit(await prisma.client.findMany({ where: { companyId: user.companyId!, ...(admin ? {} : { OR: [{ accountManagerId: { in: ids } }, { workCards: { some: { assignedToId: { in: ids } } } }] }) }, select: { id: true, name: true, workCards: { where: { ...(admin ? {} : { assignedToId: { in: ids } }), createdAt: { lte: times.end } }, select: { id: true, deadline: true, title: true, category: true, status: true, statusHistory: { where: { createdAt: { lte: times.end } }, select: { status: true, createdAt: true }, orderBy: { createdAt: 'asc' } } }, take: limit } }, take: limit }));
     report.sources.push('Client','WorkCard','StatusHistory');
     for (const client of clients) checkLimit(client.workCards);
-    report.rows = clients.map(client => ({ employeeId: client.id, name: client.name, value: client.workCards.filter(task => { const first = task.statusHistory.find(event => ['APPROVED','FINISHED'].includes(event.status)); return first && first.createdAt >= times.start; }).length, unit: 'completed client deliverables', details: `${client.workCards.length} visible assigned deliverables` }));
+    const matchedClients=clients.filter(client=>plan.currentQuestion.toLowerCase().includes(client.name.toLowerCase()));
+    report.rows = (matchedClients.length?matchedClients:clients).map(client => {
+      const visible=client.workCards.filter(task=>!plan.category || (plan.category==='video'?/video|reel|motion|edit/i:/design|poster|creative|graphic/i).test(task.category));
+      const selected=visible.filter(task=>{
+        const status=task.statusHistory.at(-1)?.status || (plan.end>=calendarDate(new Date())?task.status:null);
+        if(plan.metric==='pending') return status && !['APPROVED','FINISHED','REJECTED','CLIENT_REJECTED'].includes(status);
+        if(plan.metric==='overdue') return status && !['APPROVED','FINISHED','REJECTED','CLIENT_REJECTED'].includes(status) && task.deadline<asOf;
+        if(plan.metric==='approval') return ['FINISHED','OUT_TO_DELIVER','WAITING_REVIEW','IN_REVIEW'].includes(status||'');
+        const first=task.statusHistory.find(event=>['APPROVED','FINISHED'].includes(event.status));return first && first.createdAt>=times.start;
+      });
+      return {employeeId:client.id,name:client.name,value:selected.length,unit:plan.metric==='pending'?'pending client deliverables':plan.metric==='overdue'?'overdue client deliverables':plan.metric==='approval'?'client deliverables awaiting approval':'completed client deliverables',details:selected.slice(0,10).map(task=>task.title).join('; ')};
+    });
     report.totals.visibleClients = clients.length;
     addGap('Client visibility and deliverable counts are limited to authorized company and employee assignments. Project-specific metrics require a connected project source.');
   }
@@ -188,6 +204,10 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
 }
 export function formatVerifiedReport(report: VerifiedReport): string {
   const { plan, rows } = report;
+  if (plan.kind === 'overview') {
+    const labels: Record<string,string> = { employees:'Employees in scope', checkedIn:'Checked in', approvedWfh:'Approved WFH', approvedLeave:'Approved leave', noAttendanceRecord:'No attendance record', completedTasks:'Tasks completed', approvedTasks:'Tasks approved', pendingTasks:'Tasks pending', overdueTasks:'Tasks overdue', awaitingApproval:'Awaiting approval', notStartedTasks:'Tasks not started' };
+    return `**Company overview · ${plan.start}–${plan.end} · IST**\n\n` + Object.entries(labels).filter(([key])=>report.totals[key]>0).map(([key,label])=>`- ${label}: **${report.totals[key]}**`).join('\n') + '\n\nNo attendance record does not establish absence. Task counts describe recorded output, not comparable employee performance.';
+  }
   if (/\bbreak(?:s| duration)?\b/.test(plan.subjectText.toLowerCase())) return 'Verified break-duration records are not connected, so break time cannot be confirmed.';
   if (plan.compare) plan.detailed = true;
   if (!plan.compare && (plan.metric === 'most' || plan.metric === 'least')) {
@@ -199,8 +219,12 @@ export function formatVerifiedReport(report: VerifiedReport): string {
     const winners = rows.filter(row => row.value === value);
     return `${winners.map(row => `**${row.name}**`).join(', ')} — **${value} ${winners[0].unit}**${winners.length > 1 ? ' each (tie)' : ''}, ${plan.start}–${plan.end}.${report.gaps.some(gap => /Missing checkout/.test(gap)) ? ' Missing checkouts mean the longest full duration cannot be confirmed.' : ''}`;
   }
+  if(plan.groupByDepartment) {
+    const groups=new Map<string,number>();for(const row of rows){const department=report.employees.find(employee=>employee.id===row.employeeId)?.department||'Unassigned';groups.set(department,(groups.get(department)||0)+row.value);}
+    return [...groups].filter(([,count])=>count>0).map(([department,count])=>`- **${department}**: **${count}** recorded task completions`).join('\n')+'\nRaw completion counts do not establish comparable performance across different types of work.';
+  }
   const summary = Object.entries(report.totals).map(([key,value]) => `${key.replace(/([A-Z])/g,' $1').toLowerCase()}: **${value}**`).join('; ');
-  const selected = ['late','early','absent','wfh','leave','missing-checkout','pending','overdue'].includes(plan.metric) ? rows.filter(row => row.value > 0) : rows;
+  const selected = ['late','early','absent','wfh','leave','missing-checkout','pending','overdue','present','approval','not-started'].includes(plan.metric) ? rows.filter(row => row.value > 0) : rows.filter(row => row.value > 0);
   const showRecordedTimes = /check.?in|check.?out|break/i.test(plan.subjectText);
   const detail = selected.slice(0, plan.detailed ? 50 : 5).map(row => `- **${row.name}**: **${row.value} ${row.unit}**${(plan.detailed || showRecordedTimes) && row.details ? ` — ${row.details}` : ''}`).join('\n');
   let answer = plan.metric === 'count' && summary ? summary + '.' : detail || summary || `No verified ${plan.kind} records found for ${plan.start}–${plan.end}.`;
@@ -217,8 +241,8 @@ export function formatVerifiedReport(report: VerifiedReport): string {
   return answer;
 }
 export const verifiedAnalyticsService = {
-  async answer(user: UserContext, question: string, history: { role: string; text: string }[] = []) {
-    const plan = await identifyReadOnlyQuery(question, history);
+  async answer(user: UserContext, question: string, history: { role: string; text: string }[] = [], resolvedPlan?: QueryPlan) {
+    const plan = resolvedPlan || await identifyReadOnlyQuery(question, history);
     let report: VerifiedReport;
     try { report = await runVerifiedReport(user, plan); }
     catch (error) {

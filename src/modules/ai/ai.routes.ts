@@ -120,6 +120,11 @@ CRITICAL SPOKEN VOICE RULES:
     }
     res.json(response);
   } catch (error) {
+    const ml = req.body?.language === "ml" || /[\u0D00-\u0D7F]/.test(String(req.body?.message || ""));
+    if (ml && error instanceof ApiError && [400,403,404,503].includes(error.statusCode)) {
+      const message = error.statusCode === 403 ? "ഈ വിവരങ്ങൾ കാണാനുള്ള അനുമതി നിങ്ങളുടെ അക്കൗണ്ടിനില്ല." : error.statusCode === 404 ? "ആവശ്യപ്പെട്ട ജീവനക്കാരന്റെ രേഖ കണ്ടെത്തിയില്ല. മുഴുവൻ പേരോ employee code-ഓ പറയാമോ?" : error.statusCode === 503 ? "ഇപ്പോൾ STEMS രേഖകൾ ലഭിക്കുന്നില്ല. കണക്കുകൾ ഊഹിച്ച് പറയാനാവില്ല; അല്പസമയത്തിന് ശേഷം വീണ്ടും ശ്രമിക്കൂ." : "ശരിയായ റിപ്പോർട്ട് നൽകാൻ ജീവനക്കാരന്റെ മുഴുവൻ പേരും ആവശ്യമായ തീയതിയും വ്യക്തമാക്കാമോ?";
+      return res.status(error.statusCode).json({message});
+    }
     next(error);
   }
 });
