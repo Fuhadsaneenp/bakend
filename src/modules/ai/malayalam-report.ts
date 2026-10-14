@@ -21,6 +21,8 @@ function gapText(gap: string): string {
  return 'ഈ റിപ്പോർട്ടിന്റെ ചില വിവരങ്ങൾ ലഭ്യമായ രേഖകളിൽ നിന്ന് ഉറപ്പിക്കാനായില്ല.';
 }
 const people=(n:number,form:'subject'|'dative'|'possessive'='subject')=>n===1?({subject:'ഒരാൾ',dative:'ഒരാൾക്ക്',possessive:'ഒരാളുടെ'}[form]):`${n} ${{subject:'പേർ',dative:'പേർക്ക്',possessive:'പേരുടെ'}[form]}`;
+const taskCount=(n:number,form:'plain'|'emphasis'|'possessive'='plain')=>n===1?({plain:'ഒരു ടാസ്ക്',emphasis:'ഒരു ടാസ്കാണ്',possessive:'ഒരു ടാസ്കിന്റെ'}[form]):`${n} ${{plain:'ടാസ്കുകൾ',emphasis:'ടാസ്കുകളാണ്',possessive:'ടാസ്കുകളുടെ'}[form]}`;
+const peopleEmphasis=(n:number)=>n===1?'ഒരാളാണ്':`${n} പേരാണ്`;
 const joinNames = (names: string[]) => names.length < 2 ? names[0] || '' : names.slice(0,-1).join(', ') + ', ' + names.at(-1);
 function dateLabel(day: string): string {
  return new Date(day+'T12:00:00+05:30').toLocaleDateString('ml-IN',{day:'numeric',month:'long',year:'numeric',timeZone:'Asia/Kolkata'});
@@ -39,13 +41,13 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
   if(!late.length){const answer=`${period} വൈകിയെത്തിയതായി ഹാജർ രേഖകളിൽ കണ്ടെത്തിയില്ല.`;return {markdown:answer,spokenReply:answer};}
   const clock=(value:string)=>new Date(value).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:true});
   const duration=(minutes:number)=>minutes>=60?`${Math.floor(minutes/60)} മണിക്കൂർ${minutes%60?` ${minutes%60} മിനിറ്റ്`:''}`:`${minutes} മിനിറ്റ്`;
-  const intro=`${period} ${people(late.length)} വൈകിയെത്തിയതായി രേഖയുണ്ട്. ചെക്ക് ഇൻ സമയവും എത്ര വൈകിയെന്നും ഇങ്ങനെ വ്യക്തമാക്കാം.`;
+  const intro=`${period} ${peopleEmphasis(late.length)} വൈകി ചെക്ക് ഇൻ ചെയ്തത്.`;
   const sentences=late.slice(0,50).map(row=>{
    const events=(row.attendanceEvents||[]).filter(event=>event.isLate);
-   if(!events.length)return `${row.name} വൈകിയതായി രേഖയുണ്ടെങ്കിലും ചെക്ക് ഇൻ സമയവും കൃത്യമായ വൈകിയ സമയവും സ്ഥിരീകരിക്കാനായില്ല.`;
-   return events.map(event=>`${row.name} ${plan.start!==plan.end?dateLabel(event.date)+'-ന് ':''}${event.checkInAt?clock(event.checkInAt)+'-നാണ് ചെക്ക് ഇൻ ചെയ്തത്':'ചെക്ക് ഇൻ ചെയ്ത സമയം ലഭ്യമല്ല'}. ഷിഫ്റ്റ് തുടങ്ങേണ്ട സമയം ${clock(event.scheduledStart)} ആണ്.${event.lateMinutes!=null&&event.lateMinutes>0?` അതിനെക്കാൾ ${duration(event.lateMinutes)} വൈകിയാണ് എത്തിയത്.`:' നിലവിൽ ലഭ്യമായ ഷിഫ്റ്റ് വിവരങ്ങളിൽ നിന്ന് കൃത്യമായ വൈകിയ സമയം സ്ഥിരീകരിക്കാനായില്ല.'}`).join(' ');
+   if(!events.length)return `${row.name} വൈകിയാണ് വന്നതെന്ന് ഹാജറിൽ കാണുന്നുണ്ട്. പക്ഷേ ചെക്ക് ഇൻ സമയം ലഭ്യമല്ലാത്തതിനാൽ എത്ര മിനിറ്റ് വൈകിയെന്ന് പറയാൻ പറ്റുന്നില്ല.`;
+   return events.map(event=>`${row.name} ${plan.start!==plan.end?dateLabel(event.date)+'-ന് ':''}${event.checkInAt?clock(event.checkInAt)+'-നാണ് ചെക്ക് ഇൻ ചെയ്തത്':'ചെക്ക് ഇൻ ചെയ്ത സമയം ലഭ്യമല്ല'}. ${clock(event.scheduledStart)}-ന് തുടങ്ങേണ്ട ഷിഫ്റ്റായതിനാൽ${event.lateMinutes!=null&&event.lateMinutes>0?` ${duration(event.lateMinutes)} വൈകിയാണ് ചെക്ക് ഇൻ ചെയ്തിരിക്കുന്നത്.`:' എത്ര സമയം വൈകിയെന്ന് ലഭ്യമായ വിവരങ്ങളിൽ നിന്ന് ഉറപ്പിക്കാൻ പറ്റുന്നില്ല.'}`).join(' ');
   });
-  const note='വൈകിയ സമയം ലഭ്യമായ ഷിഫ്റ്റ് തുടങ്ങേണ്ട സമയത്തിൽ നിന്നാണ് കണക്കാക്കിയത്. ഷിഫ്റ്റ് നൽകിയിട്ടില്ലെങ്കിൽ ഹാജർ സംവിധാനത്തിലെ ഡിഫോൾട്ട് സമയം ഉപയോഗിക്കുന്നു.'+(plan.start!==new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())?' പഴയ ഷിഫ്റ്റ് മാറ്റങ്ങളുടെ ചരിത്രം ലഭ്യമല്ലാത്തതിനാൽ നിലവിലുള്ള ഷിഫ്റ്റ് ക്രമീകരണമാണ് അടിസ്ഥാനമാക്കിയത്.':'');
+  const note='ഷിഫ്റ്റ് തുടങ്ങേണ്ട സമയവുമായി താരതമ്യം ചെയ്താണ് വൈകിയ സമയം കണക്കാക്കിയത്. പ്രത്യേക ഷിഫ്റ്റ് നൽകിയിട്ടില്ലാത്തവർക്ക് സ്ഥാപനത്തിന്റെ സാധാരണ ജോലി സമയമാണ് എടുത്തത്.'+(plan.start!==new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())?' പഴയ ഷിഫ്റ്റ് മാറ്റങ്ങളുടെ ചരിത്രം ലഭ്യമല്ലാത്തതിനാൽ നിലവിലുള്ള ഷിഫ്റ്റ് ക്രമീകരണമാണ് അടിസ്ഥാനമാക്കിയത്.':'');
   const voice=[intro];
   const shortSentences=late.flatMap(row=>(row.attendanceEvents||[]).filter(event=>event.isLate).map(event=>`${row.name} ${event.checkInAt?clock(event.checkInAt)+'-ന് ചെക്ക് ഇൻ ചെയ്തു':'വൈകിയതായി രേഖയുണ്ട്'}${event.lateMinutes!=null&&event.lateMinutes>0?`, ഷിഫ്റ്റ് തുടങ്ങേണ്ട സമയത്തേക്കാൾ ${duration(event.lateMinutes)} വൈകി`:''}.`));
   let read=0;for(const sentence of shortSentences){if(voice.join(' ').length+sentence.length>1050)break;voice.push(sentence);read++;}
@@ -55,8 +57,8 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
  if(plan.kind==='attendance'&&plan.metric==='early-arrival'){
   const rows=report.rows.filter(row=>row.value>0);
   const clock=(value:string)=>new Date(value).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:true});
-  const intro=rows.length?`${period} ${people(rows.length)} ഷിഫ്റ്റ് തുടങ്ങുന്നതിന് മുമ്പ് ചെക്ക് ഇൻ ചെയ്തതായി രേഖയുണ്ട്.`:`${period} ഷിഫ്റ്റ് തുടങ്ങുന്നതിന് മുമ്പ് ചെക്ക് ഇൻ ചെയ്തതായി ലഭ്യമായ രേഖകളിൽ കണ്ടെത്തിയില്ല.`;
-  const descriptions=rows.slice(0,50).flatMap(row=>(row.attendanceEvents||[]).filter(event=>event.checkInAt&&Date.parse(event.checkInAt)<Date.parse(event.scheduledStart)).map(event=>`${row.name} ${plan.start!==plan.end?dateLabel(event.date)+'-ന് ':''}${clock(event.checkInAt!)}-ന് ചെക്ക് ഇൻ ചെയ്തു. ഷിഫ്റ്റ് തുടങ്ങേണ്ട സമയം ${clock(event.scheduledStart)} ആണ്. അതിനേക്കാൾ ${event.earlyArrivalMinutes?`${event.earlyArrivalMinutes} മിനിറ്റ്`:'ഒരു മിനിറ്റിൽ താഴെ'} നേരത്തെയാണ് ഹാജർ രേഖപ്പെടുത്തിയിരിക്കുന്നത്.`));
+  const intro=rows.length?`ഹാജർ രേഖപ്രകാരം ${period} ${peopleEmphasis(rows.length)} ഷിഫ്റ്റ് തുടങ്ങുന്നതിന് മുമ്പേ ചെക്ക് ഇൻ ചെയ്തത്.`:`${period} ഷിഫ്റ്റ് തുടങ്ങുന്നതിന് മുമ്പ് ചെക്ക് ഇൻ ചെയ്തതായി ലഭ്യമായ രേഖകളിൽ കണ്ടെത്തിയില്ല.`;
+  const descriptions=rows.slice(0,50).flatMap(row=>(row.attendanceEvents||[]).filter(event=>event.checkInAt&&Date.parse(event.checkInAt)<Date.parse(event.scheduledStart)).map(event=>`${row.name} ${plan.start!==plan.end?dateLabel(event.date)+'-ന് ':''}${clock(event.checkInAt!)}-ന് ചെക്ക് ഇൻ ചെയ്തു. ഷിഫ്റ്റ് ${clock(event.scheduledStart)}-ന് തുടങ്ങേണ്ടതിനാൽ ${event.earlyArrivalMinutes?`${event.earlyArrivalMinutes} മിനിറ്റ്`:'ഒരു മിനിറ്റിൽ താഴെ'} നേരത്തെയാണ് ചെക്ക് ഇൻ ചെയ്തിരിക്കുന്നത്.`));
   const caution=rows.length?' ഈ കണക്ക് ലഭ്യമായ ഷിഫ്റ്റ് സമയത്തെ അടിസ്ഥാനമാക്കിയുള്ളതാണ്; പഴയ ഷിഫ്റ്റ് മാറ്റങ്ങളുടെ ചരിത്രം ലഭ്യമല്ല.':'';
   const markdown=[intro,...descriptions].join('\n\n')+caution;
   const spoken=[intro];for(const sentence of descriptions){if(spoken.join(' ').length+sentence.length>1050)break;spoken.push(sentence);}
@@ -67,44 +69,46 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
  const attendance=plan.kind==='overview'||plan.kind==='attendance';
  if(attendance && ['summary','count','present'].includes(plan.metric)) {
   const facts:string[]=[];
-  if(t.checkedIn>0) facts.push(`ആകെ ${people(t.checkedIn)} ഹാജർ രേഖപ്പെടുത്തിയിട്ടുണ്ട്`);
-  if(t.wfhCheckedIn>0) facts.push(`ഇവരിൽ ${people(t.wfhCheckedIn,"dative")} വീട്ടിൽനിന്ന് ജോലി ചെയ്യാൻ അനുമതിയുണ്ട്`);
+  if(t.checkedIn>0) facts.push(`${peopleEmphasis(t.checkedIn)} ഹാജർ രേഖപ്പെടുത്തിയിരിക്കുന്നത്`);
+  if(t.wfhCheckedIn>0) facts.push(`അതിൽ ${people(t.wfhCheckedIn,'dative')} വീട്ടിൽനിന്ന് ജോലി ചെയ്യാൻ അനുമതിയുണ്ട്`);
   const otherWfh=(t.approvedWfh||0)-(t.wfhCheckedIn||0);
-  if(otherWfh>0) facts.push(`ഹാജർ രേഖ ലഭ്യമല്ലാത്ത ${people(otherWfh,"dative")} വീട്ടിൽനിന്ന് ജോലി ചെയ്യാൻ അനുമതി നൽകിയിട്ടുണ്ട്`);
-  if(t.approvedLeave>0) facts.push(`${people(t.approvedLeave,"dative")} അവധി അനുവദിച്ചിട്ടുണ്ട്`);
-  if(facts.length) paragraphs.push(`${period} ലഭ്യമായ വിവരങ്ങൾ നോക്കുമ്പോൾ, ${facts.join('. ')}.`);
-  if(t.noAttendanceRecord>0) paragraphs.push(`${people(t.noAttendanceRecord,"possessive")} ഹാജർ രേഖ ഇതുവരെ ലഭ്യമല്ല. അതിന്റെ അടിസ്ഥാനത്തിൽ മാത്രം അവധിയിലാണെന്നോ ജോലിക്ക് വന്നില്ലെന്നോ പറയാനാവില്ല.`);
-  if(plan.metric!=='present' && (t.lateRecords>0||t.earlyDepartureRecords>0)) paragraphs.push([t.lateRecords>0?`വൈകിയെത്തിയതായി ${t.lateRecords} എൻട്രികൾ രേഖപ്പെടുത്തിയിട്ടുണ്ട്`:'',t.earlyDepartureRecords>0?`നേരത്തെ പോയതായി ${t.earlyDepartureRecords} എൻട്രികളുമുണ്ട്`:''].filter(Boolean).join('. ')+'.');
+  if(otherWfh>0) facts.push(`ഇതിനു പുറമെ ${people(otherWfh,'dative')} വീട്ടിൽനിന്ന് ജോലി ചെയ്യാൻ അനുമതിയുണ്ട്; അവരുടെ ചെക്ക് ഇൻ വിവരം ലഭിച്ചിട്ടില്ല`);
+  if(t.approvedLeave>0) facts.push(`${people(t.approvedLeave,'dative')} അവധി അനുവദിച്ചിട്ടുണ്ട്`);
+  if(facts.length)paragraphs.push(`${period} ${facts.join('. ')}.`);
+  if(t.noAttendanceRecord>0)paragraphs.push(`${people(t.noAttendanceRecord,'possessive')} ഹാജർ വിവരം കിട്ടിയിട്ടില്ല. അവർ അവധിയിലായിരുന്നോ എന്ന് ഇതു മാത്രം നോക്കി ഉറപ്പിക്കാൻ പറ്റില്ല.`);
+  if(plan.metric!=='present'&&(t.lateRecords>0||t.earlyDepartureRecords>0))paragraphs.push([t.lateRecords>0?`വൈകിയെത്തിയതായി ${t.lateRecords} ഹാജർ എൻട്രികളുണ്ട്`:'',t.earlyDepartureRecords>0?`${t.earlyDepartureRecords} എൻട്രികളിൽ ജോലി സമയം കഴിയുന്നതിന് മുമ്പ് ചെക്ക് ഔട്ട് ചെയ്തതായി കാണുന്നുണ്ട്`:''].filter(Boolean).join('. ')+'.');
  }
  if(plan.kind==='overview'||plan.kind==='tasks') {
-  const facts=[t.completedTasks>0?`${t.completedTasks} ടാസ്കുകൾ പൂർത്തിയാക്കിയതായി രേഖയുണ്ട്`:'',t.approvedTasks>0?`${t.approvedTasks} ടാസ്കുകൾ അപ്രൂവ് ചെയ്തിട്ടുണ്ട്`:'',t.pendingTasks>0?`${t.pendingTasks} ടാസ്കുകൾ ഇനിയും പൂർത്തിയാകാനുണ്ട്`:'',t.awaitingApproval>0?`${t.awaitingApproval} ടാസ്കുകൾ അപ്രൂവൽ കാത്തിരിക്കുന്നു`:'',t.overdueTasks>0?`${t.overdueTasks} ടാസ്കുകളുടെ ഡെഡ്‌ലൈൻ കഴിഞ്ഞിട്ടുണ്ട്`:''].filter(Boolean);
-  if(facts.length && (plan.kind==='overview'||['summary','count'].includes(plan.metric))) paragraphs.push(`${plan.kind==='overview'?'ജോലിയുടെ പുരോഗതി നോക്കുമ്പോൾ':period}, ${facts.join('. ')}.`);
+  const facts=[t.completedTasks>0?`${taskCount(t.completedTasks)} പൂർത്തിയായിട്ടുണ്ട്`:'',t.approvedTasks>0?`${taskCount(t.approvedTasks)} അപ്രൂവ് ചെയ്തിട്ടുണ്ട്`:'',t.pendingTasks>0?`${taskCount(t.pendingTasks)} ഇനിയും ബാക്കിയാണ്`:'',t.awaitingApproval>0?`${taskCount(t.awaitingApproval)} അപ്രൂവൽ കാത്തിരിക്കുന്നു`:'',t.overdueTasks>0?`${t.pendingTasks>0?'ബാക്കിയുള്ളവയിൽ ':''}${taskCount(t.overdueTasks,'possessive')} ഡെഡ്‌ലൈൻ കഴിഞ്ഞിട്ടുണ്ട്`:''].filter(Boolean);
+  if(facts.length&&(plan.kind==='overview'||['summary','count'].includes(plan.metric)))paragraphs.push(`${plan.kind==='overview'?'ജോലിയുടെ കാര്യത്തിൽ,':period} ${facts.join('. ')}.`);
  }
  const clockQuestion=plan.kind==='attendance'&&/check.?in time|check.?out time|when.*(?:start|arriv)|എപ്പോൾ|എത്ര മണി|തുടങ്ങിയ സമയം/i.test(plan.currentQuestion);
  let rows=report.rows.filter(row=>row.value>0 || plan.kind==='attendance' && (plan.metric==='hours'||clockQuestion) && row.attendanceEvents?.some(event=>event.checkInAt));
  if(['most','least'].includes(plan.metric)&&report.rows.length){const value=(plan.metric==='most'?Math.max:Math.min)(...report.rows.map(row=>row.value));rows=report.rows.filter(row=>row.value===value);}
  const rowSentence=(row:typeof report.rows[number])=>{
-  if(row.value===0&&row.attendanceEvents?.some(event=>event.checkInAt&&!event.checkOutAt))return `${row.name}യുടെ ചെക്ക് ഇൻ രേഖ ലഭ്യമാണ്; ചെക്ക് ഔട്ട് പൂർത്തിയായിട്ടില്ലാത്തതിനാൽ മുഴുവൻ ജോലി സമയം ഉറപ്പിക്കാനാവില്ല`;
-  if(row.value===0)return `${row.name}യുടെ ഈ പ്രവർത്തനത്തിന് രേഖ കണ്ടെത്തിയില്ല`;
-  if(row.unit==='employees checked in')return `${row.name} ചെക്ക് ഇൻ ചെയ്തതായി രേഖയുണ്ട്`;
-  if(row.unit==='employees with no attendance record')return `${row.name}യുടെ ഹാജർ രേഖ കണ്ടെത്തിയില്ല`;
-  if(row.unit==='employees on approved leave')return `${row.name}ക്ക് ലീവ് അനുവദിച്ചിട്ടുണ്ട്`;
-  if(row.unit==='employees with approved WFH')return `${row.name}ക്ക് വർക്ക് ഫ്രം ഹോം അനുമതിയുണ്ട്`;
-  if(row.unit==='recorded attendance hours'){const minutes=(row.attendanceEvents||[]).filter(event=>event.checkInAt&&event.checkOutAt).reduce((sum,event)=>sum+Math.max(0,event.workMinutes),0);const duration=minutes?`${Math.floor(minutes/60)?Math.floor(minutes/60)+' മണിക്കൂർ ':''}${minutes%60?minutes%60+' മിനിറ്റ്':''}`.trim():`${row.value} മണിക്കൂർ`;return `${row.name}യുടെ പൂർത്തിയായ ഹാജർ രേഖയിൽ ${duration} ജോലി സമയം രേഖപ്പെടുത്തിയിട്ടുണ്ട്`;}
-  if(row.unit==='pending tasks')return `${row.name}ക്ക് ${row.value} ടാസ്കുകൾ ഇനിയും പൂർത്തിയാക്കാനുണ്ട്`;
-  if(row.unit==='overdue tasks')return `${row.name}യുടെ ${row.value} ടാസ്കുകളുടെ ഡെഡ്‌ലൈൻ കഴിഞ്ഞിട്ടുണ്ട്`;
-  if(row.unit==='tasks awaiting approval')return `${row.name}യുടെ ${row.value} ടാസ്കുകൾ അപ്രൂവൽ കാത്തിരിക്കുന്നു`;
-  if(row.unit==='tasks not started')return `${row.name}ക്ക് നൽകിയ ${row.value} ടാസ്കുകൾ തുടങ്ങിയതായി ഇതുവരെ രേഖയില്ല`;
+  if(row.value===0&&row.attendanceEvents?.some(event=>event.checkInAt&&!event.checkOutAt))return `${row.name} ചെക്ക് ഇൻ ചെയ്തിട്ടുണ്ട്. പക്ഷേ ചെക്ക് ഔട്ട് സമയം ഇല്ലാത്തതിനാൽ ആകെ എത്രനേരം ജോലി ചെയ്തെന്ന് പറയാൻ പറ്റുന്നില്ല`;
+  if(row.value===0)return `${row.name}-ന്റെ ഈ പ്രവർത്തനത്തെക്കുറിച്ചുള്ള വിവരം ഇപ്പോൾ ലഭ്യമല്ല`;
+  if(row.unit==='employees checked in')return `${row.name} ചെക്ക് ഇൻ ചെയ്തിട്ടുണ്ട്`;
+  if(row.unit==='employees with no attendance record')return `${row.name}-ന്റെ ഹാജർ വിവരം കിട്ടിയിട്ടില്ല`;
+  if(row.unit==='employees on approved leave')return `${row.name}-ന് അവധി അനുവദിച്ചിട്ടുണ്ട്`;
+  if(row.unit==='employees with approved WFH')return `${row.name}-ന് വീട്ടിൽനിന്ന് ജോലി ചെയ്യാൻ അനുമതിയുണ്ട്`;
+  if(row.unit==='recorded attendance hours'){const minutes=(row.attendanceEvents||[]).filter(event=>event.checkInAt&&event.checkOutAt).reduce((sum,event)=>sum+Math.max(0,event.workMinutes),0);const duration=minutes?`${Math.floor(minutes/60)?Math.floor(minutes/60)+' മണിക്കൂർ ':''}${minutes%60?minutes%60+' മിനിറ്റ്':''}`.trim():`${row.value} മണിക്കൂർ`;return `ഹാജർ കണക്കനുസരിച്ച് ${row.name} ${duration} ജോലി ചെയ്തിട്ടുണ്ട്`;}
+  if(row.unit==='average recorded hours per complete attendance record')return `${row.name}-ന്റെ പൂർണ്ണമായ ഹാജർ എൻട്രികൾ നോക്കുമ്പോൾ ശരാശരി ${row.value} മണിക്കൂർ വീതമാണുള്ളത്`;
+  if(row.unit==='leave request'){const dates=row.details?.match(/\d{4}-\d{2}-\d{2}/g)||[];const status=row.details?.split(':')[0];const state=status==='APPROVED'?'അപേക്ഷ അനുവദിച്ചിട്ടുണ്ട്':status==='REJECTED'?'അപേക്ഷ നിരസിച്ചിട്ടുണ്ട്':'അപേക്ഷയിൽ തീരുമാനമായിട്ടില്ല';return dates.length?`${row.name}-ന് ${dateLabel(dates[0]!)}${dates[1]&&dates[1]!==dates[0]?' മുതൽ '+dateLabel(dates[1]!)+' വരെ':'-ലെ'} അവധിക്കുള്ള അപേക്ഷയുണ്ട്. ${state}`:`${row.name}-ന്റെ അവധിക്കുള്ള അപേക്ഷ ലഭ്യമാണ്. ${state}`;}
+  if(row.unit==='pending tasks')return `${row.name} പൂർത്തിയാക്കേണ്ട ${taskCount(row.value)} ഇനിയും ബാക്കിയാണ്`;
+  if(row.unit==='overdue tasks')return `${row.name}-ന്റെ ${taskCount(row.value,"possessive")} ഡെഡ്‌ലൈൻ കഴിഞ്ഞിട്ടുണ്ട്`;
+  if(row.unit==='tasks awaiting approval')return `${row.name}-ന്റെ ${taskCount(row.value)} അപ്രൂവൽ കാത്തിരിക്കുന്നു`;
+  if(row.unit==='tasks not started')return `${row.name}-ന് നൽകിയ ${taskCount(row.value)} തുടങ്ങിയതായി ഇതുവരെ വിവരമില്ല`;
   if(row.unit==='pending client deliverables')return `${row.name} ക്ലയന്റിന്റെ ${row.value} ജോലികൾ പൂർത്തിയാകാനുണ്ട്`;
   if(row.unit==='overdue client deliverables')return `${row.name} ക്ലയന്റിന്റെ ${row.value} ജോലികളുടെ ഡെഡ്‌ലൈൻ കഴിഞ്ഞിട്ടുണ്ട്`;
   if(row.unit==='client deliverables awaiting approval')return `${row.name} ക്ലയന്റിന്റെ ${row.value} ജോലികൾ അപ്രൂവൽ കാത്തിരിക്കുന്നു`;
   if(row.unit==='completed client deliverables')return `${row.name} ക്ലയന്റിന് വേണ്ടിയുള്ള ${row.value} ജോലികൾ പൂർത്തിയായതായി രേഖയുണ്ട്`;
-  if(row.unit==='approved appraisal score')return `${row.name}ക്ക് രേഖപ്പെടുത്തിയ അംഗീകൃത അപ്രൈസൽ സ്കോർ ${row.value} ആണ്`;
-  if(row.unit.endsWith(' remaining days'))return `${row.name}ക്ക് ${row.unit.replace(' remaining days','')} വിഭാഗത്തിൽ ${row.value} ദിവസത്തെ ലീവ് ബാക്കിയുണ്ട്`;
-  if(row.unit==='missing checkout records')return `${row.name}യുടെ ${row.value} ഹാജർ എൻട്രികളിൽ ചെക്ക് ഔട്ട് സമയം രേഖപ്പെടുത്തിയിട്ടില്ല`;
-  if(row.unit==='early departure records')return `${row.name} നേരത്തെ പോയതായി ${row.value} ദിവസത്തെ ഹാജർ രേഖകളിൽ കാണുന്നു`;
-  if(row.unit==='completed tasks')return `${row.name} ${row.value} ടാസ്കുകൾ പൂർത്തിയാക്കിയതായി രേഖയുണ്ട്`;
-  return `${row.name}യുടെ രേഖയിൽ ${row.value} ${units[row.unit]||row.unit} ഉണ്ട്`;
+  if(row.unit==='approved appraisal score')return `${row.name}-ന്റെ അംഗീകൃത അപ്രൈസൽ സ്കോർ ${row.value} ആണ്`;
+  if(row.unit.endsWith(' remaining days'))return `${row.name}-ന് ${row.unit.replace(' remaining days','')} ഇനത്തിൽ ${row.value} ദിവസത്തെ അവധി ബാക്കിയുണ്ട്`;
+  if(row.unit==='missing checkout records')return `${row.name}-ന്റെ ${row.value} ഹാജർ എൻട്രികളിൽ ചെക്ക് ഔട്ട് സമയം ഇല്ല`;
+  if(row.unit==='early departure records')return `${row.name} ${row.value} ദിവസം ജോലി സമയം കഴിയുന്നതിന് മുമ്പ് ചെക്ക് ഔട്ട് ചെയ്തിട്ടുണ്ട്`;
+  if(row.unit==='completed tasks')return `${row.name} ${taskCount(row.value)} പൂർത്തിയാക്കിയിട്ടുണ്ട്`;
+  return `${row.name}-നെക്കുറിച്ചുള്ള കണക്കിൽ ${row.value} ${units[row.unit]||row.unit} ആണ് കാണുന്നത്`;
  };
  if(plan.groupByDepartment){
   const grouped=new Map<string,number>();for(const row of rows){const department=report.employees.find(employee=>employee.id===row.employeeId)?.department||'വിഭാഗം രേഖപ്പെടുത്തിയിട്ടില്ല';grouped.set(department,(grouped.get(department)||0)+row.value);}
@@ -112,27 +116,27 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
  } else if(plan.kind!=='overview'&&rows.length){
   if(plan.metric==='present') {
    const names=report.attendanceGroups?.checkedIn || rows.map(row=>row.name);
-   if(names.length)paragraphs.push(`ഹാജർ രേഖപ്പെടുത്തിയവരിൽ ${joinNames(names.slice(0,50))} ${names.length===1?'ആണ് ഉള്ളത്':'എന്നിവരാണ് ഉള്ളത്'}.${names.length>50?` ശേഷിക്കുന്ന ${names.length-50} പേരുടെ വിവരങ്ങളും ലഭ്യമാണ്.`:''}`);
+   if(names.length)paragraphs.push(`ഹാജർ രേഖപ്പെടുത്തിയിരിക്കുന്നത് ${joinNames(names.slice(0,50))} ${names.length===1?'ആണ്':'എന്നിവരാണ്'}.${names.length>50?` ശേഷിക്കുന്ന ${names.length-50} പേരുടെ വിവരങ്ങളും ലഭ്യമാണ്.`:''}`);
    const wfh=report.attendanceGroups?.approvedWfh||[];
-   if(wfh.length)paragraphs.push(`${joinNames(wfh)} ${wfh.length===1?'എന്നയാൾക്കാണ്':'എന്നിവർക്കാണ്'} വീട്ടിൽനിന്ന് ജോലി ചെയ്യാൻ അനുമതി നൽകിയിരിക്കുന്നത്.`);
+   if(wfh.length)paragraphs.push(`വീട്ടിൽനിന്ന് ജോലി ചെയ്യാൻ അനുമതിയുള്ളത് ${joinNames(wfh)} ${wfh.length===1?'എന്നയാൾക്കാണ്':'എന്നിവർക്കാണ്'}.`);
    if(/office|ഓഫീസ/i.test(plan.currentQuestion))paragraphs.push('ഹാജർ രേഖകൾ മാത്രം നോക്കി ഇവരെല്ലാം ഓഫീസിൽ നേരിട്ട് വന്നതാണെന്ന് ഉറപ്പിക്കാനാവില്ല.');
   }
   else if(clockQuestion || !(plan.kind==='attendance'&&['summary','count'].includes(plan.metric))) {
    const selected=rows.slice(0,plan.detailed?30:6);
    paragraphs.push(selected.map(row=>{
     let answer=rowSentence(row)+'.';
-    if(row.workItems?.length && (plan.detailed || ["pending","overdue","approval","not-started"].includes(plan.metric))){const items=row.workItems.slice(0,plan.detailed?10:3);answer+=' '+items.map(item=>`“${item.title}” എന്ന ജോലിയുടെ ഡെഡ്‌ലൈൻ ${new Date(item.deadline).toLocaleString('ml-IN',{timeZone:'Asia/Kolkata',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})} ആണ്.`).join(' ');if(row.workItems.length>items.length)answer+=` മറ്റു ${row.workItems.length-items.length} ജോലികളുടെ വിവരങ്ങളും ലഭ്യമാണ്.`;}
+    if(row.workItems?.length && (plan.detailed || ["pending","overdue","approval","not-started"].includes(plan.metric))){const items=row.workItems.slice(0,plan.detailed?10:3);answer+=' '+items.map(item=>`“${item.title}” പൂർത്തിയാക്കേണ്ടത് ${new Date(item.deadline).toLocaleString('ml-IN',{timeZone:'Asia/Kolkata',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}-നാണ്.`).join(' ');if(row.workItems.length>items.length)answer+=` മറ്റു ${row.workItems.length-items.length} ജോലികളുടെ വിവരങ്ങളും ലഭ്യമാണ്.`;}
     else if(plan.detailed&&row.details&&!attendance)answer+=` രേഖയിൽ ലഭ്യമായ വിശദാംശങ്ങൾ: ${row.details}.`;
     if(attendance && row.attendanceEvents?.length && (plan.metric==='hours'||/check.?in|check.?out|എത്ര മണി|എപ്പോൾ|തുടങ്ങിയ സമയം/.test(plan.currentQuestion))){
      const clock=(value:string)=>new Date(value).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:true});
-     answer+=' '+row.attendanceEvents.slice(0,plan.detailed?10:2).map(event=>`${plan.start!==plan.end?dateLabel(event.date)+'-ന് ':''}${event.checkInAt?clock(event.checkInAt)+'-നാണ് ചെക്ക് ഇൻ ചെയ്തത്':'ചെക്ക് ഇൻ സമയം ലഭ്യമല്ല'}.${event.checkOutAt?` ചെക്ക് ഔട്ട് ചെയ്തത് ${clock(event.checkOutAt)}-നാണ്.`:' ചെക്ക് ഔട്ട് സമയം ലഭ്യമല്ലാത്തതിനാൽ മുഴുവൻ ജോലി സമയം ഉറപ്പിക്കാനാവില്ല.'}`).join(' ');
+     answer+=' '+row.attendanceEvents.slice(0,plan.detailed?10:2).map(event=>`${plan.start!==plan.end?dateLabel(event.date)+'-ന് ':''}${event.checkInAt?clock(event.checkInAt)+'-നാണ് ചെക്ക് ഇൻ ചെയ്തത്':'ചെക്ക് ഇൻ സമയം ലഭ്യമല്ല'}.${event.checkOutAt?` ചെക്ക് ഔട്ട് ചെയ്തത് ${clock(event.checkOutAt)}-നാണ്.`:' ചെക്ക് ഔട്ട് സമയം ഇല്ലാത്തതിനാൽ ആകെ എത്രനേരം ജോലി ചെയ്തെന്ന് ഉറപ്പിക്കാൻ പറ്റില്ല.'}`).join(' ');
     }
     return answer;
    }).join(' '));
    if(rows.length>selected.length)paragraphs.push(`ഇതിനു പുറമേ ${people(rows.length-selected.length,"possessive")} രേഖകളും ലഭ്യമാണ്. എല്ലാവരുടെയും വിശദാംശങ്ങൾ വേണമെങ്കിൽ ചോദിക്കാം.`);
   }
  }
- if(!paragraphs.length)paragraphs.push(`${period} ഈ ചോദ്യത്തിന് അനുയോജ്യമായ പ്രവർത്തനം ലഭ്യമായ രേഖകളിൽ കണ്ടെത്താനായില്ല. ഇത് ജോലി ചെയ്തിട്ടില്ല എന്നതിന് തെളിവല്ല.`);
+ if(!paragraphs.length)paragraphs.push(`${period} നിങ്ങൾ ചോദിച്ച പ്രവർത്തനത്തെക്കുറിച്ചുള്ള വിവരം ഇപ്പോൾ ലഭ്യമല്ല. അതുകൊണ്ട് ജോലി ചെയ്തിട്ടില്ലെന്ന് പറയാനാവില്ല.`);
  const important=report.gaps.filter(gap=>/Missing checkout|No approved|No leave allocation|No authorized/.test(gap)||plan.metric==='hours'&&/Attendance hours/.test(gap));
  const gaps=[...new Set(important.map(gapText))];if(gaps.length)paragraphs.push(gaps.join(' '));
  if(report.comparison){const old=report.comparison;const changes=Object.entries(t).filter(([key,value])=>labels[key]&&(value>0||old.totals[key]>0)&&old.totals[key]!=null&&key!=='employees').map(([key,value])=>`${labels[key]} മുൻ കാലയളവിൽ ${old.totals[key]} ആയിരുന്നത് ഇപ്പോൾ ${value} ആണ്`);if(changes.length)paragraphs.push(`${dateLabel(old.plan.start)}–${dateLabel(old.plan.end)} കാലയളവുമായി താരതമ്യം ചെയ്യുമ്പോൾ, ${changes.join('. ')}.`);}
