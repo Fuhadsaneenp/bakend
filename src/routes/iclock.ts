@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { acknowledgeDeviceCommand, archiveTemplatePayload, getNextQueuedDeviceCommand, queueDeviceAttendanceUpload, queueDeviceUserDirectoryUpload } from "../lib/biometricDeviceSync.js";
 import { runBiometricSync } from "./biometricSync.js";
+import { getBiometricDataPayload } from "../lib/biometricPayload.js";
 
 type IClockRequest = Request & {
   rawBody?: string;
@@ -221,6 +222,7 @@ iclockRouter.get(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, next
 iclockRouter.post(["/cdata", "/cdata.aspx"], async (req: IClockRequest, res, next) => {
   try {
     const payload = getRawBodyContent(req);
+    if (!payload) return res.send("OK");
     logBiometricRequest(req);
     await persistBiometricLog(req, "PENDING");
     await archiveTemplatePayload({
@@ -331,6 +333,7 @@ function sanitizeHeaders(headers: Request["headers"]) {
 }
 
 function logBiometricRequest(req: IClockRequest) {
+  if (!getRawBodyContent(req)) return;
   console.log(`[BIOMETRIC REQUEST] [${new Date().toISOString()}]`);
   console.log(`- Method: ${req.method}`);
   console.log(`- Full URL: ${getRequestUrl(req)}`);
@@ -344,23 +347,7 @@ function logBiometricRequest(req: IClockRequest) {
 }
 
 function getRawBodyContent(req: IClockRequest): string {
-  if (typeof req.rawBody === "string" && req.rawBody.length > 0) {
-    return req.rawBody;
-  }
-  if (Buffer.isBuffer(req.body)) {
-    return req.body.toString("utf8");
-  }
-  if (typeof req.body === "string") {
-    return req.body;
-  }
-  if (req.body && typeof req.body === "object") {
-    try {
-      return JSON.stringify(req.body);
-    } catch {
-      return "";
-    }
-  }
-  return "";
+  return getBiometricDataPayload(req);
 }
 
 function shouldAutoQueryAttendance(serialNumber: string) {
@@ -370,6 +357,8 @@ function shouldAutoQueryAttendance(serialNumber: string) {
 }
 
 async function persistBiometricLog(req: IClockRequest, status: string, errorMessage?: string) {
+  const rawPayload = getRawBodyContent(req);
+  if (!rawPayload) return;
   try {
     await prisma.biometricRawLog.create({
       data: {
@@ -378,7 +367,7 @@ async function persistBiometricLog(req: IClockRequest, status: string, errorMess
         requestPath: req.originalUrl || req.path || "/iclock",
         queryParameters: JSON.stringify(req.query || {}),
         headers: JSON.stringify(sanitizeHeaders(req.headers || {})),
-        rawPayload: getRawBodyContent(req),
+        rawPayload,
         processingStatus: status,
         errorMessage: errorMessage || null
       }
