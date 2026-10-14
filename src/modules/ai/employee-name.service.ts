@@ -8,7 +8,7 @@ const letters:Record<string,string>={
 const ignored=new Set(['ഇന്ന്','ഇന്നലെ','ഇന്നത്തെ','ഇന്നലത്തെ','ഒന്ന്','ആരാണ്','ആരൊക്കെ','എത്ര','എന്ത്','എപ്പോൾ','ആണ്','ആയിരുന്നു','അത്','അവരുടെ','അയാളുടെ','വർക്ക്','ജോലി','ജോലിയുടെ','ഹാജർ','റിപ്പോർട്ട്','പറയൂ','പറയാമോ','കമ്പനിയുടെ','കമ്പനി','ടീമിന്റെ','വിഭാഗത്തിന്റെ','നേരത്തെ','വൈകി','എല്ലാവരും','today','yesterday','work','report','team','company','show','give','tell','hours','attendance','compare','with','and','the','of','my','me']);
 const words=(value:string)=>value.normalize('NFC').toLowerCase().replace(/[\u200c\u200d]/g,'').match(/[\p{L}\p{M}\p{N}]+/gu)||[];
 const roman=(value:string)=>Array.from(value).map(char=>letters[char]??char).join('').toLowerCase().replace(/[^a-z0-9]/g,'');
-const sound=(value:string)=>roman(value).replace(/^sw(?=[aeiou])/,'s').replace(/ph/g,'f').replace(/qu|q/g,'k').replace(/dh/g,'d').replace(/th/g,'t').replace(/zh/g,'l').replace(/c(?!h)/g,'k').replace(/w/g,'v').replace(/[aeiou]/g,'').replace(/(.)\1+/g,'$1');
+const sound=(value:string)=>roman(value).replace(/^(?:sw|sv)(?=[aeiou])/,'s').replace(/kh/g,'k').replace(/ph/g,'f').replace(/qu|q/g,'k').replace(/dh/g,'d').replace(/th/g,'t').replace(/zh/g,'l').replace(/c(?!h)/g,'k').replace(/w/g,'v').replace(/[aeiou]/g,'').replace(/(.)\1+/g,'$1');
 function variants(word:string):{key:string;weight:number}[]{
  const stem=word.replace(/(?:ിന്റെ|ിന്റെ|ന്റേ|ന്റെ|യുടെ|യുടേത്|യ്ക്കു|യ്ക്ക്|ക്കു|ക്ക്|നോട്|നെ|യെ|റെ)$/u,'').replace(/(?:'s|s')$/,'');
  const result=[{key:word,weight:0}];
