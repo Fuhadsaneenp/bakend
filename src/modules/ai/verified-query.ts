@@ -50,16 +50,16 @@ export function planQuestion(question: string, history: { role: string; text: st
     : /resign|retir|terminat|exit|former|offboard|internship|രാജി/.test(q) ? 'exits'
     : /kpi|performance|best|worst|productiv|compare.*designer|പ്രകടനം/.test(q) ? 'kpi'
     : /leave balance|leave history|ലീവ്/.test(q) ? 'leave'
-    : /attend|hours|check.?in|check.?out|absen|late|early depart|\bbreak(?:s| duration)?\b|missing.*record|longest|wfh|home|on leave|worked today|working time|അറ്റൻഡ|മണിക്കൂർ|ഹാജർ|ജോലിക്ക് വന്നു|ലേറ്റ്|വർക്ക് ഫ്രം ഹോം|absent/.test(q) ? 'attendance'
+    : /attend|hours|check.?in|check.?out|absen|late|early depart|\bbreak(?:s| duration)?\b|missing.*record|longest|wfh|home|on leave|worked today|working time|അറ്റൻഡ|മണിക്കൂർ|ഹാജർ|ജോലിക്ക് വന്നു|ഓഫീസ|ലേറ്റ്|വർക്ക് ഫ്രം ഹോം|absent/.test(q) ? 'attendance'
     : /task|work|design|poster|creative|video|reel|pending|overdue|deadline|approval|ടാസ്ക്|ജോലി|ഡിസൈൻ|പോസ്റ്റർ|വീഡിയോ|റീൽ|പെൻഡിംഗ്|അപ്രൂവൽ/.test(q) ? 'tasks' : 'overview';
-  const metric: QueryPlan['metric'] = /not start|yet to start|start ചെയ്യാത്ത|തുടങ്ങാത്ത/.test(q) ? 'not-started' : /await.*approv|waiting.*approv|approval.*wait|അപ്രൂവൽ|approval കാത്തിരി/.test(q) ? 'approval' : /who.*(?:came|present)|ജോലിക്ക് വന്നു|ഹാജരായ/.test(q) ? 'present' : /missing.*check.?out|checkout.*missing/.test(q) ? 'missing-checkout' : /early depart/.test(q) ? 'early' : /late|വൈകി/.test(q) ? 'late'
+  const metric: QueryPlan['metric'] = /not start|yet to start|start ചെയ്യാത്ത|തുടങ്ങാത്ത/.test(q) ? 'not-started' : /await.*approv|waiting.*approv|approval.*wait|അപ്രൂവൽ|approval കാത്തിരി/.test(q) ? 'approval' : /who.*(?:came|present)|ജോലിക്ക് വന്നു|ഹാജരായ|ആരൊക്കെ.*ഓഫീസ|ഓഫീസ.*ആരൊക്കെ/.test(q) ? 'present' : /missing.*check.?out|checkout.*missing/.test(q) ? 'missing-checkout' : /early depart/.test(q) ? 'early' : /late|വൈകി|ലേറ്റ്/.test(q) ? 'late'
     : /absen|ഹാജരാകാത്ത/.test(q) ? 'absent' : /on leave|approved leave|ആരൊക്കെ.*leave|ആരൊക്കെയാണ് leave/.test(q) ? 'leave' : /wfh|home|വർക്ക് ഫ്രം ഹോം/.test(q) ? 'wfh'
     : /overdue|delayed/.test(q) ? 'overdue' : /pending|hasn.t completed|not complet|incomplete|പെൻഡിംഗ്|പൂർത്തിയാകാത്ത/.test(q) ? 'pending'
     : /lowest|least|worst|കുറവ്|കുറഞ്ഞ/.test(q) ? 'least' : /most|highest|best|longest|കൂടുതൽ/.test(q) ? 'most'
     : /hours|working time|മണിക്കൂർ/.test(q) ? 'hours' : /how many|count|എത്ര/.test(q) ? 'count' : 'summary';
   const employee = /\b(my|me)\b/.test(q) && !/\bmy (?:team|department)\b/.test(q) ? 'me' : undefined;
   const department = q.match(/\b(design|video edit(?:ing)?|data entry|development|marketing|seo|hr)\s+(?:team|department)/)?.[1];
-  const timeWords = /today|yesterday|month|week|last (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|\d{4}-\d{2}-\d{2}|ഇന്നലെ|മാസം|ആഴ്ച/;
+  const timeWords = /today|yesterday|month|week|last (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|\d{4}-\d{2}-\d{2}|ഇന്നലെ|ഇന്ന്|ഇന്നത്തെ|മാസം|ആഴ്ച/;
   const rememberedPeriod = [...userTurns].reverse().find(text => timeWords.test(text.toLowerCase()));
   const comparisonFollowup = /^(compare with|compare to)/i.test(question.trim());
   const periodText = comparisonFollowup && rememberedPeriod ? rememberedPeriod : timeWords.test(question.toLowerCase()) ? question : followup ? rememberedPeriod || subject : question;

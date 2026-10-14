@@ -31,16 +31,36 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
   const answer='ഈ താരതമ്യം ഉറപ്പിക്കാൻ ആവശ്യമായ പൂർണ്ണവും താരതമ്യയോഗ്യവുമായ രേഖകൾ ലഭ്യമല്ല. ലഭ്യമായ കണക്കുകൾ മാത്രം ഉപയോഗിച്ച് ഒരാളുടെ പ്രകടനം മികച്ചതാണെന്ന് പറയാനാവില്ല.';
   return {markdown:answer,spokenReply:answer};
  }
+ if(plan.kind==='attendance' && plan.metric==='late') {
+  const late=report.rows.filter(row=>row.value>0);
+  if(!late.length){const answer=`${period}, വൈകിയെത്തിയതായി ഹാജർ രേഖകളിൽ കണ്ടെത്തിയില്ല.`;return {markdown:answer,spokenReply:answer};}
+  const clock=(value:string)=>new Date(value).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:true});
+  const duration=(minutes:number)=>minutes>=60?`${Math.floor(minutes/60)} മണിക്കൂർ${minutes%60?` ${minutes%60} മിനിറ്റ്`:''}`:`${minutes} മിനിറ്റ്`;
+  const intro=`${period}, ${late.length} പേർ വൈകിയെത്തിയതായി രേഖയുണ്ട്. ആരൊക്കെ എത്ര വൈകിയെന്ന് നോക്കുമ്പോൾ,`;
+  const sentences=late.slice(0,50).map(row=>{
+   const events=(row.attendanceEvents||[]).filter(event=>event.isLate);
+   if(!events.length)return `${row.name} വൈകിയതായി രേഖയുണ്ടെങ്കിലും ചെക്ക് ഇൻ സമയവും കൃത്യമായ വൈകിയ സമയവും സ്ഥിരീകരിക്കാനായില്ല.`;
+   return events.map(event=>`${row.name} ${plan.start!==plan.end?dateLabel(event.date)+'-ന് ':''}${event.checkInAt?clock(event.checkInAt)+'-നാണ് ചെക്ക് ഇൻ ചെയ്തത്':'ചെക്ക് ഇൻ ചെയ്ത സമയം ലഭ്യമല്ല'}. ഷിഫ്റ്റ് തുടങ്ങേണ്ട സമയം ${clock(event.scheduledStart)} ആണ്.${event.lateMinutes!=null&&event.lateMinutes>0?` അതിനെക്കാൾ ${duration(event.lateMinutes)} വൈകിയാണ് എത്തിയത്.`:' നിലവിൽ ലഭ്യമായ ഷിഫ്റ്റ് വിവരങ്ങളിൽ നിന്ന് കൃത്യമായ വൈകിയ സമയം സ്ഥിരീകരിക്കാനായില്ല.'}`).join(' ');
+  });
+  const note='വൈകിയ സമയം ലഭ്യമായ ഷിഫ്റ്റ് തുടങ്ങേണ്ട സമയത്തിൽ നിന്നാണ് കണക്കാക്കിയത്. ഷിഫ്റ്റ് നൽകിയിട്ടില്ലെങ്കിൽ ഹാജർ സംവിധാനത്തിലെ ഡിഫോൾട്ട് സമയം ഉപയോഗിക്കുന്നു.'+(plan.start!==new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())?' പഴയ ഷിഫ്റ്റ് മാറ്റങ്ങളുടെ ചരിത്രം ലഭ്യമല്ലാത്തതിനാൽ നിലവിലുള്ള ഷിഫ്റ്റ് ക്രമീകരണമാണ് അടിസ്ഥാനമാക്കിയത്.':'');
+  const voice=[intro];
+  const shortSentences=late.flatMap(row=>(row.attendanceEvents||[]).filter(event=>event.isLate).map(event=>`${row.name} ${event.checkInAt?clock(event.checkInAt)+'-ന് ചെക്ക് ഇൻ ചെയ്തു':'വൈകിയതായി രേഖയുണ്ട്'}${event.lateMinutes!=null&&event.lateMinutes>0?`, ഷിഫ്റ്റ് തുടങ്ങേണ്ട സമയത്തേക്കാൾ ${duration(event.lateMinutes)} വൈകി`:''}.`));
+  let read=0;for(const sentence of shortSentences){if(voice.join(' ').length+sentence.length>1050)break;voice.push(sentence);read++;}
+  if(read<shortSentences.length)voice.push('ബാക്കിയുള്ളവരുടെ കൃത്യമായ സമയങ്ങൾ ചാറ്റിൽ കാണാം.');
+  return {markdown:[intro,...sentences,note].join('\n\n'),spokenReply:voice.join(' ')};
+ }
  const paragraphs:string[]=[];
  const attendance=plan.kind==='overview'||plan.kind==='attendance';
- if(attendance && ['summary','count'].includes(plan.metric)) {
+ if(attendance && ['summary','count','present'].includes(plan.metric)) {
   const facts:string[]=[];
-  if(t.employees>0 && t.checkedIn>0) facts.push(`ഹാജർ വിവരങ്ങൾ പരിശോധിച്ച ${t.employees} പേരിൽ ${t.checkedIn||0} പേർ ചെക്ക് ഇൻ ചെയ്തതായി രേഖയുണ്ട്`);
-  if(t.approvedWfh>0) facts.push(`${t.approvedWfh} പേർക്ക് വർക്ക് ഫ്രം ഹോം അനുമതിയുണ്ട്`);
+  if(t.checkedIn>0) facts.push(`ആകെ ${t.checkedIn} പേർ ഹാജർ രേഖപ്പെടുത്തിയിട്ടുണ്ട്`);
+  if(t.wfhCheckedIn>0) facts.push(`ഇവരിൽ ${t.wfhCheckedIn} പേർക്ക് വർക്ക് ഫ്രം ഹോം അനുമതിയുമുണ്ട്`);
+  const otherWfh=(t.approvedWfh||0)-(t.wfhCheckedIn||0);
+  if(otherWfh>0) facts.push(`ഹാജർ രേഖ കണ്ടെത്താത്ത ${otherWfh} പേർക്കും വർക്ക് ഫ്രം ഹോം അനുവദിച്ചിട്ടുണ്ട്`);
   if(t.approvedLeave>0) facts.push(`${t.approvedLeave} പേർക്ക് ലീവ് അനുവദിച്ചിട്ടുണ്ട്`);
-  if(facts.length) paragraphs.push(`${period}, ${facts.join('. ')}.`);
-  if(t.lateRecords>0||t.earlyDepartureRecords>0) paragraphs.push([t.lateRecords>0?`വൈകിയെത്തിയതായി ${t.lateRecords} എൻട്രികൾ രേഖപ്പെടുത്തിയിട്ടുണ്ട്`:'',t.earlyDepartureRecords>0?`നേരത്തെ പോയതായി ${t.earlyDepartureRecords} എൻട്രികളുമുണ്ട്`:''].filter(Boolean).join('. ')+'.');
-  if(t.noAttendanceRecord>0) paragraphs.push(`${t.noAttendanceRecord} പേരുടെ ഹാജർ രേഖ ഈ കാലയളവിൽ കണ്ടെത്താനായില്ല. അതുകൊണ്ട് മാത്രം അവർ അബ്സന്റ് ആയിരുന്നുവെന്ന് ഉറപ്പിക്കാനാവില്ല.`);
+  if(facts.length) paragraphs.push(`${period}-ലെ വിവരങ്ങൾ നോക്കുമ്പോൾ, ${facts.join('. ')}.`);
+  if(t.noAttendanceRecord>0) paragraphs.push(`${t.noAttendanceRecord} പേരുടെ ഹാജർ രേഖ ലഭ്യമല്ല. ഇവരെ അബ്സന്റ് എന്ന് ഉറപ്പിക്കാൻ ആവശ്യമായ രേഖകൾ ലഭ്യമല്ല.`);
+  if(plan.metric!=='present' && (t.lateRecords>0||t.earlyDepartureRecords>0)) paragraphs.push([t.lateRecords>0?`വൈകിയെത്തിയതായി ${t.lateRecords} എൻട്രികൾ രേഖപ്പെടുത്തിയിട്ടുണ്ട്`:'',t.earlyDepartureRecords>0?`നേരത്തെ പോയതായി ${t.earlyDepartureRecords} എൻട്രികളുമുണ്ട്`:''].filter(Boolean).join('. ')+'.');
  }
  if(plan.kind==='overview'||plan.kind==='tasks') {
   const facts=[t.completedTasks>0?`${t.completedTasks} ടാസ്കുകൾ പൂർത്തിയാക്കിയതായി രേഖയുണ്ട്`:'',t.approvedTasks>0?`${t.approvedTasks} ടാസ്കുകൾ അപ്രൂവ് ചെയ്തിട്ടുണ്ട്`:'',t.pendingTasks>0?`${t.pendingTasks} ടാസ്കുകൾ ഇനിയും പൂർത്തിയാകാനുണ്ട്`:'',t.awaitingApproval>0?`${t.awaitingApproval} ടാസ്കുകൾ അപ്രൂവൽ കാത്തിരിക്കുന്നു`:'',t.overdueTasks>0?`${t.overdueTasks} ടാസ്കുകളുടെ ഡെഡ്‌ലൈൻ കഴിഞ്ഞിട്ടുണ്ട്`:''].filter(Boolean);
@@ -62,7 +82,13 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
   const grouped=new Map<string,number>();for(const row of rows){const department=report.employees.find(employee=>employee.id===row.employeeId)?.department||'വിഭാഗം രേഖപ്പെടുത്തിയിട്ടില്ല';grouped.set(department,(grouped.get(department)||0)+row.value);}
   if(grouped.size)paragraphs.push([...grouped].map(([department,value])=>`${department} വിഭാഗത്തിൽ ${value} ടാസ്കുകൾ പൂർത്തിയാക്കിയതായി രേഖയുണ്ട്`).join('. ')+'. വ്യത്യസ്ത തരത്തിലുള്ള ജോലികളായതിനാൽ ഈ എണ്ണം മാത്രം നോക്കി പ്രകടനം റാങ്ക് ചെയ്യാനാവില്ല.');
  } else if(plan.kind!=='overview'&&rows.length){
-  if(plan.metric==='present') paragraphs.push(`${joinNames(rows.slice(0,plan.detailed?50:12).map(row=>row.name))} ചെക്ക് ഇൻ ചെയ്തതായി രേഖയുണ്ട്.`);
+  if(plan.metric==='present') {
+   const names=report.attendanceGroups?.checkedIn || rows.map(row=>row.name);
+   if(names.length)paragraphs.push(`ഹാജർ രേഖപ്പെടുത്തിയവരിൽ ${joinNames(names.slice(0,50))} ${names.length===1?'ആണ് ഉള്ളത്':'എന്നിവരാണ് ഉള്ളത്'}.${names.length>50?` ശേഷിക്കുന്ന ${names.length-50} പേരുടെ വിവരങ്ങളും ലഭ്യമാണ്.`:''}`);
+   const wfh=report.attendanceGroups?.approvedWfh||[];
+   if(wfh.length)paragraphs.push(`${joinNames(wfh)} ${wfh.length===1?'ആൾക്കാണ്':'എന്നിവർക്കാണ്'} വർക്ക് ഫ്രം ഹോം അനുവദിച്ചിരിക്കുന്നത്.`);
+   if(/office|ഓഫീസ/i.test(plan.currentQuestion))paragraphs.push('ഹാജർ രേഖകൾ മാത്രം നോക്കി ഇവരെല്ലാം ഓഫീസിൽ നേരിട്ട് വന്നതാണെന്ന് ഉറപ്പിക്കാനാവില്ല.');
+  }
   else if(!(plan.kind==='attendance'&&['summary','count'].includes(plan.metric))) {
    const selected=rows.slice(0,plan.detailed?30:6);
    paragraphs.push(selected.map(row=>rowSentence(row)+'.'+(plan.detailed&&row.details&&!attendance?` രേഖപ്പെടുത്തിയ ജോലികൾ: ${row.details}.`:'')).join(' '));

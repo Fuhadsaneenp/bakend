@@ -1,3 +1,4 @@
+import { getShiftParams, getShiftTime } from "../attendance/attendance.service.js";
 import { identifyReadOnlyQuery } from "./query-intent.service.js";
 import { workloadRulesSchema, taskWeight } from "./workload-rules.js";
 import { prisma } from '../../lib/prisma.js';
@@ -17,10 +18,11 @@ export async function authorizedEmployeeWhere(user: UserContext): Promise<any> {
   const ids = [user.employeeId, ...teams.flatMap(team => team.members.map(member => member.employeeId))];
   return { ...base, OR: [{ id: { in: ids } }, ...(user.role === 'MANAGER' ? [{ managerId: user.employeeId }] : [])] };
 }
-const employeeSelect = { id: true, userId: true, employeeCode: true, firstName: true, middleName: true, lastName: true, dateOfJoining: true, dateOfExit: true, exitReason: true, status: true, department: { select: { name: true } }, designation: { select: { title: true } } } as const;
+const employeeSelect = { id: true, userId: true, employeeCode: true, firstName: true, middleName: true, lastName: true, dateOfJoining: true, dateOfExit: true, exitReason: true, status: true, department: { select: { name: true } }, designation: { select: { title: true } }, shift: { select: { startTime:true,endTime:true,gracePeriod:true,earlyPunchTolerance:true,workMinutesFix:true } } } as const;
 const limit = 10001;
 function checkLimit<T>(rows: T[]) { if (rows.length >= limit) throw new ApiError(400, 'Too many source records; choose a shorter period or specific employee'); return rows; }
-export type VerifiedReport = { plan: QueryPlan; sourceTimestamp: string; timezone: string; employees: { id: string; name: string; code: string; department: string; exitReason: string | null; dateOfExit: Date | null }[]; rows: { employeeId: string; name: string; value: number; unit: string; details?: string }[]; gaps: string[]; totals: Record<string, number>; comparison?: VerifiedReport; sources: string[] };
+export type AttendanceEvent = { date:string; checkInAt:string|null; checkOutAt:string|null; scheduledStart:string; graceMinutes:number; lateMinutes:number|null; minutesAfterGrace:number|null; isLate:boolean; scheduleBasis:'assigned_shift'|'attendance_default_policy' };
+export type VerifiedReport = { plan: QueryPlan; sourceTimestamp: string; timezone: string; employees: { id: string; name: string; code: string; department: string; exitReason: string | null; dateOfExit: Date | null }[]; rows: { employeeId: string; name: string; value: number; unit: string; details?: string; attendanceEvents?: AttendanceEvent[] }[]; gaps: string[]; totals: Record<string, number>; attendanceGroups?: { checkedIn: string[]; approvedWfh: string[]; approvedLeave: string[]; noAttendanceRecord: string[]; wfhCheckedIn: string[] }; comparison?: VerifiedReport; sources: string[] };
 function bounds(plan: QueryPlan) { return { start: new Date(`${plan.start}T00:00:00+05:30`), end: new Date(`${plan.end}T23:59:59.999+05:30`) }; }
 export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Promise<VerifiedReport> {
   const where = await authorizedEmployeeWhere(user);
@@ -65,9 +67,19 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
     const present = new Set(attendance.filter(record => record.checkInAt).map(record => record.employeeId));
     const wfh = new Set(requests.filter(request => /\[.*(?:WFH|work from home).*\]/i.test(request.reason)).map(request => request.employeeId));
     const leave = new Set(requests.filter(request => /\[.*leave.*\]/i.test(request.reason)).map(request => request.employeeId));
-    report.totals = { employees: employees.length, checkedIn: present.size, approvedWfh: wfh.size, approvedLeave: leave.size, noAttendanceRecord: ids.filter(id => !present.has(id) && !leave.has(id)).length, lateRecords: attendance.filter(record => record.isLate).length, earlyDepartureRecords: attendance.filter(record => record.isEarlyLeave).length, missingCheckouts: attendance.filter(record => record.checkInAt && !record.checkOutAt).length };
+    const namesFor = (group: Set<string>) => employees.filter(employee=>group.has(employee.id)).map(fullName);
+    const wfhCheckedIn=new Set([...wfh].filter(id=>present.has(id)));
+    const missing=new Set(ids.filter(id=>!present.has(id)&&!leave.has(id)));
+    report.attendanceGroups={checkedIn:namesFor(present),approvedWfh:namesFor(wfh),approvedLeave:namesFor(leave),noAttendanceRecord:namesFor(missing),wfhCheckedIn:namesFor(wfhCheckedIn)};
+    report.totals = { wfhCheckedIn:wfhCheckedIn.size, employees: employees.length, checkedIn: present.size, approvedWfh: wfh.size, approvedLeave: leave.size, noAttendanceRecord: ids.filter(id => !present.has(id) && !leave.has(id)).length, lateRecords: attendance.filter(record => record.isLate).length, earlyDepartureRecords: attendance.filter(record => record.isEarlyLeave).length, missingCheckouts: attendance.filter(record => record.checkInAt && !record.checkOutAt).length };
     for (const employee of employees) {
       const records = attendance.filter(record => record.employeeId === employee.id);
+      const shift=getShiftParams(employee);
+      const attendanceEvents:AttendanceEvent[]=records.map(record=>{
+        const expected=getShiftTime(record.workDate,shift.startTime);
+        const minutes=record.checkInAt && Number.isFinite(expected.getTime())?Math.max(0,Math.floor((record.checkInAt.getTime()-expected.getTime())/60000)):null;
+        return {date:calendarDate(record.workDate),checkInAt:record.checkInAt?.toISOString()||null,checkOutAt:record.checkOutAt?.toISOString()||null,scheduledStart:expected.toISOString(),graceMinutes:shift.gracePeriod,lateMinutes:minutes,minutesAfterGrace:minutes==null?null:Math.max(0,minutes-shift.gracePeriod),isLate:record.isLate,scheduleBasis:employee.shift?'assigned_shift':'attendance_default_policy'};
+      });
       const incomplete = records.some(record => record.checkInAt && !record.checkOutAt);
       const valid = records.filter(record => record.checkInAt && record.checkOutAt);
       const minutes = valid.reduce((sum, record) => sum + Math.max(0, record.workMinutes), 0);
@@ -81,7 +93,7 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
     if (plan.metric === 'absent') { value = !present.has(employee.id) && !leave.has(employee.id) ? 1 : 0; unit = 'employees with no attendance record'; }
       if (plan.metric === 'leave') { value = leave.has(employee.id) ? 1 : 0; unit = 'employees on approved leave'; }
       if (plan.metric === 'wfh') { value = wfh.has(employee.id) ? 1 : 0; unit = 'employees with approved WFH'; }
-      report.rows.push({ employeeId: employee.id, name: fullName(employee), value: Number(value.toFixed(2)), unit, details: incomplete ? 'Missing checkout: full working duration cannot be confirmed.' : records.length ? records.slice(0,10).map(record => `${record.workDate.toISOString().slice(0,10)}: check-in ${record.checkInAt?.toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) || 'missing'}, checkout ${record.checkOutAt?.toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) || 'missing'}`).join('; ') : 'No attendance records found' });
+      report.rows.push({ employeeId: employee.id, name: fullName(employee), attendanceEvents, value: Number(value.toFixed(2)), unit, details: incomplete ? 'Missing checkout: full working duration cannot be confirmed.' : records.length ? records.slice(0,10).map(record => `${record.workDate.toISOString().slice(0,10)}: check-in ${record.checkInAt?.toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) || 'missing'}, checkout ${record.checkOutAt?.toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) || 'missing'}`).join('; ') : 'No attendance records found' });
       if (incomplete) addGap('Missing checkout records prevent confirmation of full working duration.');
     }
     addGap('Attendance hours use recorded workMinutes with check-in and checkout; they are not task activity or continuous productivity.');
@@ -204,6 +216,12 @@ export async function runVerifiedReport(user: UserContext, plan: QueryPlan): Pro
 }
 export function formatVerifiedReport(report: VerifiedReport): string {
   const { plan, rows } = report;
+  if(plan.kind==='attendance' && plan.metric==='late') {
+    const late=rows.filter(row=>row.value>0);
+    if(!late.length)return `No late attendance records were found for ${plan.start}–${plan.end}.`;
+    const clock=(value:string)=>new Date(value).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:true});
+    return `${late.length} employees have recorded late arrivals for ${plan.start}–${plan.end}. `+late.slice(0,50).map(row=>`${row.name}: `+(row.attendanceEvents||[]).filter(event=>event.isLate).map(event=>`${plan.start!==plan.end?event.date+' ':''}checked in at ${event.checkInAt?clock(event.checkInAt):'an unavailable time'}, scheduled start ${clock(event.scheduledStart)}${event.lateMinutes!=null&&event.lateMinutes>0?`, ${event.lateMinutes} minutes after shift start`:', exact delay could not be verified'}`).join('; ')+'.').join(' ')+' Delay uses the currently available shift assignment, or the attendance system default when no shift is assigned. Historical shift changes are not reconstructed.';
+  }
   if (plan.kind === 'overview') {
     const labels: Record<string,string> = { employees:'Employees in scope', checkedIn:'Checked in', approvedWfh:'Approved WFH', approvedLeave:'Approved leave', noAttendanceRecord:'No attendance record', completedTasks:'Tasks completed', approvedTasks:'Tasks approved', pendingTasks:'Tasks pending', overdueTasks:'Tasks overdue', awaitingApproval:'Awaiting approval', notStartedTasks:'Tasks not started' };
     return `**Company overview · ${plan.start}–${plan.end} · IST**\n\n` + Object.entries(labels).filter(([key])=>report.totals[key]>0).map(([key,label])=>`- ${label}: **${report.totals[key]}**`).join('\n') + '\n\nNo attendance record does not establish absence. Task counts describe recorded output, not comparable employee performance.';

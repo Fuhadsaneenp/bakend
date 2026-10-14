@@ -24,7 +24,7 @@ export function getKolkataStartOfDay(date: Date): Date {
   return new Date(`${year}-${month}-${day}T00:00:00+05:30`);
 }
 
-function getShiftTime(workDate: Date, timeStr: string): Date {
+export function getShiftTime(workDate: Date, timeStr: string): Date {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Kolkata",
     year: "numeric",
@@ -55,7 +55,7 @@ interface ShiftParams {
   workMinutesFix: number;
 }
 
-function getShiftParams(employee: any): ShiftParams {
+export function getShiftParams(employee: any): ShiftParams {
   if (employee?.shift) {
     return {
       startTime: employee.shift.startTime,
