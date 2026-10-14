@@ -100,5 +100,8 @@ export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: s
  const gaps=[...new Set(important.map(gapText))];if(gaps.length)paragraphs.push(gaps.join(' '));
  if(report.comparison){const old=report.comparison;const changes=Object.entries(t).filter(([key,value])=>labels[key]&&(value>0||old.totals[key]>0)&&old.totals[key]!=null&&key!=='employees').map(([key,value])=>`${labels[key]} മുൻ കാലയളവിൽ ${old.totals[key]} ആയിരുന്നത് ഇപ്പോൾ ${value} ആണ്`);if(changes.length)paragraphs.push(`${dateLabel(old.plan.start)}–${dateLabel(old.plan.end)} കാലയളവുമായി താരതമ്യം ചെയ്യുമ്പോൾ, ${changes.join('. ')}.`);}
  const markdown=paragraphs.join('\n\n');
- return {markdown,spokenReply:paragraphs.slice(0,2).join(' ').slice(0,1100)};
+ const spoken:string[]=[];
+ const speechText=(plan.metric==='present'?paragraphs:paragraphs.slice(0,2)).join(' ');
+ for(const sentence of speechText.split(/(?<=[.!?])\s+/)) {if(spoken.join(' ').length+sentence.length>1100)break;spoken.push(sentence);}
+ return {markdown,spokenReply:spoken.join(' ')||'വിശദമായ വിവരങ്ങൾ ചാറ്റിൽ കാണാം.'};
 }
