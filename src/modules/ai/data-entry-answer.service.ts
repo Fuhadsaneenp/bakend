@@ -102,14 +102,17 @@ export async function dataEntryAnswer(user: UserContext, question: string, langu
     n.edited?ml?`**${n.edited}** ജോബുകൾ അപ്ഡേറ്റ് ചെയ്തു`:`**${n.edited}** jobs updated`:"",
     n.companies?ml?`**${n.companies}** കമ്പനി വിവരങ്ങൾ ചേർത്തു`:`**${n.companies}** company entries added`:""
   ].filter(Boolean).join(" · ");
-  let markdown=`### ${heading}\n${dateLabel}\n\n`;
-  if(!activeTotals.length) markdown+=ml?"ഈ ദിവസത്തെ പ്രവർത്തനം ലഭ്യമായ രേഖകളിൽ കണ്ടെത്തിയില്ല.":"No activity was found in the available records for this date.";
-  else if(activeTotals.length===1) markdown+=parts(activeTotals[0][1])+".\n\n";
-  else markdown+=(ml?"**പ്രവർത്തന സംഗ്രഹം**":"**Activity summary**")+"\n"+parts({created:createdTotal,edited:editedTotal,companies:activeTotals.reduce((n,[,r])=>n+r.companies,0)})+".\n\n"+activeTotals.map(([name,n])=>`• **${name}** — ${parts(n)}`).join("\n")+"\n\n";
-  const sites=["medbiomate.com","trikonet.com","mediyox.com"].filter(host=>!platform||host===platform);
-  const siteNames:Record<string,string>={"medbiomate.com":"Medbiomate","trikonet.com":"Trikonet","mediyox.com":"Mediyox"};
-  const siteLines=sites.flatMap(host=>{const rows=reportRecords.filter(r=>!r.company&&r.host===host);if(!rows.length)return [];const dates=rows.map(r=>Date.parse(r.at)).sort((a,b)=>a-b);return [`**${siteNames[host]}**${activeTotals.length===1?"":` — ${rows.length} ${ml?"ജോബ് പ്രവർത്തനങ്ങൾ":"job activities"}`}\n${ml?"ആദ്യ എൻട്രി":"First entry"}: **${time(dates[0])}** · ${ml?"അവസാന എൻട്രി":"Last entry"}: **${time(dates[dates.length-1])}** (IST)`];});
-  markdown+=siteLines.join("\n\n");
+  let markdown='';
+  if(!activeTotals.length) markdown=ml?`${dateLabel}, ആവശ്യപ്പെട്ട ഡാറ്റാ എൻട്രി പ്രവർത്തനം ലഭ്യമായ രേഖകളിൽ കണ്ടെത്താനായില്ല. ഇത് ജോലി ചെയ്തിട്ടില്ല എന്നതിന് തെളിവല്ല.`:`No matching Data Entry activity was found in the available records for ${dateLabel}. This does not establish that no work was done.`;
+  else {
+   const plainParts=(n:{created:number;edited:number;companies:number})=>parts(n).replace(/\*\*/g,'').replace(/ · /g,'. ');
+   markdown=activeTotals.length===1?`${activeTotals[0][0]} ${dateLabel}, ${plainParts(activeTotals[0][1])}.`:`${dateLabel}, ${ml?'ഡാറ്റാ എൻട്രി ടീമിന്റെ പ്രവർത്തനം പരിശോധിക്കുമ്പോൾ':'the Data Entry records show'} ${plainParts({created:createdTotal,edited:editedTotal,companies:activeTotals.reduce((n,[,r])=>n+r.companies,0)})}.`;
+   if(activeTotals.length>1) markdown+='\n\n'+activeTotals.map(([name,n])=>`${name} ${plainParts(n)}.`).join(' ');
+   const sites=['medbiomate.com','trikonet.com','mediyox.com'].filter(host=>!platform||host===platform);
+   const siteNames:Record<string,string>={'medbiomate.com':'Medbiomate','trikonet.com':'Trikonet','mediyox.com':'Mediyox'};
+   const siteLines=sites.flatMap(host=>{const rows=reportRecords.filter(r=>!r.company&&r.host===host);if(!rows.length)return [];const dates=rows.map(r=>Date.parse(r.at)).sort((a,b)=>a-b);return [ml?`${siteNames[host]}-ൽ ആദ്യ എൻട്രി ${time(dates[0])}-നും അവസാന എൻട്രി ${time(dates[dates.length-1])}-നുമാണ് രേഖപ്പെടുത്തിയിരിക്കുന്നത്. ഈ സമയങ്ങൾ എൻട്രികളുടെ സമയമാണ്; ജോലി തുടങ്ങിയതും അവസാനിപ്പിച്ചതുമായ സമയമായി കണക്കാക്കാനാവില്ല.`:`On ${siteNames[host]}, the first entry was recorded at ${time(dates[0])} and the last at ${time(dates[dates.length-1])} IST. These are entry timestamps, not confirmed work start and finish times.`];});
+   if(siteLines.length)markdown+='\n\n'+siteLines.join(' ');
+  }
   const summaryNames=activeTotals.filter(([,n])=>n.created+n.edited>0).map(([name])=>name);
   const spokenReply=language==="ml"?`${summaryNames.length===1?summaryNames[0]:"ഡാറ്റാ എൻട്രി ടീം"} ${start===today&&end===today?"ഇന്ന്":"തിരഞ്ഞെടുത്ത കാലയളവിൽ"} ${createdTotal+editedTotal} ജോബ് എൻട്രികൾ രേഖപ്പെടുത്തി.${first&&last?` ആദ്യ എൻട്രി ${first}. അവസാന എൻട്രി ${last}.`:""} വിശദാംശങ്ങൾ ചാറ്റിൽ കാണാം.`:`${summaryNames.length===1?summaryNames[0]:"The Data Entry team"} recorded ${createdTotal+editedTotal} job entries for the selected period.${first&&last?` First entry ${first}. Last entry ${last}.`:""} The details are in the chat.`;
   return {intent:"GENERAL_WORKPLACE_QUERY",markdown,spokenReply,metrics:{source:"live_data_entry_sheets",date:start,start,end,firstEntry:first,lastEntry:last,platform,created:[...totals.values()].reduce((n,r)=>n+r.created,0),edited:[...totals.values()].reduce((n,r)=>n+r.edited,0),retrievedAt:new Date().toISOString()},suggestedFollowUps:[]};

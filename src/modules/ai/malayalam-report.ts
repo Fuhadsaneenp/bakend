@@ -20,30 +20,59 @@ function gapText(gap: string): string {
  if (/approved appraisal scores/.test(gap)) return 'ഇവ അംഗീകൃത അപ്രൈസൽ സ്കോറുകളാണ്. ടാസ്ക് എണ്ണത്തെ പുതിയ KPI സ്കോറായി മാറ്റിയിട്ടില്ല.';
  return 'ഈ റിപ്പോർട്ടിന്റെ ചില വിവരങ്ങൾ ലഭ്യമായ രേഖകളിൽ നിന്ന് ഉറപ്പിക്കാനായില്ല.';
 }
+const joinNames = (names: string[]) => names.length < 2 ? names[0] || '' : names.slice(0,-1).join(', ') + ', ' + names.at(-1);
+function dateLabel(day: string): string {
+ return new Date(day+'T12:00:00+05:30').toLocaleDateString('ml-IN',{day:'numeric',month:'long',year:'numeric',timeZone:'Asia/Kolkata'});
+}
 export function formatMalayalamReport(report: VerifiedReport, verifiedEnglish: string): {markdown:string;spokenReply:string} {
- const {plan}=report;
- const period=plan.start===plan.end?plan.start:`${plan.start} മുതൽ ${plan.end} വരെ`;
- const heading=plan.category==='design'?'ഡിസൈൻ ജോലികൾ':plan.category==='video'?'വീഡിയോ എഡിറ്റിംഗ് ജോലികൾ':titles[plan.kind];
- if (/cannot be verified|ranking is unavailable|ranking cannot|cannot be confirmed|not connected/i.test(verifiedEnglish) && ['most','least'].includes(plan.metric)) return {markdown:'ഈ താരതമ്യം ഉറപ്പിക്കാൻ ആവശ്യമായ പൂർണ്ണവും താരതമ്യയോഗ്യവുമായ രേഖകൾ ലഭ്യമല്ല. ലഭ്യമായ പ്രവർത്തനത്തിന്റെ വിശദാംശങ്ങൾ ചോദിക്കാം.',spokenReply:'ഈ താരതമ്യം ഉറപ്പിക്കാൻ ആവശ്യമായ രേഖകൾ ലഭ്യമല്ല.'};
- const entries=Object.entries(plan.kind==='kpi'?{}:report.totals).filter(([key,value])=>labels[key]&&value>0);
- const rows=report.rows.filter(row=>row.value>0);
- let selected=rows;
- if (['most','least'].includes(plan.metric) && report.rows.length) {
-  const value=(plan.metric==='most'?Math.max:Math.min)(...report.rows.map(row=>row.value));selected=report.rows.filter(row=>row.value===value);
+ const {plan,totals:t}=report;
+ const period=plan.start===plan.end?dateLabel(plan.start):`${dateLabel(plan.start)} മുതൽ ${dateLabel(plan.end)} വരെയുള്ള കാലയളവിൽ`;
+ if (/cannot be verified|ranking is unavailable|ranking cannot|cannot be confirmed|not connected/i.test(verifiedEnglish) && ['most','least'].includes(plan.metric)) {
+  const answer='ഈ താരതമ്യം ഉറപ്പിക്കാൻ ആവശ്യമായ പൂർണ്ണവും താരതമ്യയോഗ്യവുമായ രേഖകൾ ലഭ്യമല്ല. ലഭ്യമായ കണക്കുകൾ മാത്രം ഉപയോഗിച്ച് ഒരാളുടെ പ്രകടനം മികച്ചതാണെന്ന് പറയാനാവില്ല.';
+  return {markdown:answer,spokenReply:answer};
  }
- const rowText=(row: typeof rows[number])=>`${row.name} — ${row.value} ${units[row.unit]||row.unit}`;
- let body=entries.map(([key,value])=>`- ${labels[key]}: **${value}**`).join('\n');
- if (plan.groupByDepartment) {
-  const grouped=new Map<string,number>();
-  for(const row of rows) {const department=report.employees.find(employee=>employee.id===row.employeeId)?.department||'വിഭാഗം രേഖപ്പെടുത്തിയിട്ടില്ല';grouped.set(department,(grouped.get(department)||0)+row.value);}
-  body+='\n\n**വിഭാഗങ്ങൾ തിരിച്ചുള്ള രേഖപ്പെടുത്തിയ പ്രവർത്തനം**\n'+[...grouped].map(([department,value])=>`- **${department}** — **${value}** പൂർത്തിയായ ടാസ്കുകൾ`).join('\n')+'\n\nഇത് ടാസ്കുകളുടെ എണ്ണം മാത്രമാണ്. ജോലിയുടെ സങ്കീർണ്ണതയും സമയവും ഉൾപ്പെടുത്തിയ പ്രകടന റാങ്കിംഗ് അല്ല.';
+ const paragraphs:string[]=[];
+ const attendance=plan.kind==='overview'||plan.kind==='attendance';
+ if(attendance && ['summary','count'].includes(plan.metric)) {
+  const facts:string[]=[];
+  if(t.employees>0 && t.checkedIn>0) facts.push(`ഹാജർ വിവരങ്ങൾ പരിശോധിച്ച ${t.employees} പേരിൽ ${t.checkedIn||0} പേർ ചെക്ക് ഇൻ ചെയ്തതായി രേഖയുണ്ട്`);
+  if(t.approvedWfh>0) facts.push(`${t.approvedWfh} പേർക്ക് വർക്ക് ഫ്രം ഹോം അനുമതിയുണ്ട്`);
+  if(t.approvedLeave>0) facts.push(`${t.approvedLeave} പേർക്ക് ലീവ് അനുവദിച്ചിട്ടുണ്ട്`);
+  if(facts.length) paragraphs.push(`${period}, ${facts.join('. ')}.`);
+  if(t.lateRecords>0||t.earlyDepartureRecords>0) paragraphs.push([t.lateRecords>0?`വൈകിയെത്തിയതായി ${t.lateRecords} എൻട്രികൾ രേഖപ്പെടുത്തിയിട്ടുണ്ട്`:'',t.earlyDepartureRecords>0?`നേരത്തെ പോയതായി ${t.earlyDepartureRecords} എൻട്രികളുമുണ്ട്`:''].filter(Boolean).join('. ')+'.');
+  if(t.noAttendanceRecord>0) paragraphs.push(`${t.noAttendanceRecord} പേരുടെ ഹാജർ രേഖ ഈ കാലയളവിൽ കണ്ടെത്താനായില്ല. അതുകൊണ്ട് മാത്രം അവർ അബ്സന്റ് ആയിരുന്നുവെന്ന് ഉറപ്പിക്കാനാവില്ല.`);
  }
- if (plan.kind!=='overview' && selected.length) body+=(body?'\n\n':'')+`**${plan.metric==='most'?'ഏറ്റവും കൂടുതൽ രേഖപ്പെടുത്തിയവർ':plan.metric==='least'?'ഏറ്റവും കുറവ് രേഖപ്പെടുത്തിയവർ':plan.kind==='clients'?'ക്ലയന്റ് വിവരങ്ങൾ':'ജീവനക്കാരുടെ വിവരങ്ങൾ'}**\n`+selected.slice(0,plan.detailed?50:12).map(row=>`- **${row.name}** — **${row.value}** ${units[row.unit]||row.unit}${plan.detailed&&row.details?`\n  ${row.details}`:''}`).join('\n');
- if (!body) body='ഈ ചോദ്യത്തിന് അനുയോജ്യമായ പ്രവർത്തനം ലഭ്യമായ രേഖകളിൽ കണ്ടെത്തിയില്ല. ഇത് ജോലി ചെയ്തിട്ടില്ല എന്നതിന് തെളിവല്ല.';
- if (plan.kind==='overview') body+='\n\nഹാജർ രേഖ ഇല്ലാത്തതുകൊണ്ട് മാത്രം അബ്സന്റ് ആണെന്ന് പറയാനാവില്ല. പൂർത്തിയായ ടാസ്കുകളുടെ എണ്ണം പ്രകടന സ്കോറല്ല.';
- const important=report.gaps.filter(gap=>plan.detailed||/Missing checkout|No approved|No leave allocation|No authorized/.test(gap));
- if(important.length) body+='\n\n**രേഖകളിലെ പരിമിതികൾ**\n'+[...new Set(important.map(gapText))].map(gap=>`- ${gap}`).join('\n');
- if(report.comparison){const old=report.comparison;const changes=entries.filter(([key])=>old.totals[key]!=null).map(([key,value])=>`- ${labels[key]}: ${old.totals[key]} → ${value}`);body+=`\n\n**${old.plan.start}–${old.plan.end} കാലയളവുമായി താരതമ്യം**\n${changes.join('\n')||'ഒരേ രീതിയിൽ താരതമ്യം ചെയ്യാവുന്ന കണക്കുകൾ ലഭ്യമല്ല.'}`;}
- const speech=plan.kind==='overview'?entries.slice(0,6).map(([key,value])=>`${labels[key]} ${value}`).join('. '):selected.slice(0,3).map(rowText).join('. ')||body.split('\n')[0];
- return {markdown:`### ${heading}\n${period} · ഇന്ത്യൻ സമയം\n\n${body}`,spokenReply:`${speech}. കൂടുതൽ വിശദാംശങ്ങൾ ചാറ്റിൽ കാണാം.`.slice(0,900)};
+ if(plan.kind==='overview'||plan.kind==='tasks') {
+  const facts=[t.completedTasks>0?`${t.completedTasks} ടാസ്കുകൾ പൂർത്തിയാക്കിയതായി രേഖയുണ്ട്`:'',t.approvedTasks>0?`${t.approvedTasks} ടാസ്കുകൾ അപ്രൂവ് ചെയ്തിട്ടുണ്ട്`:'',t.pendingTasks>0?`${t.pendingTasks} ടാസ്കുകൾ ഇനിയും പൂർത്തിയാകാനുണ്ട്`:'',t.awaitingApproval>0?`${t.awaitingApproval} ടാസ്കുകൾ അപ്രൂവൽ കാത്തിരിക്കുന്നു`:'',t.overdueTasks>0?`${t.overdueTasks} ടാസ്കുകളുടെ ഡെഡ്‌ലൈൻ കഴിഞ്ഞിട്ടുണ്ട്`:''].filter(Boolean);
+  if(facts.length && (plan.kind==='overview'||['summary','count'].includes(plan.metric))) paragraphs.push(`${plan.kind==='overview'?'ജോലിയുടെ പുരോഗതി നോക്കുമ്പോൾ':period}, ${facts.join('. ')}.`);
+ }
+ let rows=report.rows.filter(row=>row.value>0);
+ if(['most','least'].includes(plan.metric)&&report.rows.length){const value=(plan.metric==='most'?Math.max:Math.min)(...report.rows.map(row=>row.value));rows=report.rows.filter(row=>row.value===value);}
+ const rowSentence=(row:typeof report.rows[number])=>{
+  if(row.value===0)return `${row.name}യുടെ ഈ പ്രവർത്തനത്തിന് രേഖ കണ്ടെത്തിയില്ല`;
+  if(row.unit==='employees checked in')return `${row.name} ചെക്ക് ഇൻ ചെയ്തതായി രേഖയുണ്ട്`;
+  if(row.unit==='employees with no attendance record')return `${row.name}യുടെ ഹാജർ രേഖ കണ്ടെത്തിയില്ല`;
+  if(row.unit==='employees on approved leave')return `${row.name}ക്ക് ലീവ് അനുവദിച്ചിട്ടുണ്ട്`;
+  if(row.unit==='employees with approved WFH')return `${row.name}ക്ക് വർക്ക് ഫ്രം ഹോം അനുമതിയുണ്ട്`;
+  if(row.unit==='recorded attendance hours')return `${row.name}യുടെ ഹാജർ രേഖയിൽ ${row.value} മണിക്കൂർ ജോലി സമയം രേഖപ്പെടുത്തിയിട്ടുണ്ട്`;
+  if(row.unit==='completed tasks')return `${row.name} ${row.value} ടാസ്കുകൾ പൂർത്തിയാക്കിയതായി രേഖയുണ്ട്`;
+  return `${row.name}യുടെ രേഖയിൽ ${row.value} ${units[row.unit]||row.unit} ഉണ്ട്`;
+ };
+ if(plan.groupByDepartment){
+  const grouped=new Map<string,number>();for(const row of rows){const department=report.employees.find(employee=>employee.id===row.employeeId)?.department||'വിഭാഗം രേഖപ്പെടുത്തിയിട്ടില്ല';grouped.set(department,(grouped.get(department)||0)+row.value);}
+  if(grouped.size)paragraphs.push([...grouped].map(([department,value])=>`${department} വിഭാഗത്തിൽ ${value} ടാസ്കുകൾ പൂർത്തിയാക്കിയതായി രേഖയുണ്ട്`).join('. ')+'. വ്യത്യസ്ത തരത്തിലുള്ള ജോലികളായതിനാൽ ഈ എണ്ണം മാത്രം നോക്കി പ്രകടനം റാങ്ക് ചെയ്യാനാവില്ല.');
+ } else if(plan.kind!=='overview'&&rows.length){
+  if(plan.metric==='present') paragraphs.push(`${joinNames(rows.slice(0,plan.detailed?50:12).map(row=>row.name))} ചെക്ക് ഇൻ ചെയ്തതായി രേഖയുണ്ട്.`);
+  else if(!(plan.kind==='attendance'&&['summary','count'].includes(plan.metric))) {
+   const selected=rows.slice(0,plan.detailed?30:6);
+   paragraphs.push(selected.map(row=>rowSentence(row)+'.'+(plan.detailed&&row.details&&!attendance?` രേഖപ്പെടുത്തിയ ജോലികൾ: ${row.details}.`:'')).join(' '));
+   if(rows.length>selected.length)paragraphs.push(`ഇതിനു പുറമേ ${rows.length-selected.length} പേരുടെ രേഖകളും ലഭ്യമാണ്. എല്ലാവരുടെയും വിശദാംശങ്ങൾ വേണമെങ്കിൽ ചോദിക്കാം.`);
+  }
+ }
+ if(!paragraphs.length)paragraphs.push(`${period}, ഈ ചോദ്യത്തിന് അനുയോജ്യമായ പ്രവർത്തനം ലഭ്യമായ രേഖകളിൽ കണ്ടെത്താനായില്ല. ഇത് ജോലി ചെയ്തിട്ടില്ല എന്നതിന് തെളിവല്ല.`);
+ const important=report.gaps.filter(gap=>/Missing checkout|No approved|No leave allocation|No authorized/.test(gap)||plan.metric==='hours'&&/Attendance hours/.test(gap));
+ const gaps=[...new Set(important.map(gapText))];if(gaps.length)paragraphs.push(gaps.join(' '));
+ if(report.comparison){const old=report.comparison;const changes=Object.entries(t).filter(([key,value])=>labels[key]&&(value>0||old.totals[key]>0)&&old.totals[key]!=null&&key!=='employees').map(([key,value])=>`${labels[key]} മുൻ കാലയളവിൽ ${old.totals[key]} ആയിരുന്നത് ഇപ്പോൾ ${value} ആണ്`);if(changes.length)paragraphs.push(`${dateLabel(old.plan.start)}–${dateLabel(old.plan.end)} കാലയളവുമായി താരതമ്യം ചെയ്യുമ്പോൾ, ${changes.join('. ')}.`);}
+ const markdown=paragraphs.join('\n\n');
+ return {markdown,spokenReply:paragraphs.slice(0,2).join(' ').slice(0,1100)};
 }

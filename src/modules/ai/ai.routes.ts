@@ -1,3 +1,4 @@
+import { conversationalAnswer } from "./conversational-answer.js";
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/auth.js";
@@ -57,7 +58,7 @@ aiRouter.post("/chat", async (req, res, next) => {
 
     const user = await resolveUserContext(req);
     const replyLanguage = /[\u0D00-\u0D7F]/.test(body.message) ? "ml" : body.language;
-    const response = await aiService.processQuestion(user, body.message, replyLanguage, body.history, body.voiceMode);
+    const response = conversationalAnswer(await aiService.processQuestion(user, body.message, replyLanguage, body.history, body.voiceMode), replyLanguage);
 
 
     // Generate ultra-realistic, natural conversational spoken reply

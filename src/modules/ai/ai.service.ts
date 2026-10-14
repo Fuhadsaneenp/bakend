@@ -38,8 +38,8 @@ export const aiService = {
           overviewDataEntry=entries.metrics;
           const created=Number(entries.metrics.created||0), edited=Number(entries.metrics.edited||0);
           if(created+edited>0) {
-            const lines=[created?`${language==='ml'?'പ്രസിദ്ധീകരിച്ച ജോബുകൾ':'Jobs published'}: **${created}**`:'',edited?`${language==='ml'?'അപ്ഡേറ്റ് ചെയ്ത ജോബുകൾ':'Jobs updated'}: **${edited}**`:''].filter(Boolean);
-            answer+=`\n\n**${language==='ml'?'ഡാറ്റാ എൻട്രി — അനുമതിയിൽ ഉൾപ്പെടുന്ന രേഖകൾ':'Data Entry — authorized records'}**\n${lines.map(line=>'- '+line).join('\n')}`;
+            const lines=[created?(language==='ml'?`${created} പുതിയ ജോബുകൾ പ്രസിദ്ധീകരിച്ചിട്ടുണ്ട്`:`${created} new jobs were published`):'',edited?(language==='ml'?`${edited} ജോബുകൾ അപ്ഡേറ്റ് ചെയ്തിട്ടുണ്ട്`:`${edited} jobs were updated`):''].filter(Boolean);
+            answer+=`\n\n${language==='ml'?'ഡാറ്റാ എൻട്രിയുടെ കാര്യത്തിൽ, ':'For Data Entry, '}${lines.join('. ')}.`;
             if(localized) localized.spokenReply+=` ഡാറ്റാ എൻട്രിയിൽ ${created+edited} ജോബ് പ്രവർത്തനങ്ങളും രേഖപ്പെടുത്തിയിട്ടുണ്ട്.`;
           }
         }

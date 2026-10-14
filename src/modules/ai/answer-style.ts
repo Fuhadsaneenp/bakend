@@ -16,3 +16,5 @@ export function directSummary(report: string): string {
   const summary = report.match(/\*\*Summary:\*\*\s*([\s\S]*?)(?=\n\s*\*\*(?:Detailed Report|Insights|Recommended Actions)|$)/i);
   return (summary?.[1] || report.replace(/^###.*\n+/,'')).trim();
 }
+
+export const conversationalStyle = `Answer in natural conversational paragraphs. Explain the verified answer directly, using friendly Kerala Malayalam when selected. Do not format normal replies as headings, bullet lists, metric labels, or repetitive one-check-in employee rows. Keep names and numbers exactly as recorded. Describe relevant context and uncertainty in ordinary sentences. Never invent reasons or conclusions. Written details may be longer than the spoken reply.`;
