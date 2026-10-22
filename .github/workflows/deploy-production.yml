@@ -1,0 +1,46 @@
+name: Deploy production
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and check backend
+        env:
+          DATABASE_URL: mysql://build:build@127.0.0.1:3306/build_only
+          GEMINI_API_KEY: ''
+        run: |
+          npm ci
+          npm run build
+          npx tsx --test tests/seo.test.ts tests/verified-analytics.test.ts
+      - name: Configure deployment SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host stems-deployment\n  HostName 46.202.161.183\n  Port 65002\n  User u394546085\n  IdentityFile ~/.ssh/id_deploy\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' > ~/.ssh/config
+      - name: Upload versioned release
+        env:
+          DEPLOY_TARGET: stems-deployment
+        run: |
+          RELEASE_ROOT="domains/api.secondtales.com/hbuilds/versions/github-$GITHUB_SHA"
+          ssh "$DEPLOY_TARGET" "mkdir -p $RELEASE_ROOT/nodejs"
+          rsync -az --exclude=.git --exclude=node_modules --exclude=.env --exclude='.env.*' --exclude=storage --exclude=tmp --exclude='*.log' --exclude='*.zip' --exclude=scratch ./ "$DEPLOY_TARGET:$RELEASE_ROOT/nodejs/"
+      - name: Activate and verify release
+        run: ssh stems-deployment "bash -s -- github-$GITHUB_SHA" < scripts/deploy-hostinger.sh
