@@ -511,6 +511,24 @@ async function buildWorkCardScope(userId: string, card: {
   };
 }
 
+// Keep new SEO records scoped even when read through legacy performance endpoints.
+async function visibleSeoCardIds(companyId: string, userId?: string): Promise<string[] | null> {
+  if (!userId) return [];
+  const user = await prisma.user.findFirst({ where: { id: userId, companyId } });
+  if (user && ["SUPER_ADMIN", "HR_ADMIN"].includes(user.role)) return null;
+  const employee = await prisma.employee.findFirst({ where: { userId, companyId }, select: { id: true } });
+  if (!employee) return [];
+  const workspaces = await prisma.seoWorkspace.findMany({ where: { companyId, members: { some: { employeeId: employee.id } } }, include: { members: true } });
+  const allowed: string[] = [];
+  for (const workspace of workspaces) {
+    if (!await permissionService.hasPermission(userId, "seo.report.view", { companyId, clientId: workspace.clientId, employeeId: employee.id, assignedToEmployeeId: employee.id })) continue;
+    const head = workspace.members.some(m => m.employeeId === employee.id && m.role === "HEAD");
+    const tasks = await prisma.seoTask.findMany({ where: { workspaceId: workspace.id, ...(!head ? { employeeId: employee.id } : {}) }, select: { workCardId: true } });
+    allowed.push(...tasks.map(t => t.workCardId));
+  }
+  return allowed;
+}
+
 export const workTrackService = {
   async getSettings(companyId: string) {
     let settings = await prisma.workTrackSetting.findUnique({
@@ -728,7 +746,8 @@ export const workTrackService = {
     });
   },
 
-  async getDesigners(companyId: string, track?: string, includeHistory = false) {
+  async getDesigners(companyId: string, track?: string, includeHistory = false, userId?: string) {
+    const seoIds = await visibleSeoCardIds(companyId, userId);
     const employees = await prisma.employee.findMany({
       where: {
         companyId,
@@ -764,6 +783,7 @@ export const workTrackService = {
         },
         assignedWorkCards: {
           where: {
+            ...(seoIds === null ? {} : { OR: [{ seoTask: { is: null } }, { id: { in: seoIds } }] }),
             status: { in: ["PENDING", "IN_PROGRESS"] }
           },
           select: {
@@ -774,6 +794,7 @@ export const workTrackService = {
         },
         pointsLedgers: {
           where: {
+            ...(seoIds === null ? {} : { OR: [{ workCardId: null }, { workCard: { seoTask: { is: null } } }, { workCardId: { in: seoIds } }] }),
             createdAt: {
               gte: startOfMonth(new Date()),
               lte: endOfMonth(new Date())
@@ -1256,6 +1277,7 @@ export const workTrackService = {
     return prisma.workCard.findMany({
       where: {
         companyId,
+        seoTask: { is: null },
         clientId: filters.clientId || undefined,
         assignedToId: filters.assignedToId || undefined,
         status: filters.status || undefined,
@@ -1309,6 +1331,9 @@ export const workTrackService = {
   },
 
   async getWorkCardDetails(id: string) {
+    if (await prisma.seoTask.findUnique({ where: { workCardId: id }, select: { id: true } })) {
+      throw new ApiError(403, "Read this task through the scoped SEO workspace");
+    }
     const card = await prisma.workCard.findUnique({
       where: { id },
       include: {
@@ -1360,6 +1385,9 @@ export const workTrackService = {
   },
 
   async deleteWorkCard(companyId: string, userId: string, id: string) {
+    if (await prisma.seoTask.findUnique({ where: { workCardId: id }, select: { id: true } })) {
+      throw new ApiError(409, "Use the SEO workspace to manage this verified SEO task");
+    }
     const card = await prisma.workCard.findUnique({ where: { id } });
     if (!card || card.companyId !== companyId) throw notFound("Work Card");
 
@@ -1489,7 +1517,7 @@ export const workTrackService = {
       throw new ApiError(403, "Only Super Admin can clear all tasks.");
     }
 
-    const whereClause: any = { companyId };
+    const whereClause: any = { companyId, seoTask: { is: null } };
     if (track && track !== "all") {
       const normalized = track.toLowerCase().replace(/-/g, "_");
       whereClause.OR = [
@@ -1528,7 +1556,7 @@ export const workTrackService = {
       throw new ApiError(403, "Only Super Admin can clear work history.");
     }
 
-    const whereClause: any = { companyId };
+    const whereClause: any = { companyId, seoTask: { is: null } };
     if (track && track !== "all") {
       const normalized = track.toLowerCase().replace(/-/g, "_");
       whereClause.OR = [
@@ -1569,6 +1597,9 @@ export const workTrackService = {
     videoDuration?: string;
     workQuantity?: number;
   }) {
+    if (await prisma.seoTask.findUnique({ where: { workCardId: id }, select: { id: true } })) {
+      throw new ApiError(409, "Use the SEO workspace to manage this verified SEO task");
+    }
     const card = await prisma.workCard.findUnique({ where: { id } });
     if (!card || card.companyId !== companyId) throw notFound("Work Card");
 
@@ -1748,6 +1779,9 @@ export const workTrackService = {
     finalFileUrl?: string;
     videoDuration?: string;
   }) {
+    if (await prisma.seoTask.findUnique({ where: { workCardId: id }, select: { id: true } })) {
+      throw new ApiError(409, "Use the SEO workspace to manage this verified SEO task");
+    }
     const card = await prisma.workCard.findUnique({
       where: { id },
       include: { assignedTo: true, assignedBy: true, client: true }
@@ -1984,6 +2018,7 @@ export const workTrackService = {
   },
 
   async addComment(workCardId: string, userId: string, text: string) {
+    if (await prisma.seoTask.findUnique({ where: { workCardId } })) throw new ApiError(403, "Use the scoped SEO task workflow for remarks");
     return prisma.comment.create({
       data: {
         workCardId,
@@ -1996,7 +2031,8 @@ export const workTrackService = {
     });
   },
 
-  async getAnalytics(companyId: string, month: number, year: number) {
+  async getAnalytics(companyId: string, month: number, year: number, userId?: string) {
+    const seoIds = await visibleSeoCardIds(companyId, userId);
     const start = startOfMonth(new Date(year, month - 1, 1));
     const end = endOfMonth(new Date(year, month - 1, 1));
 
@@ -2004,6 +2040,7 @@ export const workTrackService = {
     const cards = await prisma.workCard.findMany({
       where: {
         companyId,
+        ...(seoIds === null ? {} : { OR: [{ seoTask: { is: null } }, { id: { in: seoIds } }] }),
         createdAt: { gte: start, lte: end }
       },
       include: {
@@ -2100,11 +2137,13 @@ export const workTrackService = {
       include: {
         assignedWorkCards: {
           where: {
+            ...(seoIds === null ? {} : { OR: [{ seoTask: { is: null } }, { id: { in: seoIds } }] }),
             createdAt: { gte: start, lte: end }
           }
         },
         pointsLedgers: {
           where: {
+            ...(seoIds === null ? {} : { OR: [{ workCardId: null }, { workCard: { seoTask: { is: null } } }, { workCardId: { in: seoIds } }] }),
             createdAt: { gte: start, lte: end }
           }
         }
@@ -2177,6 +2216,7 @@ export const workTrackService = {
     const sixMonthCards = await prisma.workCard.findMany({
       where: {
         companyId,
+        ...(seoIds === null ? {} : { OR: [{ seoTask: { is: null } }, { id: { in: seoIds } }] }),
         status: "APPROVED",
         updatedAt: { gte: sixMonthsAgo }
       }
@@ -3171,14 +3211,16 @@ export const workTrackService = {
     };
   },
 
-  async getPointsSummary(companyId: string, track?: string) {
-    const designers = await this.getDesigners(companyId, track, true);
+  async getPointsSummary(companyId: string, track?: string, userId?: string) {
+    const seoIds = await visibleSeoCardIds(companyId, userId);
+    const designers = await this.getDesigners(companyId, track, true, userId);
     const employeeIds = designers.map(d => d.id);
 
     const [workCards, ledgers] = await Promise.all([
       prisma.workCard.findMany({
         where: {
           companyId,
+          ...(seoIds === null ? {} : { OR: [{ seoTask: { is: null } }, { id: { in: seoIds } }] }),
           assignedToId: { in: employeeIds }
         },
         include: {
@@ -3189,6 +3231,7 @@ export const workTrackService = {
       }),
       prisma.pointsLedger.findMany({
         where: {
+          ...(seoIds === null ? {} : { OR: [{ workCardId: null }, { workCard: { seoTask: { is: null } } }, { workCardId: { in: seoIds } }] }),
           employeeId: { in: employeeIds }
         },
         include: {
@@ -3236,6 +3279,9 @@ export const workTrackService = {
     description: string;
     workCardId?: string;
   }) {
+    if (data.workCardId && await prisma.seoTask.findUnique({ where: { workCardId: data.workCardId }, select: { id: true } })) {
+      throw new ApiError(409, "SEO task points are awarded only through manager verification");
+    }
     const employee = await prisma.employee.findUnique({
       where: { id: data.employeeId }
     });

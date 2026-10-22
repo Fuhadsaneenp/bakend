@@ -1,5 +1,6 @@
 import { mcpEvidenceRouter } from "../integrations/mcp-evidence.js";
 import { jobMonitoringRouter } from "../modules/job-monitoring/routes.js";
+import { seoRouter } from "../modules/seo/seo.routes.js";
 import { Router } from "express";
 import { wordpressRouter } from "../integrations/wordpress/wordpress.routes.js";
 import { authRouter } from "../modules/auth/auth.routes.js";
@@ -181,6 +182,7 @@ apiRouter.use("/wfh", wfhRouter);
 apiRouter.use("/expenses", expenseRouter);
 apiRouter.use("/notifications", notificationRouter);
 apiRouter.use("/dashboard", dashboardRouter);
+apiRouter.use("/seo", seoRouter);
 apiRouter.use("/work-track", workTrackRouter);
 apiRouter.use("/performance", performanceRouter);
 apiRouter.use("/kpi", kpiRouter);

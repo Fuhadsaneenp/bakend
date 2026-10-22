@@ -294,6 +294,8 @@ model Employee {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   @@unique([companyId, employeeCode])
+  seoMemberships SeoMember[]
+
 }
 
 model Salary {
@@ -716,6 +718,7 @@ model Client {
   accountManager             Employee?    @relation("ManagedClients", fields: [accountManagerId], references: [id])
   specialDays                SpecialDay[]
   workCards                  WorkCard[]
+  seoWorkspace               SeoWorkspace?
   metaAdAccount              MetaAdAccount?
   metaCampaigns              MetaCampaign[]
   metaLeads                  MetaLead[]
@@ -760,6 +763,7 @@ model WorkCard {
   statusHistory StatusHistory[]
   comments      Comment[]
   reworkLogs    ReworkLog[]
+  seoTask       SeoTask?
   pointsLedgers PointsLedger[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
@@ -1311,4 +1315,215 @@ model StoredFile {
   updatedAt DateTime @updatedAt
 
   @@index([fileKey])
+}
+
+// SEO extensions retain the existing Client, Employee, WorkCard and PointsLedger.
+model SeoWorkspace {
+  id String @id @default(cuid())
+  companyId String
+  clientId String @unique
+  client Client @relation(fields: [clientId], references: [id])
+  propertyId String?
+  property SeoProperty? @relation(fields: [propertyId], references: [id])
+  sourceSiteUrl String? @db.VarChar(512)
+  lastSyncAttemptAt DateTime?
+  lastSyncAt DateTime?
+  nextSyncAt DateTime @default(now())
+  leaseUntil DateTime?
+  members SeoMember[]
+  metrics SeoMetric[]
+  keywords SeoKeyword[]
+  tasks SeoTask[]
+  activities SeoActivity[]
+  reports SeoReport[]
+  syncLogs SeoSyncLog[]
+  legacySheets SeoLegacySheet[]
+  createdAt DateTime @default(now())
+  @@index([companyId, nextSyncAt])
+}
+model SeoMember {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace SeoWorkspace @relation(fields: [workspaceId], references: [id])
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id])
+  role String @default("EMPLOYEE")
+  @@unique([workspaceId, employeeId])
+  @@index([employeeId])
+}
+model SeoConnection {
+  id String @id @default(cuid())
+  companyId String
+  ownerUserId String
+  refreshCipher String @db.Text
+  accessCipher String @db.Text
+  expiresAt DateTime
+  status String @default("CONNECTED")
+  properties SeoProperty[]
+  createdAt DateTime @default(now())
+  @@index([companyId, ownerUserId])
+}
+model SeoOAuthState {
+  id String @id
+  companyId String
+  userId String
+  verifierCipher String @db.Text
+  expiresAt DateTime
+}
+model SeoProperty {
+  id String @id @default(cuid())
+  connectionId String
+  connection SeoConnection @relation(fields: [connectionId], references: [id])
+  siteUrl String @db.VarChar(512)
+  permissionLevel String
+  workspaces SeoWorkspace[]
+  @@unique([connectionId, siteUrl])
+}
+model SeoMetric {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace SeoWorkspace @relation(fields: [workspaceId], references: [id])
+  date DateTime @db.Date
+  dimension String
+  keyHash String @db.VarChar(64)
+  label String @db.Text
+  clicks Float
+  impressions Float
+  ctr Float
+  position Float
+  preliminary Boolean @default(false)
+  fetchedAt DateTime @default(now())
+  @@unique([workspaceId, date, dimension, keyHash])
+  @@index([workspaceId, dimension, date])
+}
+model SeoKeyword {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace SeoWorkspace @relation(fields: [workspaceId], references: [id])
+  keyword String @db.VarChar(512)
+  targetUrl String @db.Text
+  country String @default("")
+  device String @default("")
+  intent String @default("")
+  employeeId String?
+  identityHash String @db.VarChar(64)
+  history SeoRanking[]
+  createdAt DateTime @default(now())
+  @@unique([workspaceId, identityHash])
+}
+model SeoRanking {
+  id String @id @default(cuid())
+  keywordId String
+  keyword SeoKeyword @relation(fields: [keywordId], references: [id])
+  date DateTime @db.Date
+  source String
+  position Float?
+  clicks Float?
+  impressions Float?
+  ctr Float?
+  @@unique([keywordId, date, source])
+}
+model SeoTask {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace SeoWorkspace @relation(fields: [workspaceId], references: [id])
+  workCardId String @unique
+  workCard WorkCard @relation(fields: [workCardId], references: [id])
+  employeeId String
+  category String
+  description String @db.Text
+  project String @default("")
+  assignedDate DateTime @default(now())
+  startTime DateTime?
+  completionTime DateTime?
+  targetQuantity Float
+  completedQuantity Float @default(0)
+  remarks String? @db.Text
+  status String @default("ASSIGNED")
+  feedback String? @db.Text
+  quality Int?
+  points Float @default(0)
+  approvedEvidenceHash String? @db.VarChar(64)
+  ledgerId String? @unique
+  evidence SeoEvidence[]
+  reviews SeoReview[]
+  @@unique([workspaceId, category, approvedEvidenceHash])
+  @@index([workspaceId, employeeId, status])
+}
+model SeoEvidence {
+  id String @id @default(cuid())
+  taskId String
+  task SeoTask @relation(fields: [taskId], references: [id])
+  url String @db.Text
+  name String
+  mimeType String?
+  fileData Bytes? @db.LongBlob
+  createdAt DateTime @default(now())
+}
+model SeoReview {
+  id String @id @default(cuid())
+  taskId String
+  task SeoTask @relation(fields: [taskId], references: [id])
+  userId String
+  status String
+  reason String @db.Text
+  createdAt DateTime @default(now())
+}
+model SeoPointRule {
+  id String @id @default(cuid())
+  companyId String
+  category String
+  quantity Float
+  points Float
+  @@unique([companyId, category])
+}
+model SeoActivity {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace SeoWorkspace @relation(fields: [workspaceId], references: [id])
+  employeeId String
+  kind String
+  url String @db.Text
+  status String @default("PLANNED")
+  verification String @default("UNVERIFIED")
+  verifiedAt DateTime?
+  data Json
+  history Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([workspaceId, kind, status])
+}
+model SeoReport {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace SeoWorkspace @relation(fields: [workspaceId], references: [id])
+  month String
+  snapshot Json
+  summary String? @db.Text
+  generatedBy String
+  createdAt DateTime @default(now())
+  @@unique([workspaceId, month])
+}
+model SeoSyncLog {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace SeoWorkspace @relation(fields: [workspaceId], references: [id])
+  status String
+  rows Int @default(0)
+  details String? @db.Text
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+  @@index([workspaceId, startedAt])
+}
+
+model SeoLegacySheet {
+  id String @id @default(cuid())
+  workspaceId String
+  workspace SeoWorkspace @relation(fields: [workspaceId], references: [id])
+  sheetKey String
+  sourceHash String @db.VarChar(64)
+  payload Json
+  importedBy String
+  createdAt DateTime @default(now())
+  @@unique([workspaceId, sourceHash])
 }

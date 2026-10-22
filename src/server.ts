@@ -1,3 +1,4 @@
+import { startSeoJobs } from "./modules/seo/seo.jobs.js";
 import { env } from "./config/env.js";
 import { createApp } from "./app.js";
 import { ensureBiometricSyncSchema } from "./lib/biometricDeviceSync.js";
@@ -5,12 +6,13 @@ import { ensureShiftSchema } from "./lib/ensureShiftSchema.js";
 
 async function start() {
   const app = createApp();
+  startSeoJobs();
 
   app.listen(env.PORT, "0.0.0.0", () => {
     console.log(`HR SaaS API listening on http://localhost:${env.PORT}`);
   });
 
-  void Promise.allSettled([
+  if (process.env.LOCAL_SCHEMA_AUTOMATION_DISABLED !== "true") void Promise.allSettled([
     ensureBiometricSyncSchema(),
     ensureShiftSchema()
   ]).then((results) => {

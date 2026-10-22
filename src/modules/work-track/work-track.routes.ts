@@ -399,7 +399,7 @@ workTrackRouter.get("/designers", async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const track = typeof req.query.track === "string" ? req.query.track : undefined;
-    res.json(await workTrackService.getDesigners(req.user.companyId, track, req.query.scope === "all"));
+    res.json(await workTrackService.getDesigners(req.user.companyId, track, req.query.scope === "all", req.user.id));
   } catch (error) {
     next(error);
   }
@@ -410,7 +410,7 @@ workTrackRouter.get("/points", async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const track = typeof req.query.track === "string" ? req.query.track : undefined;
-    res.json(await workTrackService.getPointsSummary(req.user.companyId, track));
+    res.json(await workTrackService.getPointsSummary(req.user.companyId, track, req.user.id));
   } catch (error) {
     next(error);
   }
@@ -494,6 +494,7 @@ workTrackRouter.post("/cards/:id/files", requireAnyPermission(["worktrack.task.e
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     if (!req.file) throw new ApiError(400, "File is required");
 
+    if (await prisma.seoTask.findUnique({ where: { workCardId: req.params.id } })) throw new ApiError(409, "Upload SEO evidence through the SEO workspace");
     const card = await prisma.workCard.findUnique({
       where: { id: req.params.id },
       select: { id: true, companyId: true }
@@ -602,7 +603,7 @@ workTrackRouter.get("/analytics", requirePermission("worktrack.analytics.view"),
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const month = req.query.month ? Number(req.query.month) : new Date().getMonth() + 1;
     const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
-    res.json(await workTrackService.getAnalytics(req.user.companyId, month, year));
+    res.json(await workTrackService.getAnalytics(req.user.companyId, month, year, req.user.id));
   } catch (error) {
     next(error);
   }

@@ -90,7 +90,7 @@ test('ambiguous names require employee ID and KPI scores are never fabricated',a
 test('approved configuration normalizes category and complexity; missing mapping cannot produce a ranking', async()=>{
   mock();
   (prisma.companySetting as any).findUnique=async(args:any)=>args.where.companyId_key.key==='ai_workload_rules_v1'?{value:{approved:true,unit:'approved task equivalents',taskWeights:{'POSTER:HEAVY':2}}}:null;
-  (prisma.workCard as any).findMany=async()=>[{id:'task',assignedToId:'e1',category:'POSTER',complexity:'HEAVY',title:'Design',createdAt:new Date('2026-10-01'),deadline:new Date('2026-10-20'),statusHistory:[{status:'APPROVED',createdAt:new Date('2026-10-13')}]}];
+  (prisma.workCard as any).findMany=async()=>[{id:'task',assignedToId:'e1',category:'POSTER',complexity:'HEAVY',title:'Design',client:{name:'Test client'},createdAt:new Date('2026-10-01'),deadline:new Date('2026-10-20'),statusHistory:[{status:'APPROVED',createdAt:new Date('2026-10-13')}]}];
   const report=await runVerifiedReport(user,planQuestion('Who completed most work 2026-10-01 to 2026-10-31?',[],now));
   assert.equal(report.rows[0].value,2);
   assert.match(formatVerifiedReport(report),/approved task equivalents/);
