@@ -160,7 +160,8 @@ workTrackRouter.put("/data-entry-sheets", async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
     const body = dataEntrySheetsSchema.parse(req.body);
-    res.json(await workTrackService.upsertDataEntrySheets(req.user.companyId, body.sheets, body.deletedMasterEntryIds));
+    const saved = await workTrackService.upsertDataEntrySheets(req.user.companyId, body.sheets, body.deletedMasterEntryIds);
+    res.json(req.query.ack === "1" ? { saved: true } : saved);
   } catch (error) {
     next(error);
   }
