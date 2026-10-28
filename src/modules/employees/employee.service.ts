@@ -160,7 +160,9 @@ export const employeeService = {
 
     const isAdminScope = isHr || hasEmployeeGrant;
 
-    const targetCompanyId = requestedCompanyId || (user.role === Role.SUPER_ADMIN ? undefined :
+    // The company dropdown filters this list locally, so HR and explicitly
+    // authorized employee managers need every accessible company on initial load.
+    const targetCompanyId = requestedCompanyId || (isAdminScope ? undefined :
       user.companyId && accessibleCompanies.includes(user.companyId) ? user.companyId : accessibleCompanies[0]);
 
     if (isAdminScope) {
