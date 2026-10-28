@@ -1,3 +1,4 @@
+import { sheetSnapshot } from "../../lib/sheetSnapshot.js";
 import { Role } from "@prisma/client";
 import { Router } from "express";
 import multer from "multer";
@@ -150,7 +151,8 @@ workTrackRouter.put("/settings", requirePermission("worktrack.settings.manage"),
 workTrackRouter.get("/data-entry-sheets", async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    res.json(await workTrackService.getDataEntrySheets(req.user.companyId));
+    const sheets = await workTrackService.getDataEntrySheets(req.user.companyId, req.query.view === "assignments");
+    res.json(req.query.snapshot === "1" ? sheetSnapshot(sheets, typeof req.query.version === "string" ? req.query.version : undefined) : sheets);
   } catch (error) {
     next(error);
   }

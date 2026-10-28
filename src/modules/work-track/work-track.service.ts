@@ -260,22 +260,24 @@ const sheetReadCache = new Map<string, { expiresAt: number; value: DataEntryShee
 const sheetReadsInFlight = new Map<string, Promise<DataEntrySheetMap>>();
 let sheetReadVersion = 0;
 
-async function readDataEntrySheets(companyId: string): Promise<DataEntrySheetMap> {
-  const cached = sheetReadCache.get(companyId);
+async function readDataEntrySheets(companyId: string, assignmentsOnly = false): Promise<DataEntrySheetMap> {
+  const cacheKey = `${companyId}:${assignmentsOnly ? "assignments" : "all"}`;
+  const cached = sheetReadCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
-  const pending = sheetReadsInFlight.get(companyId);
+  const pending = sheetReadsInFlight.get(cacheKey);
   if (pending) return pending;
   const version = sheetReadVersion;
-  const request = queryDataEntrySheets(companyId).then(value => {
+  const request = queryDataEntrySheets(companyId, !assignmentsOnly).then(all => {
+    const value = assignmentsOnly ? Object.fromEntries(Object.entries(all).filter(([key]) => key.startsWith("__"))) : all;
     if (version === sheetReadVersion) {
       if (sheetReadCache.size >= 100) sheetReadCache.clear();
-      sheetReadCache.set(companyId, { value, expiresAt: Date.now() + 15000 });
+      sheetReadCache.set(cacheKey, { value, expiresAt: Date.now() + 15000 });
     }
     return value;
   }).finally(() => {
-    if (sheetReadsInFlight.get(companyId) === request) sheetReadsInFlight.delete(companyId);
+    if (sheetReadsInFlight.get(cacheKey) === request) sheetReadsInFlight.delete(cacheKey);
   });
-  sheetReadsInFlight.set(companyId, request);
+  sheetReadsInFlight.set(cacheKey, request);
   return request;
 }
 
@@ -592,8 +594,8 @@ export const workTrackService = {
     return queryDataEntrySheets(companyId, false);
   },
 
-  async getDataEntrySheets(companyId: string) {
-    return readDataEntrySheets(companyId);
+  async getDataEntrySheets(companyId: string, assignmentsOnly = false) {
+    return readDataEntrySheets(companyId, assignmentsOnly);
   },
 
   async upsertDataEntrySheets(companyId: string, sheets: DataEntrySheetMap, deletedMasterEntryIds: string[] = [], restoredMasterEntryIds: string[] = [], _freshAssignmentSheets?: DataEntrySheetMap) {

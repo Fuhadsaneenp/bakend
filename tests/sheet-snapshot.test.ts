@@ -1,0 +1,20 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { sheetSnapshot } from "../src/lib/sheetSnapshot.js";
+test("unchanged sheet snapshots omit rows and changed snapshots deliver edits", () => {
+  const sheets = { sheet: [{ sourceUrl: "https://example.test/one" }] };
+  const first = sheetSnapshot(sheets);
+  assert.equal("sheets" in first, true);
+  const same = sheetSnapshot(sheets, first.version);
+  assert.equal("sheets" in same, false);
+  assert.equal("unchanged" in same && same.unchanged, true);
+  const edited = sheetSnapshot({ sheet: [{ sourceUrl: "https://example.test/two" }] }, first.version);
+  assert.notEqual(edited.version, first.version);
+  assert.equal("sheets" in edited, true);
+  assert.equal("unchanged" in sheetSnapshot(JSON.parse(JSON.stringify(sheets)), first.version), true);
+  let serialized = 0;
+  const cached = { toJSON() { serialized++; return sheets; } };
+  const snapshot = sheetSnapshot(cached);
+  sheetSnapshot(cached, snapshot.version);
+  assert.equal(serialized, 1);
+});
