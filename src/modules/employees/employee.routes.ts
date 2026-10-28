@@ -11,6 +11,8 @@ import { audit } from "../audit/audit.service.js";
 import { authService } from "../auth/auth.service.js";
 import { isCoreTeamEmployee, isRequesterCoreTeam, isRequesterHr } from "../../lib/coreTeam.js";
 
+import { reportingManagerOptions } from "./reporting-manager.service.js";
+
 export const employeeRouter = Router();
 const allowedDocumentMimeTypes = new Set([
   "application/pdf",
@@ -103,6 +105,13 @@ employeeRouter.get("/me", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+employeeRouter.get("/manager-options", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const query = z.object({ companyId: z.string().optional() }).parse(req.query);
+    res.json(await reportingManagerOptions(req.user!, query.companyId));
+  } catch (error) { next(error); }
 });
 
 employeeRouter.get("/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {

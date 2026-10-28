@@ -1,4 +1,4 @@
-import { assertActiveEmployee } from "../../lib/employeeEligibility.js";
+import { assertReportingManager } from "./reporting-manager.service.js";
 import { allowedCompanyIds, assertCompanyAccess } from "../org/company-access.service.js";
 import bcrypt from "bcryptjs";
 import { LetterType, Prisma, Role } from "@prisma/client";
@@ -286,7 +286,7 @@ export const employeeService = {
     taxId?: string;
     salary?: { basic: number; allowances: number; deductions: number; effectiveFrom: string };
   }) {
-    if (data.managerId) await assertActiveEmployee(data.managerId, companyId);
+    if (data.managerId) await assertReportingManager(data.managerId, companyId);
     const createdEmployee = await prisma.$transaction(async (tx) => {
       const resolvedEmployeeCode = data.employeeCode?.trim() || await nextEmployeeCode(companyId);
       const superAdminCount = await tx.user.count({
@@ -453,7 +453,10 @@ export const employeeService = {
       }
     }
 
-    if (data.managerId && data.managerId !== employee.managerId) await assertActiveEmployee(data.managerId, data.companyId || employee.companyId);
+    const nextManagerId = data.managerId === undefined ? employee.managerId : data.managerId;
+    if (nextManagerId && (nextManagerId !== employee.managerId || (data.companyId && data.companyId !== employee.companyId))) {
+      await assertReportingManager(nextManagerId, data.companyId || employee.companyId);
+    }
     const updatedEmployee = await prisma.$transaction(async (tx) => {
       const userUpdateData: any = {};
       if (data.role) userUpdateData.role = data.role;
