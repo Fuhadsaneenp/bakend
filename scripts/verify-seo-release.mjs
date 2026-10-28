@@ -7,7 +7,7 @@ const {prisma}=await import('../dist/src/lib/prisma.js');
 const {env}=await import('../dist/src/config/env.js');
 const {default:jwt}=await import('jsonwebtoken');
 try {
-  const user=await prisma.user.findFirst({where:{role:{in:['SUPER_ADMIN','HR_ADMIN']},isActive:true},select:{id:true}});
+  const user=await prisma.user.findFirst({where:{role:'SUPER_ADMIN',isActive:true},select:{id:true}});
   if(!user)throw Error('No administrator available for read-only verification');
   await prisma.seoMetric.count();
   await prisma.seoConnection.count();
@@ -16,5 +16,10 @@ try {
   if(response.status!==200)throw Error('Authenticated SEO API check failed: '+response.status);
   const body=await response.json();
   if(!Array.isArray(body.availableClients))throw Error('Invalid SEO response');
+  const accessResponse=await fetch('https://api.secondtales.com/api/company-access',{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(20000)});
+  if(accessResponse.status!==200)throw Error('Company access directory failed: '+accessResponse.status);
+  const access=await accessResponse.json();
+  if(!Array.isArray(access.companies)||!Array.isArray(access.users))throw Error('Invalid company access response');
+  console.log('Live company access directory verified');
   console.log('Live authenticated SEO API and database checks passed; eligible clients: '+body.availableClients.length);
 } finally {await prisma.$disconnect();}

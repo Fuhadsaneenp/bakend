@@ -18,11 +18,11 @@ export async function assertCompanyAccess(user: { id: string; role: Role; compan
 }
 
 export async function companyAccessDirectory() {
-  const [companies, users, settings] = await Promise.all([
+  const [companies, users] = await Promise.all([
     prisma.company.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.user.findMany({ where: { isActive: true }, select: { id: true, email: true, role: true, companyId: true, employee: { select: { firstName: true, lastName: true, employeeCode: true } } }, orderBy: { email: "asc" } }),
-    prisma.companySetting.findMany({ where: { key: { startsWith: "company_access:" } } })
+    prisma.user.findMany({ where: { isActive: true }, select: { id: true, email: true, role: true, companyId: true, employee: { select: { firstName: true, lastName: true, employeeCode: true } } }, orderBy: { email: "asc" } })
   ]);
+  const settings = await prisma.companySetting.findMany({ where: { key: { in: users.map(user => keyFor(user.id)) } } });
   return { companies, users: users.map(user => {
     const saved = settings.find(s => s.key === keyFor(user.id));
     return { ...user, companyIds: user.role === Role.SUPER_ADMIN ? companies.map(c => c.id) : saved && Array.isArray(saved.value) ? saved.value : user.companyId ? [user.companyId] : [] };
