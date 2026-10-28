@@ -52,30 +52,26 @@ async function findUserByIdentifier(identifier: string) {
 
   if (!user && clean.endsWith("@secondtales.com")) {
     const alias = clean.replace("@secondtales.com", "").toLowerCase();
-    user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { email: { startsWith: alias } },
-          { employee: { personalEmail: { startsWith: alias } } },
-          { employee: { firstName: { equals: alias } } }
-        ]
-      },
+    // Avoid LIKE: the migrated database uses a different collation from bound
+    // string parameters. Match aliases without database prefix comparisons.
+    const candidates = await prisma.user.findMany({
       include: {
         employee: {
           select: {
-            id: true,
-            firstName: true,
-            middleName: true,
-            lastName: true,
-            displayName: true,
-            employeeCode: true,
-            status: true,
-            dateOfExit: true,
-            personalEmail: true
+            id: true, firstName: true, middleName: true, lastName: true,
+            displayName: true, employeeCode: true, status: true,
+            dateOfExit: true, personalEmail: true
           }
         }
       }
     });
+    const matches = candidates.filter(candidate =>
+      candidate.email.toLowerCase().startsWith(alias) ||
+      candidate.employee?.personalEmail?.toLowerCase().startsWith(alias) ||
+      candidate.employee?.firstName.toLowerCase() === alias
+    );
+    // Ambiguous aliases must use a registered email or employee ID.
+    user = matches.length === 1 ? matches[0] : null;
   }
 
   return user;

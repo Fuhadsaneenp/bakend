@@ -24,7 +24,7 @@ jobs:
         run: |
           npm ci
           npm run build
-          npx tsx --test src/lib/assignmentSheetRows.test.ts tests/assignment-save.test.ts tests/company-access.test.ts tests/employee-company-list.test.ts tests/reporting-manager.test.ts tests/seo.test.ts tests/verified-analytics.test.ts
+          npx tsx --test src/lib/assignmentSheetRows.test.ts tests/assignment-save.test.ts tests/company-access.test.ts tests/employee-company-list.test.ts tests/reporting-manager.test.ts tests/auth-alias.test.ts tests/seo.test.ts tests/verified-analytics.test.ts
       - name: Configure deployment SSH
         env:
           DEPLOY_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
