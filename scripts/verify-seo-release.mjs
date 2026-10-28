@@ -1,7 +1,7 @@
 // Run on the deployment host. Credentials remain on the server; all checks are read-only.
 import dotenv from 'dotenv';
-const config='/home/u394546085/domains/api.secondtales.com/hbuilds/config/';
-dotenv.config({path:config+'.env'});
+const config='/home/u743262110/domains/api.secondtales.com/hbuilds/config/';
+dotenv.config({path:'/home/u743262110/stems-migration-20261024/private/production.env',override:true});
 dotenv.config({path:config+'.env.seo',override:true});
 const {prisma}=await import('../dist/src/lib/prisma.js');
 const {env}=await import('../dist/src/config/env.js');

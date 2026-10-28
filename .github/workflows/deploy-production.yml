@@ -34,7 +34,7 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          printf 'Host stems-deployment\n  HostName 46.202.161.183\n  Port 65002\n  User u394546085\n  IdentityFile ~/.ssh/id_deploy\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' > ~/.ssh/config
+          printf 'Host stems-deployment\n  HostName 82.112.239.37\n  Port 65002\n  User u743262110\n  IdentityFile ~/.ssh/id_deploy\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' > ~/.ssh/config
       - name: Upload versioned release
         env:
           DEPLOY_TARGET: stems-deployment
