@@ -8,6 +8,8 @@ import { prisma } from "../lib/prisma.js";
 import { permissionService } from "../modules/authority/permission.service.js";
 import { isRequesterHr } from "../lib/coreTeam.js";
 
+import { assertCompanyAccess } from "../modules/org/company-access.service.js";
+
 export type AuthUser = {
   id: string;
   companyId: string | null;
@@ -61,6 +63,12 @@ export const requireAuth = async (req: Request, _res: Response, next: NextFuncti
       email: dbUser.email,
       impersonatedBy: payload.impersonatedBy
     };
+    // Check explicit company selections on every authenticated request, including writes.
+    const selectedCompanyId = req.query.companyId ?? req.body?.companyId;
+    if (selectedCompanyId !== undefined && selectedCompanyId !== null && selectedCompanyId !== "") {
+      if (typeof selectedCompanyId !== "string") throw new ApiError(400, "Invalid company selection");
+      await assertCompanyAccess(req.user, selectedCompanyId);
+    }
     next();
   } catch (error) {
     if (error instanceof ApiError) return next(error);

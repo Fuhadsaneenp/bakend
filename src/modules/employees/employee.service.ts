@@ -1,4 +1,5 @@
 import { assertActiveEmployee } from "../../lib/employeeEligibility.js";
+import { allowedCompanyIds, assertCompanyAccess } from "../org/company-access.service.js";
 import bcrypt from "bcryptjs";
 import { LetterType, Prisma, Role } from "@prisma/client";
 import { queueEmployeeDeviceSync, queueEmployeeTemplateDownload, queueEmployeeTemplateSync } from "../../lib/biometricDeviceSync.js";
@@ -130,6 +131,8 @@ export const employeeService = {
   },
 
   async listForUser(user: AuthUser, requestedCompanyId?: string) {
+    const accessibleCompanies = await allowedCompanyIds(user);
+    if (requestedCompanyId) await assertCompanyAccess(user, requestedCompanyId);
     const currentEmployee = await prisma.employee.findUnique({
       where: { userId: user.id },
       include: { department: true, designation: true, user: true }
@@ -157,13 +160,11 @@ export const employeeService = {
 
     const isAdminScope = isHr || hasEmployeeGrant;
 
-    // Super admins load all companies so the EMS company selector can filter
-    // the complete employee list. Other users retain their existing scope.
-    const targetCompanyId = requestedCompanyId ||
-      (user.role === Role.SUPER_ADMIN ? undefined : user.companyId || undefined);
+    const targetCompanyId = requestedCompanyId || (user.role === Role.SUPER_ADMIN ? undefined :
+      user.companyId && accessibleCompanies.includes(user.companyId) ? user.companyId : accessibleCompanies[0]);
 
     if (isAdminScope) {
-      const where = targetCompanyId ? { companyId: targetCompanyId } : undefined;
+      const where = { companyId: targetCompanyId && accessibleCompanies.includes(targetCompanyId) ? targetCompanyId : { in: accessibleCompanies } };
       const todayKolkataStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
       const todayUtc = new Date(todayKolkataStr);
       const todayStart = getKolkataStartOfDay(new Date());

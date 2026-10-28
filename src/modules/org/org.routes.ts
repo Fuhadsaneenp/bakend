@@ -7,70 +7,29 @@ import { orgService } from "./org.service.js";
 import { prisma } from "../../lib/prisma.js";
 import { isRequesterHr } from "../../lib/coreTeam.js";
 
+import { allowedCompanyIds, assertCompanyAccess, companyAccessDirectory, saveCompanyAccess } from "./company-access.service.js";
+
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
 
-// Companies CRUD
+// Company assignments are managed independently of role permissions.
+orgRouter.get("/company-access", requireRoles(Role.SUPER_ADMIN), async (_req, res, next) => {
+  try { res.json(await companyAccessDirectory()); } catch (error) { next(error); }
+});
+orgRouter.put("/company-access/:userId", requireRoles(Role.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const body = z.object({ companyIds: z.array(z.string().min(1)).min(1) }).parse(req.body);
+    res.json(await saveCompanyAccess(req.params.userId, body.companyIds));
+  } catch (error) { next(error); }
+});
 orgRouter.get("/companies", async (req, res, next) => {
   try {
-    const isHr = await isRequesterHr(req.user!);
-    let hasCompanyGrant = false;
-    try {
-      const userTrackRow = await prisma.companySetting.findFirst({
-        where: { key: { in: ["authority_user_track_settings", "authority:user-track-settings"] } }
-      });
-      if (userTrackRow?.value) {
-        const parsed: any = typeof userTrackRow.value === "string" ? JSON.parse(userTrackRow.value) : userTrackRow.value;
-        const emsGrants = parsed?.emsSectionGrants;
-        if (emsGrants && typeof emsGrants === "object" && req.user?.id) {
-          const userKeys = [req.user.id, req.user.email, req.user.companyId].filter(Boolean).map(k => String(k).toLowerCase().trim());
-          for (const k of userKeys) {
-            if (emsGrants[k]?.["employees.company-select"] || emsGrants[k]?.["employees.manage"] || emsGrants[k]?.company) {
-              hasCompanyGrant = true;
-              break;
-            }
-          }
-        }
-      }
-    } catch {}
-
-    const isFullAdmin = req.user?.role === Role.SUPER_ADMIN || req.user?.role === Role.HR_ADMIN || isHr || hasCompanyGrant;
-    if (isFullAdmin) {
-      return res.json(await orgService.companies());
-    }
-
-    // For non-admin employees/managers, only return their single assigned company
-    let companyId = req.user?.companyId;
-    if (!companyId && req.user?.id) {
-      const emp = await prisma.employee.findFirst({
-        where: { userId: req.user.id },
-        select: { companyId: true }
-      });
-      if (emp?.companyId) companyId = emp.companyId;
-    }
-
-    if (companyId) {
-      const userCompany = await prisma.company.findUnique({ where: { id: companyId } });
-      if (userCompany) {
-        return res.json([userCompany]);
-      }
-    }
-
-    if (req.user?.email) {
-      const empByEmail = await prisma.employee.findFirst({
-        where: { user: { email: req.user.email } },
-        include: { company: true }
-      });
-      if (empByEmail?.company) {
-        return res.json([empByEmail.company]);
-      }
-    }
-
-    const defaultCompany = await prisma.company.findFirst({ orderBy: { name: "asc" } });
-    return res.json(defaultCompany ? [defaultCompany] : []);
-  } catch (error) {
-    next(error);
-  }
+    const ids = await allowedCompanyIds(req.user!);
+    res.json(await prisma.company.findMany({ where: { id: { in: ids } }, orderBy: { name: "asc" } }));
+  } catch (error) { next(error); }
+});
+orgRouter.use("/companies/:id", async (req, _res, next) => {
+  try { await assertCompanyAccess(req.user!, req.params.id); next(); } catch (error) { next(error); }
 });
 
 orgRouter.get("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.MANAGER, Role.EMPLOYEE), async (req, res, next) => {
@@ -79,7 +38,7 @@ orgRouter.get("/companies/:id", requireRoles(Role.SUPER_ADMIN, Role.HR_ADMIN, Ro
     if (!company) {
       throw new ApiError(404, "Company not found");
     }
-    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.HR_ADMIN && req.user!.companyId !== company.id) {
+    if (!(await allowedCompanyIds(req.user!)).includes(company.id)) {
       throw new ApiError(403, "Insufficient permissions");
     }
     res.json(company);
