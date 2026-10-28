@@ -41,6 +41,6 @@ jobs:
         run: |
           RELEASE_ROOT="domains/api.secondtales.com/hbuilds/versions/github-$GITHUB_SHA"
           ssh "$DEPLOY_TARGET" "mkdir -p $RELEASE_ROOT/nodejs"
-          rsync -az --exclude=.git --exclude=node_modules --exclude=.env --exclude='.env.*' --exclude=storage --exclude=tmp --exclude='*.log' --exclude='*.zip' --exclude=scratch ./ "$DEPLOY_TARGET:$RELEASE_ROOT/nodejs/"
+          rsync -az --exclude=.git --exclude=node_modules --exclude=.env --exclude='.env.*' --exclude=/storage --exclude=/tmp --exclude='*.log' --exclude='*.zip' --exclude=/scratch ./ "$DEPLOY_TARGET:$RELEASE_ROOT/nodejs/"
       - name: Activate and verify release
         run: ssh stems-deployment "bash -s -- github-$GITHUB_SHA" < scripts/deploy-hostinger.sh
