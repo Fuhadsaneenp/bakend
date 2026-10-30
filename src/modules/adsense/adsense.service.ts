@@ -110,11 +110,16 @@ export async function sync(companyId: string, requested?: { start: string; end: 
       token = await access(companyId); available = await discover(token);
     }
     for (const site of available) {
-      const today = day(site.timeZone), start = requested?.start && requested.start < offset(today, -29) ? requested.start : offset(today, -29), end = requested?.end && requested.end < today ? today : requested?.end || today;
-      if (end > today) throw new ApiError(400, "AdSense dates cannot be in the future");
-      range(start, end);
-      const result = await google(token, `${site.account}/reports:generate`, reportQuery(site.siteId, start, end));
-      const rows = parseReport(result, start, end), stamp = new Date().toISOString();
+      const today = day(site.timeZone);
+      if (requested && requested.end > today) throw new ApiError(400, "AdSense dates cannot be in the future");
+      const recent = { start: offset(today, -29), end: today };
+      const windows = requested && (requested.start < recent.start || requested.end > recent.end) ? [recent, requested] : [recent];
+      const values = new Map<string, { date: string; pageViews: number }>();
+      for (const window of windows) {
+        const result = await google(token, `${site.account}/reports:generate`, reportQuery(site.siteId, window.start, window.end));
+        for (const row of parseReport(result, window.start, window.end)) values.set(row.date, row);
+      }
+      const rows = [...values.values()], stamp = new Date().toISOString();
       await prisma.$transaction(async tx => {
         const latest = await tx.companySetting.findUnique({ where: { companyId_key: { companyId, key: CONNECTION } } });
         if ((latest?.value as any)?.generation !== initial.generation) throw new ApiError(409, "AdSense connection changed during synchronization");
