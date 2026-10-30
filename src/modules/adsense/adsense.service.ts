@@ -173,6 +173,20 @@ export async function sync(companyId: string, requested?: { start: string; end: 
     throw error;
   } finally { await prisma.companySetting.deleteMany({ where: { id: lease.id } }); }
 }
+/** Explicit report readers may use the shared Data Entry website reports;
+ * credentials and account management remain scoped to the owning company. */
+export async function sharedReportCompany(companyId: string, domain: string) {
+  if (await connectionRow(companyId, domain)) return companyId;
+  const rows = await prisma.companySetting.findMany({
+    where: { key: { in: [CONNECTION, connectionKey(domain)] } },
+    select: { companyId: true, value: true }
+  });
+  const owners = [...new Set(rows.filter(row =>
+    (row.value as unknown as Connection).sites?.some(site => site.domain === domain)
+  ).map(row => row.companyId))];
+  // Never pick an arbitrary account when several separate company reports exist.
+  return owners.length === 1 ? owners[0] : companyId;
+}
 export async function report(companyId: string, domain: string, requested?: { start: string; end: string }) {
   const row = await connectionRow(companyId, domain), c = row?.value as unknown as Connection | undefined;
   const site = c?.sites.find(site => site.domain === domain), today = day(site?.timeZone || "Asia/Kolkata"), yesterday = offset(today, -1);

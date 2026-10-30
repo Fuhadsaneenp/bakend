@@ -4,7 +4,7 @@ import rateLimit from "express-rate-limit";
 import { requireAuth } from "../../middleware/auth.js";
 import { permissionService } from "../authority/permission.service.js";
 import { ApiError } from "../../lib/errors.js";
-import { begin, callback, company, disconnect, isAdmin, report, sync } from "./adsense.service.js";
+import { begin, callback, company, disconnect, isAdmin, report, sharedReportCompany, sync } from "./adsense.service.js";
 export const adsenseRouter = Router();
 export const adsenseDestination = (website?: string) => `${process.env.APP_ORIGIN || "https://stems.secondtales.com"}/work-track?track=data-entry&tab=adsense-daily-views${website ? `&website=${encodeURIComponent(website)}` : ""}`;
 adsenseRouter.get("/google/callback", async (req, res) => {
@@ -20,7 +20,8 @@ adsenseRouter.get("/report", async (req, res, next) => {
   try {
     if (!isAdmin(req.user!)) await permissionService.requirePermission(req.user!.id, "adsense.views.view", { companyId: company(req.user!) });
     const q = query.parse(req.query);
-    res.json({ ...await report(company(req.user!), q.website, q.start && q.end ? { start: q.start, end: q.end } : undefined), canManage: isAdmin(req.user!) });
+    const reportCompany = !isAdmin(req.user!) ? await sharedReportCompany(company(req.user!), q.website) : company(req.user!);
+    res.json({ ...await report(reportCompany, q.website, q.start && q.end ? { start: q.start, end: q.end } : undefined), canManage: isAdmin(req.user!) });
   } catch (error) { next(error); }
 });
 adsenseRouter.use((req, _res, next) => { if (!isAdmin(req.user!)) return next(new ApiError(403, "Administrator required")); next(); });
