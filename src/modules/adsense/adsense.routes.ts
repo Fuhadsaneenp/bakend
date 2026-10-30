@@ -24,8 +24,8 @@ adsenseRouter.get("/report", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 adsenseRouter.use((req, _res, next) => { if (!isAdmin(req.user!)) return next(new ApiError(403, "Administrator required")); next(); });
-adsenseRouter.post("/connect", limited, async (req, res, next) => { try { const body = z.object({ website: z.enum(["trikonet.com", "medbiomate.com"]) }).parse(req.body); res.json(await begin(req.user!, body.website)); } catch (error) { next(error); } });
+adsenseRouter.post("/connect", limited, async (req, res, next) => { try { if (!req.body?.website) throw new ApiError(409, "This page is out of date. Reload STEMS, select your website, then connect again."); const body = z.object({ website: z.enum(["trikonet.com", "medbiomate.com"]) }).parse(req.body); res.json(await begin(req.user!, body.website)); } catch (error) { next(error); } });
 adsenseRouter.delete("/connection", limited, async (req, res, next) => { try { const q = z.object({ website: z.enum(["trikonet.com", "medbiomate.com"]) }).parse(req.query); await disconnect(company(req.user!), q.website); res.json({ disconnected: true }); } catch (error) { next(error); } });
 adsenseRouter.post("/refresh", limited, async (req, res, next) => {
-  try { const body = z.object({ website: z.enum(["trikonet.com", "medbiomate.com"]), start: z.string().optional(), end: z.string().optional() }).refine(b => !!b.start === !!b.end).parse(req.body || {}); await sync(company(req.user!), body.start && body.end ? { start: body.start, end: body.end } : undefined, body.website); res.json({ synced: true }); } catch (error) { next(error); }
+  try { if (!req.body?.website) throw new ApiError(409, "This page is out of date. Reload STEMS, select your website, then refresh again."); const body = z.object({ website: z.enum(["trikonet.com", "medbiomate.com"]), start: z.string().optional(), end: z.string().optional() }).refine(b => !!b.start === !!b.end).parse(req.body || {}); await sync(company(req.user!), body.start && body.end ? { start: body.start, end: body.end } : undefined, body.website); res.json({ synced: true }); } catch (error) { next(error); }
 });
