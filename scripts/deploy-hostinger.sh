@@ -35,7 +35,7 @@ import dotenv from 'dotenv';
 const base='/home/u743262110/domains/api.secondtales.com/hbuilds/config/';
 dotenv.config({path:'/home/u743262110/stems-migration-20261024/private/production.env',override:true});dotenv.config({path:base+'.env.seo',override:true});
 const {prisma}=await import('./dist/src/lib/prisma.js');
-try{await prisma.user.count();await prisma.seoMetric.count();console.log('Staged database checks passed');}finally{await prisma.$disconnect();}
+try{await prisma.user.count();await prisma.seoMetric.count();await prisma.permission.upsert({where:{code:'adsense.views.view'},create:{code:'adsense.views.view',module:'adsense',feature:'views',action:'view',description:'View AdSense daily page views only.',isSensitive:false},update:{}});console.log('Staged database checks passed');}finally{await prisma.$disconnect();}
 JS
 cp "$site/public_html/.htaccess" ../htaccess.previous
 restart_app() {

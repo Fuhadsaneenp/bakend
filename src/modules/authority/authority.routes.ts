@@ -72,6 +72,7 @@ authorityRouter.post("/seed-permissions", requireRoles(Role.SUPER_ADMIN), async 
       ["performance.goal.manage", "performance", "goal", "manage", "Manage performance goals.", false],
       ["performance.appraisal.review", "performance", "appraisal", "review", "Review performance appraisals.", false],
       ["lifecycle.checklist.manage", "lifecycle", "checklist", "manage", "Manage onboarding/offboarding checklists.", false],
+      ["adsense.views.view", "adsense", "views", "view", "View AdSense daily page views only.", false],
       ["settings.company.view", "settings", "company", "view", "View company settings.", false],
       ["settings.company.manage", "settings", "company", "manage", "Manage company settings.", true],
       ["settings.department.manage", "settings", "department", "manage", "Manage departments.", true],

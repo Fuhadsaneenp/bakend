@@ -1,3 +1,5 @@
+import { callback as adsenseCallback } from "../adsense/adsense.service.js";
+import { adsenseDestination } from "../adsense/adsense.routes.js";
 import { seoCrmClients } from "./seo.clients.js";
 import {
   Router,
@@ -55,6 +57,12 @@ const limited = rateLimit({
 seoRouter.get(
   "/google/callback",
   wrap(async (req, res) => {
+    if (typeof req.query.state === "string" && req.query.state.startsWith("adsense.")) {
+      res.setHeader("Referrer-Policy", "no-referrer");
+      try { await adsenseCallback(req.query.state, z.string().min(1).parse(req.query.code)); res.redirect(adsenseDestination() + "&adsense=connected"); }
+      catch { res.redirect(adsenseDestination() + "&adsense=failed"); }
+      return;
+    }
     await callback(
       z.string().min(20).parse(req.query.state),
       z.string().min(1).parse(req.query.code),

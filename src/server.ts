@@ -1,3 +1,4 @@
+import { startAdSenseJobs } from "./modules/adsense/adsense.service.js";
 import { startSeoJobs } from "./modules/seo/seo.jobs.js";
 import { env } from "./config/env.js";
 import { createApp } from "./app.js";
@@ -7,6 +8,7 @@ import { ensureShiftSchema } from "./lib/ensureShiftSchema.js";
 async function start() {
   const app = createApp();
   startSeoJobs();
+  startAdSenseJobs();
 
   app.listen(env.PORT, "0.0.0.0", () => {
     console.log(`HR SaaS API listening on http://localhost:${env.PORT}`);
