@@ -9,10 +9,10 @@ previous=$(readlink "$base/current")
 previous_app=$(readlink -f "$base/current/nodejs")
 export PATH=/opt/alt/alt-nodejs22/root/usr/bin:$PATH
 cd "$app"
-ln -s /home/u743262110/stems-migration-20261024/private/production.env .env
-ln -s /home/u743262110/stems-migration-20261024/backend/storage storage
+ln -sfn /home/u743262110/stems-migration-20261024/private/production.env .env
+ln -sfn /home/u743262110/stems-migration-20261024/backend/storage storage
 npm ci --ignore-scripts --no-audit --no-fund > "$app/../install.log" 2>&1
-npm rebuild >> "$app/../install.log" 2>&1
+npm rebuild --foreground-scripts >> "$app/../install.log" 2>&1
 npx prisma generate > ../prisma.log 2>&1
 mkdir -p tmp
 node --input-type=commonjs <<'JS'
