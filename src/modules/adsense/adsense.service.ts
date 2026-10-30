@@ -212,11 +212,13 @@ export function startAdSenseJobs() {
         const identity = `${row.companyId}:${site.domain}`;
         if (seen.has(identity)) continue; seen.add(identity);
         const c = await connection(row.companyId, site.domain);
-        if (c.status !== "CONNECTED" || (c.lastAttempt && Date.now() - c.lastAttempt < 3600000) || (c.sites.length && c.sites.every(site => site.lastSyncAt && day(site.timeZone, new Date(site.lastSyncAt)) === day(site.timeZone)))) continue;
+        const lastSync = c.sites.find(connected => connected.domain === site.domain)?.lastSyncAt;
+        const lastActivity = Math.max(c.lastAttempt || 0, lastSync ? Date.parse(lastSync) : 0);
+        if (c.status !== "CONNECTED" || Date.now() - lastActivity < 30 * 60000) continue;
         try { await sync(row.companyId, undefined, site.domain); } catch { console.error("AdSense scheduled synchronization failed", row.companyId); }
         }
       }
     } catch { console.error("AdSense scheduler unavailable"); } finally { running = false; }
   };
-  const first = setTimeout(() => void tick(), 15000); first.unref(); const timer = setInterval(() => void tick(), 3600000); timer.unref();
+  const first = setTimeout(() => void tick(), 15000); first.unref(); const timer = setInterval(() => void tick(), 60000); timer.unref();
 }
