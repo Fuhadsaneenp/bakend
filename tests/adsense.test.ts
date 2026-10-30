@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { day, range, reportQuery, parseReport, encrypt, decrypt } from "../src/modules/adsense/adsense.domain.js";
+import { day, range, reportQuery, parseReport, encrypt, decrypt, snapshotHour, compareSnapshots, comparisonMonths, summarizeViews } from "../src/modules/adsense/adsense.domain.js";
 import { begin, callback, sync, report, disconnect, CONNECTION } from "../src/modules/adsense/adsense.service.js";
 import { prisma } from "../src/lib/prisma.js";
 import { Role } from "@prisma/client";
@@ -73,4 +73,28 @@ test("OAuth replay protection, encrypted refresh, site isolation, revised upsert
     assert.equal((await report("tenant", "medbiomate.com")).todayViews, 82);
     await disconnect("tenant", "medbiomate.com"); assert.equal((await report("tenant", "trikonet.com")).todayViews, null); await assert.rejects(sync("tenant"), /Connect/);
   } finally { Object.assign(db, { findUnique: originals.unique, findFirst: originals.first, findMany: originals.many, upsert: originals.upsert, create: originals.create, update: originals.update, deleteMany: originals.deleteMany }); prisma.user.findUnique = originals.user; prisma.$transaction = originals.transaction; globalThis.fetch = originals.fetch; await prisma.$disconnect(); }
+});
+
+test("snapshot checkpoints respect local time, missing history and highest two-hour increase", () => {
+  assert.equal(snapshotHour("Asia/Kolkata", new Date("2026-10-30T04:30:00Z")), 10);
+  assert.equal(snapshotHour("Asia/Kolkata", new Date("2026-10-30T04:59:59Z")), 10);
+  assert.equal(snapshotHour("Asia/Kolkata", new Date("2026-10-30T05:00:00Z")), null);
+  assert.equal(snapshotHour("Asia/Kolkata", new Date("2026-10-30T03:30:00Z")), null);
+  const row = (date: string, hour: number, pageViews: number) => ({date, hour, pageViews, capturedAt: date + "T10:00:00Z"});
+  const result = compareSnapshots("2026-10-30", [row("2026-10-30",10,100), row("2026-10-30",12,160), row("2026-10-30",14,300), row("2026-10-29",10,80), row("2026-10-29",12,0)]);
+  assert.equal(result[0].difference,20); assert.equal(result[0].percent,25);
+  assert.equal(result[1].percent,null); assert.equal(result[1].increase,60);
+  assert.equal(result[2].highest,true); assert.equal(result[2].increase,140);
+  assert.equal(result[2].difference,null); assert.equal(result[3].increase,null);
+  assert.equal(compareSnapshots("2026-10-30", []).some(r=>r.highest),false);
+});
+
+test("month comparisons match elapsed days and do not treat missing records as zero", () => {
+  assert.deepEqual(comparisonMonths("2026-10-01", "2026-10-15"), { start: "2026-10-01", end: "2026-10-15", previousStart: "2026-09-01", previousEnd: "2026-09-15" });
+  assert.equal(comparisonMonths("2024-03-01", "2024-03-31").previousEnd, "2024-02-29");
+  assert.equal(comparisonMonths("2026-01-01", "2026-10-30").previousStart, "2025-12-01");
+  const values = new Map([["2026-10-01", 10], ["2026-10-02", 20]]);
+  assert.equal(summarizeViews("2026-10-01", "2026-10-03", values).total, null);
+  const complete = summarizeViews("2026-10-01", "2026-10-02", values);
+  assert.equal(complete.total, 30); assert.deepEqual(complete.highestDates, ["2026-10-02"]);
 });

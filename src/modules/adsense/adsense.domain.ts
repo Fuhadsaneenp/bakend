@@ -45,3 +45,43 @@ export function parseReport(result: any, start: string, end: string) {
   }
   return Array.from({ length: Math.round((Date.parse(end) - Date.parse(start)) / 86400000) + 1 }, (_, i) => ({ date: offset(start, i), pageViews: values.get(offset(start, i)) || 0 }));
 }
+
+export const snapshotHours = [10, 12, 14, 16, 18, 20, 22];
+export type ViewSnapshot = { date: string; hour: number; pageViews: number; capturedAt: string };
+/** Only capture close to the scheduled time; never backfill a missed checkpoint. */
+export function snapshotHour(timeZone: string, at: Date): number | null {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
+  const hour = Number(parts.find(p => p.type === "hour")!.value), minute = Number(parts.find(p => p.type === "minute")!.value);
+  return snapshotHours.includes(hour) && minute < 30 ? hour : null;
+}
+export function compareSnapshots(today: string, snapshots: ViewSnapshot[]) {
+  const previous = offset(today, -1);
+  const rows = snapshotHours.map(hour => {
+    const current = snapshots.find(s => s.date === today && s.hour === hour);
+    const yesterday = snapshots.find(s => s.date === previous && s.hour === hour);
+    const before = snapshots.find(s => s.date === today && s.hour === hour - 2);
+    const difference = current && yesterday ? current.pageViews - yesterday.pageViews : null;
+    return { hour, todayViews: current?.pageViews ?? null, yesterdayViews: yesterday?.pageViews ?? null, capturedAt: current?.capturedAt ?? null, yesterdayCapturedAt: yesterday?.capturedAt ?? null, difference, percent: difference !== null && yesterday!.pageViews > 0 ? difference / yesterday!.pageViews * 100 : null, increase: current && before ? current.pageViews - before.pageViews : null };
+  });
+  const gains = rows.filter(r => r.increase !== null && r.increase > 0);
+  const highest = gains.length ? Math.max(...gains.map(r => r.increase!)) : null;
+  return rows.map(row => ({ ...row, highest: highest !== null && row.increase === highest }));
+}
+
+export function comparisonMonths(selected: string, today: string) {
+  const start = selected.slice(0, 7) + "-01";
+  const endOfMonth = (date: string) => { const [y, m] = date.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
+  const end = endOfMonth(start) < today ? endOfMonth(start) : today;
+  const previousStart = offset(start, -1).slice(0, 7) + "-01";
+  const previousLast = endOfMonth(previousStart);
+  const matchingEnd = offset(previousStart, Number(end.slice(8)) - 1);
+  const previousEnd = start.slice(0, 7) === today.slice(0, 7) && matchingEnd < previousLast ? matchingEnd : previousLast;
+  return { start, end, previousStart, previousEnd };
+}
+export function summarizeViews(start: string, end: string, values: Map<string, number>) {
+  const available: {date: string; pageViews: number}[] = [];
+  let expected = 0;
+  for (let d = start; d <= end; d = offset(d, 1)) { expected++; if (values.has(d)) available.push({ date: d, pageViews: values.get(d)! }); }
+  const highest = available.length ? Math.max(...available.map(r => r.pageViews)) : null;
+  return { start, end, total: available.length === expected ? available.reduce((sum, r) => sum + r.pageViews, 0) : null, daysAvailable: available.length, daysExpected: expected, highestViews: highest, highestDates: available.filter(r => r.pageViews === highest).map(r => r.date) };
+}

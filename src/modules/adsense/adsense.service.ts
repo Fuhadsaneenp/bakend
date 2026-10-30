@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError } from "../../lib/errors.js";
 import type { AuthUser } from "../../middleware/auth.js";
-import { day, offset, range, sites, digest, encrypt, decrypt, reportQuery, parseReport } from "./adsense.domain.js";
+import { day, offset, range, sites, digest, encrypt, decrypt, reportQuery, parseReport, snapshotHour, snapshotHours, compareSnapshots, type ViewSnapshot, comparisonMonths, summarizeViews } from "./adsense.domain.js";
 export const CONNECTION = "adsense_connection_v1";
 const connectionKey = (domain: string) => `${CONNECTION}:${domain}`;
 const leaseKey = (domain: string) => `adsense_sync_lease_v1:${domain}`;
@@ -147,8 +147,8 @@ export async function sync(companyId: string, requested?: { start: string; end: 
     for (const site of available) {
       const today = day(site.timeZone);
       if (requested && requested.end > today) throw new ApiError(400, "AdSense dates cannot be in the future");
-      const recent = { start: offset(today, -29), end: today };
-      const windows = requested && (requested.start < recent.start || requested.end > recent.end) ? [recent, requested] : [recent];
+      const recent = { start: comparisonMonths(today, today).previousStart, end: today };
+      const windows = requested && (comparisonMonths(requested.start, today).previousStart < recent.start || requested.end > recent.end) ? [recent, { start: comparisonMonths(requested.start, today).previousStart, end: requested.end }] : [recent];
       const values = new Map<string, { date: string; pageViews: number }>();
       for (const window of windows) {
         const result = await google(token, `${site.account}/reports:generate`, reportQuery(site.siteId, window.start, window.end));
@@ -161,6 +161,13 @@ export async function sync(companyId: string, requested?: { start: string; end: 
         for (const row of rows) {
           const key = `adsense_day:${digest(site.account).slice(0, 24)}:${site.domain}:${row.date}`, value = { ...row, syncedAt: stamp };
           await tx.companySetting.upsert({ where: { companyId_key: { companyId, key } }, create: { companyId, key, value }, update: { value } });
+        }
+        const hour = snapshotHour(site.timeZone, new Date(stamp));
+        const todayViews = values.get(today)?.pageViews;
+        if (hour !== null && todayViews !== undefined) {
+          const key = `adsense_snapshot:${digest(site.account).slice(0, 24)}:${domain}:${today}:${hour}`;
+          // Keep the first successful observation, including when an admin refreshes again.
+          await tx.companySetting.upsert({ where: { companyId_key: { companyId, key } }, create: { companyId, key, value: { date: today, hour, pageViews: todayViews, capturedAt: stamp } }, update: {} });
         }
         const current = latest!.value as any;
         const updated = available.map(s => ({ ...s, lastSyncAt: s.domain === site.domain ? stamp : current.sites.find((old: Site) => old.domain === s.domain && old.account === s.account)?.lastSyncAt }));
@@ -192,12 +199,21 @@ export async function report(companyId: string, domain: string, requested?: { st
   const site = c?.sites.find(site => site.domain === domain), today = day(site?.timeZone || "Asia/Kolkata"), yesterday = offset(today, -1);
   const start = requested?.start || offset(today, -29), end = requested?.end || today; range(start, end);
   if (end > today) throw new ApiError(400, "Choose dates up to today in the account reporting timezone");
-  const dates = new Set([today, yesterday]); for (let d = start; d <= end; d = offset(d, 1)) dates.add(d);
+  const months = comparisonMonths(start, today);
+  const dates = new Set([today, yesterday]);
+  for (let d = months.previousStart; d <= months.end; d = offset(d, 1)) dates.add(d);
+  for (let d = start; d <= end; d = offset(d, 1)) dates.add(d);
   const keys = site ? [...dates].map(date => `adsense_day:${digest(site.account).slice(0, 24)}:${domain}:${date}`) : [];
   const rows = keys.length ? await prisma.companySetting.findMany({ where: { companyId, key: { in: keys } }, select: { value: true } }) : [];
   const data = new Map(rows.map(row => { const v = row.value as any; return [v.date, v.pageViews as number]; }));
+  const snapshotKeys = site ? [today, yesterday].flatMap(date => snapshotHours.map(hour => `adsense_snapshot:${digest(site.account).slice(0, 24)}:${domain}:${date}:${hour}`)) : [];
+  const snapshots = snapshotKeys.length ? await prisma.companySetting.findMany({ where: { companyId, key: { in: snapshotKeys } }, select: { value: true } }) : [];
+  const comparison = compareSnapshots(today, snapshots.map(row => row.value as unknown as ViewSnapshot));
   const connections = await Promise.all(sites.map(site => connectionRow(companyId, site)));
-  return { connected: !!c, configured: configured(), status: c?.status, error: c?.error, websites: sites.map((domain, index) => ({ domain, available: !!connections[index] })), website: domain, timeZone: site?.timeZone, today, todayViews: data.get(today) ?? null, yesterdayViews: data.get(yesterday) ?? null, lastSyncAt: site?.lastSyncAt || null, rows: [...dates].filter(date => date >= start && date <= end).sort().map(date => ({ date, pageViews: data.get(date) ?? null, incomplete: date === today })) };
+  const month = summarizeViews(months.start, months.end, data), previousMonth = summarizeViews(months.previousStart, months.previousEnd, data);
+  const monthlyDifference = month.total !== null && previousMonth.total !== null ? month.total - previousMonth.total : null;
+  const monthly = { month, previousMonth, difference: monthlyDifference, percent: monthlyDifference !== null && previousMonth.total! > 0 ? monthlyDifference / previousMonth.total! * 100 : null };
+  return { monthly, comparison, connected: !!c, configured: configured(), status: c?.status, error: c?.error, websites: sites.map((domain, index) => ({ domain, available: !!connections[index] })), website: domain, timeZone: site?.timeZone, today, todayViews: data.get(today) ?? null, yesterdayViews: data.get(yesterday) ?? null, lastSyncAt: site?.lastSyncAt || null, rows: [...dates].filter(date => date >= start && date <= end).sort().map(date => ({ date, pageViews: data.get(date) ?? null, incomplete: date === today })) };
 }
 export function startAdSenseJobs() {
   if (process.env.ADSENSE_JOBS_ENABLED === "false") return;
