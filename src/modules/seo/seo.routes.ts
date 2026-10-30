@@ -59,7 +59,7 @@ seoRouter.get(
   wrap(async (req, res) => {
     if (typeof req.query.state === "string" && req.query.state.startsWith("adsense.")) {
       res.setHeader("Referrer-Policy", "no-referrer");
-      try { await adsenseCallback(req.query.state, z.string().min(1).parse(req.query.code)); res.redirect(adsenseDestination() + "&adsense=connected"); }
+      try { const website = await adsenseCallback(req.query.state, z.string().min(1).parse(req.query.code)); res.redirect(adsenseDestination(website) + "&adsense=connected"); }
       catch { res.redirect(adsenseDestination() + "&adsense=failed"); }
       return;
     }

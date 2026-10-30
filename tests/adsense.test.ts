@@ -51,13 +51,26 @@ test("OAuth replay protection, encrypted refresh, site isolation, revised upsert
     const url = new URL((await begin(u)).url); assert.equal(url.searchParams.get("scope"), "https://www.googleapis.com/auth/adsense.readonly"); assert.ok(url.searchParams.get("code_challenge"));
     await callback(url.searchParams.get("state")!, "auth-code");
     await assert.rejects(callback(url.searchParams.get("state")!, "auth-code"), /expired/);
-    const saved = database.get(key("tenant", CONNECTION)); assert.notEqual(saved.value.refresh, "test-refresh"); saved.value.expires = 0;
+    assert.equal((await report("tenant", "medbiomate.com")).connected, false);
+    const originalTrikonetGeneration = database.get(key("tenant", CONNECTION + ":trikonet.com")).value.generation;
+    const secondUrl = new URL((await begin(u, "medbiomate.com")).url);
+    assert.equal(secondUrl.searchParams.get("prompt"), "consent select_account");
+    await callback(secondUrl.searchParams.get("state")!, "second-auth-code");
+    assert.equal(database.get(key("tenant", CONNECTION + ":trikonet.com")).value.generation, originalTrikonetGeneration, "Connecting Medbiomate must not replace Trikonet");
+    const saved = database.get(key("tenant", CONNECTION + ":trikonet.com")); assert.notEqual(saved.value.refresh, "test-refresh"); saved.value.expires = 0;
     await sync("tenant"); assert.equal(refreshed, 1); assert.equal(reportCalls.length, 2);
     const initial = await report("tenant", "trikonet.com"); assert.equal(initial.todayViews, 40); assert.ok(initial.lastSyncAt); assert.equal(initial.rows.length, 30);
     const serialized = JSON.stringify(initial); for (const secret of ["test-access", "test-refresh", "accounts/pub-123", "private.example", "siteId"]) assert.ok(!serialized.includes(secret));
     const size = database.size; count = 82; await sync("tenant"); assert.equal(database.size, size); assert.equal((await report("tenant", "trikonet.com")).todayViews, 82);
     assert.equal((await report("other-tenant", "trikonet.com")).connected, false);
     siteAccess = false; await assert.rejects(sync("tenant"), /Neither/); assert.equal((await report("tenant", "trikonet.com")).todayViews, 82);
-    await disconnect("tenant"); assert.equal((await report("tenant", "trikonet.com")).todayViews, null); await assert.rejects(sync("tenant"), /Connect/);
+    const existingTrikonet = database.get(key("tenant", CONNECTION + ":trikonet.com"));
+    database.set(key("tenant", CONNECTION), { ...existingTrikonet, id: key("tenant", CONNECTION), key: CONNECTION });
+    database.delete(key("tenant", CONNECTION + ":trikonet.com"));
+    assert.equal((await report("tenant", "trikonet.com")).todayViews, 82, "Existing shared connections and historical rows must remain readable");
+    await disconnect("tenant", "trikonet.com");
+    assert.equal((await report("tenant", "medbiomate.com")).connected, true, "Disconnecting Trikonet must preserve Medbiomate");
+    assert.equal((await report("tenant", "medbiomate.com")).todayViews, 82);
+    await disconnect("tenant", "medbiomate.com"); assert.equal((await report("tenant", "trikonet.com")).todayViews, null); await assert.rejects(sync("tenant"), /Connect/);
   } finally { Object.assign(db, { findUnique: originals.unique, findFirst: originals.first, findMany: originals.many, upsert: originals.upsert, create: originals.create, update: originals.update, deleteMany: originals.deleteMany }); prisma.user.findUnique = originals.user; prisma.$transaction = originals.transaction; globalThis.fetch = originals.fetch; await prisma.$disconnect(); }
 });

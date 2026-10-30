@@ -4,6 +4,8 @@ import { ApiError } from "../../lib/errors.js";
 import type { AuthUser } from "../../middleware/auth.js";
 import { day, offset, range, sites, digest, encrypt, decrypt, reportQuery, parseReport } from "./adsense.domain.js";
 export const CONNECTION = "adsense_connection_v1";
+const connectionKey = (domain: string) => `${CONNECTION}:${domain}`;
+const leaseKey = (domain: string) => `adsense_sync_lease_v1:${domain}`;
 const SCOPE = "https://www.googleapis.com/auth/adsense.readonly";
 type Site = { domain: string; account: string; siteId: string; timeZone: string; lastSyncAt?: string };
 type Connection = { access: string; refresh: string; expires: number; sites: Site[]; generation: string; lastAttempt?: number; status: "CONNECTED" | "RECONNECT_REQUIRED"; error?: string };
@@ -19,7 +21,17 @@ function config() {
 export function configured() { try { config(); encrypt("configuration-check"); return true; } catch { return false; } }
 async function setting(companyId: string, key: string) { return prisma.companySetting.findUnique({ where: { companyId_key: { companyId, key } } }); }
 async function put(companyId: string, key: string, value: any) { return prisma.companySetting.upsert({ where: { companyId_key: { companyId, key } }, create: { companyId, key, value }, update: { value } }); }
-async function connection(companyId: string): Promise<Connection> { const row = await setting(companyId, CONNECTION); if (!row) throw new ApiError(409, "Connect an AdSense account first"); return row.value as any; }
+async function connectionRow(companyId: string, domain: string) {
+  const specific = await setting(companyId, connectionKey(domain));
+  if (specific) return specific;
+  const legacy = await setting(companyId, CONNECTION);
+  return (legacy?.value as unknown as Connection | undefined)?.sites.some(site => site.domain === domain) ? legacy : null;
+}
+async function connection(companyId: string, domain: string): Promise<Connection> {
+  const row = await connectionRow(companyId, domain);
+  if (!row) throw new ApiError(409, `Connect Google for ${domain} first`);
+  return row.value as any;
+}
 async function tokens(body: Record<string, string>) {
   const c = config();
   const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", body: new URLSearchParams({ ...body, client_id: c.clientId, client_secret: c.clientSecret }), signal: AbortSignal.timeout(20000) });
@@ -53,10 +65,11 @@ async function discover(access: string) {
   if (!found.length) throw new ApiError(400, "Neither trikonet.com nor medbiomate.com is accessible in this AdSense account");
   return found;
 }
-export async function begin(u: AuthUser) {
+export async function begin(u: AuthUser, website = "trikonet.com") {
+  if (!sites.includes(website as any)) throw new ApiError(400, "Unsupported website");
   const c = config(), companyId = company(u), state = `adsense.${randomBytes(32).toString("base64url")}`, verifier = randomBytes(32).toString("base64url");
-  await put(companyId, `adsense_oauth:${digest(state)}`, { userId: u.id, expires: Date.now() + 600000, verifier: encrypt(verifier) });
-  const query = new URLSearchParams({ client_id: c.clientId, redirect_uri: c.redirectUri, response_type: "code", scope: SCOPE, access_type: "offline", prompt: "consent", state, code_challenge: Buffer.from(digest(verifier), "hex").toString("base64url"), code_challenge_method: "S256" });
+  await put(companyId, `adsense_oauth:${digest(state)}`, { userId: u.id, website, expires: Date.now() + 600000, verifier: encrypt(verifier) });
+  const query = new URLSearchParams({ client_id: c.clientId, redirect_uri: c.redirectUri, response_type: "code", scope: SCOPE, access_type: "offline", prompt: "consent select_account", state, code_challenge: Buffer.from(digest(verifier), "hex").toString("base64url"), code_challenge_method: "S256" });
   return { url: `https://accounts.google.com/o/oauth2/v2/auth?${query}` };
 }
 export async function callback(state: string, code: string) {
@@ -70,45 +83,67 @@ export async function callback(state: string, code: string) {
   if (!user?.isActive || !isAdmin(user) || user.companyId !== saved.companyId) throw new ApiError(403, "Administrator access revoked");
   const token = await tokens({ code, grant_type: "authorization_code", redirect_uri: config().redirectUri, code_verifier: decrypt(data.verifier) });
   if (!token.refresh_token) throw new ApiError(400, "Offline authorization is required; reconnect with Google consent");
-  const discovered = await discover(token.access_token);
-  if (await setting(saved.companyId, "adsense_sync_lease_v1")) throw new ApiError(409, "Synchronization is running; reconnect after it completes");
-  await put(saved.companyId, CONNECTION, { access: encrypt(token.access_token), refresh: encrypt(token.refresh_token), expires: Date.now() + token.expires_in * 1000, sites: discovered, generation: randomBytes(16).toString("hex"), status: "CONNECTED" });
+  const discovered = (await discover(token.access_token)).filter(site => !data.website || site.domain === data.website);
+  if (!discovered.length) throw new ApiError(400, `The selected Google account does not have access to ${data.website}`);
+  for (const site of discovered) {
+    if (await setting(saved.companyId, leaseKey(site.domain))) throw new ApiError(409, "Synchronization is running; reconnect after it completes");
+    await put(saved.companyId, connectionKey(site.domain), { access: encrypt(token.access_token), refresh: encrypt(token.refresh_token), expires: Date.now() + token.expires_in * 1000, sites: [site], generation: randomBytes(16).toString("hex"), status: "CONNECTED" });
+  }
+  return data.website || discovered[0]?.domain;
   // Synchronization runs after callback via the durable daily job; the administrator can also refresh immediately.
 }
 const refreshes = new Map<string, Promise<string>>();
-async function access(companyId: string) {
-  const c = await connection(companyId);
+async function access(companyId: string, domain: string) {
+  const c = await connection(companyId, domain);
   if (c.status !== "CONNECTED") throw new ApiError(409, "Reconnect AdSense to continue synchronization");
   if (c.expires > Date.now() + 60000) return decrypt(c.access);
-  const existing = refreshes.get(companyId); if (existing) return existing;
+  const existing = refreshes.get(`${companyId}:${domain}`); if (existing) return existing;
   const pending = (async () => {
     const token = await tokens({ grant_type: "refresh_token", refresh_token: decrypt(c.refresh) });
-    const fresh = await connection(companyId);
+    const fresh = await connection(companyId, domain);
     if (fresh.generation !== c.generation) throw new ApiError(409, "AdSense connection changed");
-    await put(companyId, CONNECTION, { ...fresh, access: encrypt(token.access_token), refresh: token.refresh_token ? encrypt(token.refresh_token) : fresh.refresh, expires: Date.now() + token.expires_in * 1000 });
+    await put(companyId, connectionKey(domain), { ...fresh, access: encrypt(token.access_token), refresh: token.refresh_token ? encrypt(token.refresh_token) : fresh.refresh, expires: Date.now() + token.expires_in * 1000 });
     return token.access_token as string;
-  })(); refreshes.set(companyId, pending);
-  try { return await pending; } finally { refreshes.delete(companyId); }
+  })(); refreshes.set(`${companyId}:${domain}`, pending);
+  try { return await pending; } finally { refreshes.delete(`${companyId}:${domain}`); }
 }
-export async function disconnect(companyId: string) {
-  if (await setting(companyId, "adsense_sync_lease_v1")) throw new ApiError(409, "Synchronization is running; disconnect after it completes");
-  await prisma.companySetting.deleteMany({ where: { companyId, key: CONNECTION } });
+export async function disconnect(companyId: string, domain?: string) {
+  const targets = domain ? [domain] : [...sites];
+  for (const site of targets) {
+    if (await setting(companyId, leaseKey(site))) throw new ApiError(409, "Synchronization is running; disconnect after it completes");
+    await prisma.companySetting.deleteMany({ where: { companyId, key: connectionKey(site) } });
+    const legacy = await setting(companyId, CONNECTION);
+    if (legacy) {
+      const c = legacy.value as unknown as Connection, remaining = c.sites.filter(s => s.domain !== site);
+      if (remaining.length) await put(companyId, CONNECTION, { ...c, sites: remaining });
+      else await prisma.companySetting.deleteMany({ where: { id: legacy.id } });
+    }
+  }
 }
-export async function sync(companyId: string, requested?: { start: string; end: string }) {
+export async function sync(companyId: string, requested?: { start: string; end: string }, domain?: string) {
+  if (!domain) {
+    let found = false;
+    for (const website of sites) if (await connectionRow(companyId, website)) { found = true; await sync(companyId, requested, website); }
+    if (!found) throw new ApiError(409, "Connect Google for a website first");
+    return;
+  }
+  if (!sites.includes(domain as any)) throw new ApiError(400, "Unsupported website");
   if (requested) range(requested.start, requested.end);
-  const lockKey = "adsense_sync_lease_v1";
+  const lockKey = leaseKey(domain);
   await prisma.companySetting.deleteMany({ where: { companyId, key: lockKey, updatedAt: { lt: new Date(Date.now() - 15 * 60000) } } });
   let lease;
   try { lease = await prisma.companySetting.create({ data: { companyId, key: lockKey, value: {} } }); } catch (error: any) { if (error.code === "P2002") throw new ApiError(409, "AdSense synchronization is already running"); throw error; }
   try {
-    const initial = await connection(companyId);
-    let token = await access(companyId), available: Site[];
-    try { available = await discover(token); }
+    const initial = await connection(companyId, domain);
+    if (!(await setting(companyId, connectionKey(domain)))) await put(companyId, connectionKey(domain), { ...initial, sites: initial.sites.filter(site => site.domain === domain) });
+    let token = await access(companyId, domain), available: Site[];
+    try { available = (await discover(token)).filter(site => site.domain === domain); }
     catch (error) {
       if (!(error instanceof ApiError) || error.statusCode !== 401) throw error;
-      const current = await connection(companyId); await put(companyId, CONNECTION, { ...current, expires: 0 });
-      token = await access(companyId); available = await discover(token);
+      const current = await connection(companyId, domain); await put(companyId, connectionKey(domain), { ...current, expires: 0 });
+      token = await access(companyId, domain); available = (await discover(token)).filter(site => site.domain === domain);
     }
+    if (!available.length) throw new ApiError(403, `The connected Google account no longer has access to ${domain}`);
     for (const site of available) {
       const today = day(site.timeZone);
       if (requested && requested.end > today) throw new ApiError(400, "AdSense dates cannot be in the future");
@@ -121,7 +156,7 @@ export async function sync(companyId: string, requested?: { start: string; end: 
       }
       const rows = [...values.values()], stamp = new Date().toISOString();
       await prisma.$transaction(async tx => {
-        const latest = await tx.companySetting.findUnique({ where: { companyId_key: { companyId, key: CONNECTION } } });
+        const latest = await tx.companySetting.findUnique({ where: { companyId_key: { companyId, key: connectionKey(domain) } } });
         if ((latest?.value as any)?.generation !== initial.generation) throw new ApiError(409, "AdSense connection changed during synchronization");
         for (const row of rows) {
           const key = `adsense_day:${digest(site.account).slice(0, 24)}:${site.domain}:${row.date}`, value = { ...row, syncedAt: stamp };
@@ -133,13 +168,13 @@ export async function sync(companyId: string, requested?: { start: string; end: 
       }, { timeout: 30000 });
     }
   } catch (error) {
-    const row = await setting(companyId, CONNECTION);
-    if (row) { const c = row.value as any; await put(companyId, CONNECTION, { ...c, lastAttempt: Date.now(), error: error instanceof ApiError ? error.message : "AdSense sync failed; previous successful values retained", status: error instanceof ApiError && error.statusCode === 401 ? "RECONNECT_REQUIRED" : c.status }); }
+    const row = await setting(companyId, connectionKey(domain));
+    if (row) { const c = row.value as any; await put(companyId, connectionKey(domain), { ...c, lastAttempt: Date.now(), error: error instanceof ApiError ? error.message : "AdSense sync failed; previous successful values retained", status: error instanceof ApiError && error.statusCode === 401 ? "RECONNECT_REQUIRED" : c.status }); }
     throw error;
   } finally { await prisma.companySetting.deleteMany({ where: { id: lease.id } }); }
 }
 export async function report(companyId: string, domain: string, requested?: { start: string; end: string }) {
-  const row = await setting(companyId, CONNECTION), c = row?.value as unknown as Connection | undefined;
+  const row = await connectionRow(companyId, domain), c = row?.value as unknown as Connection | undefined;
   const site = c?.sites.find(site => site.domain === domain), today = day(site?.timeZone || "Asia/Kolkata"), yesterday = offset(today, -1);
   const start = requested?.start || offset(today, -29), end = requested?.end || today; range(start, end);
   if (end > today) throw new ApiError(400, "Choose dates up to today in the account reporting timezone");
@@ -147,7 +182,8 @@ export async function report(companyId: string, domain: string, requested?: { st
   const keys = site ? [...dates].map(date => `adsense_day:${digest(site.account).slice(0, 24)}:${domain}:${date}`) : [];
   const rows = keys.length ? await prisma.companySetting.findMany({ where: { companyId, key: { in: keys } }, select: { value: true } }) : [];
   const data = new Map(rows.map(row => { const v = row.value as any; return [v.date, v.pageViews as number]; }));
-  return { connected: !!c, configured: configured(), status: c?.status, error: c?.error, websites: sites.map(domain => ({ domain, available: !!c?.sites.some(site => site.domain === domain) })), website: domain, timeZone: site?.timeZone, today, todayViews: data.get(today) ?? null, yesterdayViews: data.get(yesterday) ?? null, lastSyncAt: site?.lastSyncAt || null, rows: [...dates].filter(date => date >= start && date <= end).sort().map(date => ({ date, pageViews: data.get(date) ?? null, incomplete: date === today })) };
+  const connections = await Promise.all(sites.map(site => connectionRow(companyId, site)));
+  return { connected: !!c, configured: configured(), status: c?.status, error: c?.error, websites: sites.map((domain, index) => ({ domain, available: !!connections[index] })), website: domain, timeZone: site?.timeZone, today, todayViews: data.get(today) ?? null, yesterdayViews: data.get(yesterday) ?? null, lastSyncAt: site?.lastSyncAt || null, rows: [...dates].filter(date => date >= start && date <= end).sort().map(date => ({ date, pageViews: data.get(date) ?? null, incomplete: date === today })) };
 }
 export function startAdSenseJobs() {
   if (process.env.ADSENSE_JOBS_ENABLED === "false") return;
@@ -155,11 +191,16 @@ export function startAdSenseJobs() {
   const tick = async () => {
     if (running) return; running = true;
     try {
-      const connections = await prisma.companySetting.findMany({ where: { key: CONNECTION } });
+      const connections = await prisma.companySetting.findMany({ where: { key: { in: [CONNECTION, ...sites.map(connectionKey)] } } });
+      const seen = new Set<string>();
       for (const row of connections) {
-        const c = row.value as unknown as Connection;
+        for (const site of (row.value as unknown as Connection).sites) {
+        const identity = `${row.companyId}:${site.domain}`;
+        if (seen.has(identity)) continue; seen.add(identity);
+        const c = await connection(row.companyId, site.domain);
         if (c.status !== "CONNECTED" || (c.lastAttempt && Date.now() - c.lastAttempt < 3600000) || (c.sites.length && c.sites.every(site => site.lastSyncAt && day(site.timeZone, new Date(site.lastSyncAt)) === day(site.timeZone)))) continue;
-        try { await sync(row.companyId); } catch { console.error("AdSense scheduled synchronization failed", row.companyId); }
+        try { await sync(row.companyId, undefined, site.domain); } catch { console.error("AdSense scheduled synchronization failed", row.companyId); }
+        }
       }
     } catch { console.error("AdSense scheduler unavailable"); } finally { running = false; }
   };

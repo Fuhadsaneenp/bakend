@@ -19,3 +19,7 @@ The server scheduler checks hourly and runs at most once per account-local calen
 ## Verification
 
 Run tests/adsense.test.ts and tests/adsense-permissions.test.ts with tsx --test. They mock Google and the database and cover metrics, exact-site filters, token encryption/tampering, refresh, OAuth replay, revised values, duplicates, tenant isolation, missing site access, disconnect, and route permissions. A live Google report requires the human administrator's consent and cannot be verified from an unconnected account.
+
+## Separate Google accounts per website
+
+Each website now has its own encrypted connection at adsense_connection_v1:<domain>. Select a website before Connect, Refresh, or Disconnect. OAuth state binds consent to that website, and Google opens the account chooser. Only the chosen website is saved, even if the account can access both. Reconnecting or disconnecting one site does not affect the other. Original shared connections remain readable for their validated sites and are copied into per-website storage on sync; historical daily keys stay unchanged. Daily jobs iterate and lock each website independently.
