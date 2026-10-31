@@ -15,3 +15,6 @@ Independent field edits merge against the previous successful snapshot. On a sim
 Status exposes syncEnabled, lastSyncAt and syncError. POST /google-sheets/sync/enable performs initial reconciliation and enables two-way background sync. POST /google-sheets/sync retries immediately. Selecting another worksheet disables syncing until explicitly re-enabled.
 
 Connections are isolated by authenticated company. Only SUPER_ADMIN and HR_ADMIN accounts may manage them, and employee impersonation sessions are rejected. Google credentials never appear in browser responses. OAuth state expires after ten minutes and is consumed once. Disconnect removes the encrypted tokens from STEMS without changing the source spreadsheet; Google account permissions can additionally be revoked in Google Account settings.
+
+
+Per-person tabs use `workerSheets` employee ID mappings on the connection. Each tab includes only that employee’s assigned Master rows and their `__INDIVIDUAL_SHEET_ENTRIES__` personal collections. New rows entered in a person tab go only to their personal collection; changes to an existing Master Task ID update that assignment. Worker rows for another assignee are never imported. Each tab has its own merge baseline and last success/error. Existing worker templates may call column F “Status”.

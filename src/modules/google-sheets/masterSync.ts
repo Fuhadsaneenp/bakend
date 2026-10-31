@@ -51,7 +51,11 @@ export async function enableMasterSync(user: AuthUser) {
   });
   return { enabled: true };
 }
-export async function syncMaster(cid: string, initial = false) {
+export async function syncMaster(
+  cid: string,
+  initial = false,
+  worker?: { title: string; employeeId: string },
+) {
   if (running.has(cid)) throw new ApiError(409, "Sync is already running");
   running.add(cid);
   const leaseKey = "google_sheets_master_sync_lease_v1",
@@ -80,8 +84,10 @@ export async function syncMaster(cid: string, initial = false) {
     const c = await read(cid);
     if (!c?.spreadsheetId || !c.worksheetTitle || (!initial && !c.syncEnabled))
       return;
-    const scope = `${c.spreadsheetId}:${c.worksheetId}`;
-    const range = `'${c.worksheetTitle.replace(/'/g, "''")}'!A2:H`;
+    const tab = worker?.title || c.worksheetTitle;
+    const baselineKey = worker ? BASE + ":worker:" + worker.employeeId : BASE;
+    const scope = `${c.spreadsheetId}:${worker?.title || c.worksheetId}`;
+    const range = `'${tab.replace(/'/g, "''")}'!A2:H`;
     const get = async () =>
       (await google(
         cid,
@@ -89,7 +95,13 @@ export async function syncMaster(cid: string, initial = false) {
       )) as { values?: string[][] };
     const response = await get(),
       grid = response.values || [];
-    if (!HEADER.every((h, i) => grid[0]?.[i] === h))
+    if (
+      !HEADER.every(
+        (h, i) =>
+          grid[0]?.[i] === h ||
+          Boolean(worker && i === 5 && grid[0]?.[i] === "Status"),
+      )
+    )
       throw new ApiError(
         409,
         "Master worksheet needs Date, Source URL, Platform, Assigned To, Assignment Status, Upload Status, Task ID, Updated At in row 2",
@@ -100,15 +112,57 @@ export async function syncMaster(cid: string, initial = false) {
       now = new Date().toISOString(),
       today = new Date(Date.now() + 19800000).toISOString().slice(0, 10);
     const saved = await prisma.companySetting.findUnique({
-      where: { companyId_key: { companyId: cid, key: BASE } },
+      where: { companyId_key: { companyId: cid, key: baselineKey } },
     });
     const state = saved?.value as any;
     const baseline: Record<string, string[]> =
       state?.scope === scope ? state.rows : {};
     const all = await workTrackService.getDataEntrySheets(cid, true),
-      appRows = all[MASTER] || [];
+      masterRows = all[MASTER] || [];
+    const personalKeys = worker
+      ? Object.keys(all).filter(
+          (key) =>
+            key.startsWith("__INDIVIDUAL_SHEET_ENTRIES__:") &&
+            key.endsWith(":" + worker.employeeId),
+        )
+      : [];
+    const collectionById = new Map<string, string>();
+    const personalRows = personalKeys.flatMap((key) =>
+      all[key]
+        .filter((row) => row.status !== "Deleted")
+        .map((row) => {
+          if (row.notes) collectionById.set(row.notes, key);
+          return row;
+        }),
+    );
+    const appRows = worker
+      ? [
+          ...masterRows.filter(
+            (row) =>
+              row.companyName === worker.employeeId &&
+              row.status === "Assigned",
+          ),
+          ...personalRows,
+        ]
+      : masterRows;
     const employees = await prisma.employee.findMany({
-      where: { OR: [{ companyId: cid }, { id: { in: [...new Set(appRows.map(row => row.companyName).filter((id): id is string => Boolean(id)))] } }] },
+      where: {
+        OR: [
+          { companyId: cid },
+          {
+            id: {
+              in: [
+                ...new Set(
+                  [
+                    ...appRows.map((row) => row.companyName),
+                    worker?.employeeId,
+                  ].filter((id): id is string => Boolean(id)),
+                ),
+              ],
+            },
+          },
+        ],
+      },
       select: {
         id: true,
         firstName: true,
@@ -134,7 +188,7 @@ export async function syncMaster(cid: string, initial = false) {
       dateKey(cells[0] || "", today),
       cells[1]?.trim() || "",
       cells[2] || "Medbiomate",
-      resolveEmployee(cells[3] || ""),
+      worker ? worker.employeeId : resolveEmployee(cells[3] || ""),
       cells[4] || "Not Assigned",
       cells[5] || "Not Uploaded",
     ];
@@ -142,10 +196,11 @@ export async function syncMaster(cid: string, initial = false) {
       r.date || today,
       r.sourceUrl || "",
       r.category || "Medbiomate",
-      r.companyName || "",
+      worker ? worker.employeeId : r.companyName || "",
       r.status || "Not Assigned",
       r.uploadStatus || "Not Uploaded",
     ];
+    const masterIds = new Set(masterRows.map((row) => row.notes));
     const byId = new Map(
       appRows.filter((r: any) => r.notes).map((r: any) => [r.notes, r]),
     );
@@ -156,6 +211,7 @@ export async function syncMaster(cid: string, initial = false) {
     const deleted = new Set(
       (all.__DELETED_MASTER_SHEET_ENTRIES__ || []).map((r: any) => r.notes),
     );
+    if(worker)for(const key of personalKeys)for(const row of all[key])if(row.status==='Deleted'&&row.notes&&!byId.has(row.notes))deleted.add(row.notes);
     let appended = grid.length + 2;
     const stage = (
       id: string,
@@ -228,7 +284,7 @@ export async function syncMaster(cid: string, initial = false) {
           digest([...cells, id, stamp])
       )
         updates.push({
-          range: `'${c.worksheetTitle!.replace(/'/g, "''")}'!A${sheetRow}:H${sheetRow}`,
+          range: `'${tab.replace(/'/g, "''")}'!A${sheetRow}:H${sheetRow}`,
           values: [display],
         });
       nextBaseline[id] = cells;
@@ -236,7 +292,17 @@ export async function syncMaster(cid: string, initial = false) {
     for (let i = 1; i < grid.length; i++) {
       const raw = Array.from({ length: 8 }, (_, j) => String(grid[i][j] ?? ""));
       if (!raw[1].trim()) continue;
-      const id = raw[6] || "google-master:" + randomUUID();
+      const id =
+        raw[6] ||
+        (worker ? "google-personal:" : "google-master:") + randomUUID();
+      if (worker && masterIds.has(id) && !byId.has(id)) {
+        if (baseline[id])
+          updates.push({
+            range: `'${tab.replace(/'/g, "''")}'!A${i + 2}:H${i + 2}`,
+            values: [Array(8).fill("")],
+          });
+        continue;
+      }
       if (seen.has(id))
         throw new ApiError(409, `Duplicate Task ID at row ${i + 2}`);
       seen.add(id);
@@ -257,7 +323,9 @@ export async function syncMaster(cid: string, initial = false) {
     const currentConnection = await read(cid);
     if (
       currentConnection?.spreadsheetId !== c.spreadsheetId ||
-      currentConnection?.worksheetId !== c.worksheetId
+      currentConnection?.worksheetId !== c.worksheetId ||
+      (worker &&
+        currentConnection?.workerSheets?.[worker.title] !== worker.employeeId)
     )
       throw new ApiError(409, "Google connection changed during sync");
     if (digest((await get()).values || []) !== originalHash)
@@ -271,25 +339,59 @@ export async function syncMaster(cid: string, initial = false) {
         method: "POST",
         body: JSON.stringify({ valueInputOption: "RAW", data: updates }),
       });
-    if (changes.length)
-      await workTrackService.upsertDataEntrySheets(cid, { [MASTER]: changes });
+    if (changes.length) {
+      const targets: Record<string, any[]> = {};
+      for (const row of changes) {
+        const key =
+          !worker || masterIds.has(row.notes)
+            ? MASTER
+            : `__INDIVIDUAL_SHEET_ENTRIES__:${row.date}:${worker.employeeId}`;
+        const previousKey=collectionById.get(row.notes);
+        if(worker&&previousKey&&previousKey!==key)(targets[previousKey] ||= []).push({...row,status:'Deleted'});
+        (targets[key] ||= []).push(row);
+      }
+      await workTrackService.upsertDataEntrySheets(cid, targets);
+    }
     await prisma.companySetting.upsert({
-      where: { companyId_key: { companyId: cid, key: BASE } },
+      where: { companyId_key: { companyId: cid, key: baselineKey } },
       create: {
         companyId: cid,
-        key: BASE,
+        key: baselineKey,
         value: { scope, rows: nextBaseline },
       },
       update: { value: { scope, rows: nextBaseline } },
     });
     const latest = await read(cid);
     if (latest?.spreadsheetId === c.spreadsheetId)
-      await write(cid, { ...latest, lastSyncAt: now, syncError: undefined });
+      await write(cid, {
+        ...latest,
+        lastSyncAt: now,
+        syncError: undefined,
+        ...(worker
+          ? {
+              workerSyncStatus: {
+                ...latest.workerSyncStatus,
+                [worker.title]: { lastSyncAt: now },
+              },
+            }
+          : {}),
+      });
   } catch (error) {
     const c = await read(cid);
     if (c)
       await write(cid, {
         ...c,
+        ...(worker
+          ? {
+              workerSyncStatus: {
+                ...c.workerSyncStatus,
+                [worker.title]: {
+                  ...c.workerSyncStatus?.[worker.title],
+                  error: error instanceof Error ? error.message : "Sync failed",
+                },
+              },
+            }
+          : {}),
         syncError:
           error instanceof Error ? error.message : "Google sync failed",
       });
@@ -314,8 +416,16 @@ export function startMasterSheetSync() {
         select: { companyId: true, value: true },
       });
       for (const c of connections)
-        if ((c.value as any)?.syncEnabled)
+        if ((c.value as any)?.syncEnabled) {
           await syncMaster(c.companyId).catch(() => {});
+          for (const [title, employeeId] of Object.entries(
+            (c.value as any).workerSheets || {},
+          ))
+            await syncMaster(c.companyId, false, {
+              title,
+              employeeId: employeeId as string,
+            }).catch(() => {});
+        }
     } finally {
       busy = false;
     }

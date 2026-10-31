@@ -7,6 +7,8 @@ const KEY = "google_sheets_connection_v1";
 const SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 export type Connection = {
   syncEnabled?: boolean;
+  workerSheets?: Record<string,string>;
+  workerSyncStatus?: Record<string,{lastSyncAt?:string;error?:string}>;
   lastSyncAt?: string;
   syncError?: string;
   ownerId: string;
@@ -82,6 +84,8 @@ export async function status(u: AuthUser) {
     syncEnabled: saved?.syncEnabled === true,
     lastSyncAt: saved?.lastSyncAt,
     syncError: saved?.syncError,
+    workerSheets: saved?.workerSheets || {},
+    workerSyncStatus: saved?.workerSyncStatus || {},
     redirectUri:
       process.env.SHEETS_GOOGLE_REDIRECT_URI ||
       process.env.SEO_GOOGLE_REDIRECT_URI ||
