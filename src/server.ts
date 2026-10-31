@@ -1,3 +1,4 @@
+import { startMasterSheetSync } from "./modules/google-sheets/masterSync.js";
 import { startAdSenseJobs } from "./modules/adsense/adsense.service.js";
 import { startSeoJobs } from "./modules/seo/seo.jobs.js";
 import { env } from "./config/env.js";
@@ -8,6 +9,7 @@ import { ensureShiftSchema } from "./lib/ensureShiftSchema.js";
 async function start() {
   const app = createApp();
   startSeoJobs();
+  startMasterSheetSync();
   startAdSenseJobs();
 
   app.listen(env.PORT, "0.0.0.0", () => {

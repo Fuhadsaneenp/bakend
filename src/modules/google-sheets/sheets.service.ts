@@ -5,7 +5,10 @@ import type { AuthUser } from "../../middleware/auth.js";
 import { hash, seal, unseal } from "../seo/seo.domain.js";
 const KEY = "google_sheets_connection_v1";
 const SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-type Connection = {
+export type Connection = {
+  syncEnabled?: boolean;
+  lastSyncAt?: string;
+  syncError?: string;
   ownerId: string;
   accessCipher: string;
   refreshCipher: string;
@@ -46,13 +49,13 @@ function config() {
     );
   return { clientId, clientSecret, redirectUri };
 }
-async function read(companyId: string) {
+export async function read(companyId: string) {
   const record = await prisma.companySetting.findUnique({
     where: { companyId_key: { companyId, key: KEY } },
   });
   return record?.value as Connection | null;
 }
-async function write(companyId: string, value: Connection) {
+export async function write(companyId: string, value: Connection) {
   await prisma.companySetting.upsert({
     where: { companyId_key: { companyId, key: KEY } },
     create: { companyId, key: KEY, value },
@@ -76,7 +79,9 @@ export async function status(u: AuthUser) {
     worksheetId: saved?.worksheetId,
     worksheetTitle: saved?.worksheetTitle,
     direction: saved?.direction || "two-way",
-    syncEnabled: false,
+    syncEnabled: saved?.syncEnabled === true,
+    lastSyncAt: saved?.lastSyncAt,
+    syncError: saved?.syncError,
     redirectUri:
       process.env.SHEETS_GOOGLE_REDIRECT_URI ||
       process.env.SEO_GOOGLE_REDIRECT_URI ||
@@ -232,12 +237,13 @@ export function spreadsheetId(input: string) {
     throw new ApiError(400, "Use a docs.google.com spreadsheet link");
   return id;
 }
-async function google(companyId: string, path: string) {
+export async function google(companyId: string, path: string, init?: RequestInit) {
   const token = await access(companyId);
   const response = await fetch(
     "https://sheets.googleapis.com/v4/spreadsheets/" + path,
     {
-      headers: { Authorization: "Bearer " + token },
+      ...init,
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
       signal: AbortSignal.timeout(20000),
     },
   );
@@ -289,6 +295,7 @@ export async function select(
     worksheetId,
     worksheetTitle: worksheet.title,
     direction,
+    syncEnabled: false,
   });
   return status(u);
 }

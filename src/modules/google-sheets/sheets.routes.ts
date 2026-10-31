@@ -1,3 +1,4 @@
+import { enableMasterSync, syncMaster } from "./masterSync.js";
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/auth.js";
@@ -61,3 +62,6 @@ googleSheetsRouter.delete(
     res.json(await sheets.disconnect(req.user)),
   ),
 );
+
+googleSheetsRouter.post("/sync/enable",wrap(async(req:any,res:any)=>res.json(await enableMasterSync(req.user))));
+googleSheetsRouter.post("/sync",wrap(async(req:any,res:any)=>{await syncMaster(sheets.authorize(req.user));res.json(await sheets.status(req.user));}));
