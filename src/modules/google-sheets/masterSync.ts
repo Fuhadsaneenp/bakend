@@ -108,7 +108,7 @@ export async function syncMaster(cid: string, initial = false) {
     const all = await workTrackService.getDataEntrySheets(cid, true),
       appRows = all[MASTER] || [];
     const employees = await prisma.employee.findMany({
-      where: { companyId: cid },
+      where: { OR: [{ companyId: cid }, { id: { in: [...new Set(appRows.map(row => row.companyName).filter((id): id is string => Boolean(id)))] } }] },
       select: {
         id: true,
         firstName: true,
