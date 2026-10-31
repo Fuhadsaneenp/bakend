@@ -24,7 +24,7 @@ jobs:
         run: |
           npm ci
           npm run build
-          npx tsx --test tests/google-sheets.test.ts src/lib/assignmentSheetRows.test.ts tests/assignment-save.test.ts tests/company-access.test.ts tests/employee-company-list.test.ts tests/reporting-manager.test.ts tests/auth-alias.test.ts tests/sheet-snapshot.test.ts tests/adsense.test.ts tests/adsense-permissions.test.ts tests/seo.test.ts tests/verified-analytics.test.ts
+          npx tsx --test tests/data-entry-day-view.test.ts tests/google-sheets.test.ts src/lib/assignmentSheetRows.test.ts tests/assignment-save.test.ts tests/company-access.test.ts tests/employee-company-list.test.ts tests/reporting-manager.test.ts tests/auth-alias.test.ts tests/sheet-snapshot.test.ts tests/adsense.test.ts tests/adsense-permissions.test.ts tests/seo.test.ts tests/verified-analytics.test.ts
       - name: Configure deployment SSH
         env:
           DEPLOY_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}

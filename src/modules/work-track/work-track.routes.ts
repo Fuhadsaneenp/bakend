@@ -1,3 +1,4 @@
+import { dataEntryDayView } from "../../lib/dataEntryDayView.js";
 import { sheetSnapshot } from "../../lib/sheetSnapshot.js";
 import { Role } from "@prisma/client";
 import { Router } from "express";
@@ -151,7 +152,9 @@ workTrackRouter.put("/settings", requirePermission("worktrack.settings.manage"),
 workTrackRouter.get("/data-entry-sheets", async (req, res, next) => {
   try {
     if (!req.user?.companyId) throw new ApiError(400, "Company context required");
-    const sheets = await workTrackService.getDataEntrySheets(req.user.companyId, req.query.view === "assignments");
+    const date = req.query.view === "day" ? z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(req.query.date) : null;
+    const allSheets = await workTrackService.getDataEntrySheets(req.user.companyId, req.query.view === "assignments");
+    const sheets = date ? dataEntryDayView(allSheets, date) : allSheets;
     res.json(req.query.snapshot === "1" ? sheetSnapshot(sheets, typeof req.query.version === "string" ? req.query.version : undefined) : sheets);
   } catch (error) {
     next(error);
