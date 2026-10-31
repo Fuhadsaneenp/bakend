@@ -89,7 +89,13 @@ test("sync imports, exports, preserves independent edits, skips unchanged writes
     db.set(q.where.companyId_key.key, q.update.value);
     return {};
   };
-  employee.findMany = async (query: any) => { assert.ok(query.where.OR.some((scope: any) => scope.companyId === "company")); assert.ok(Array.isArray(query.where.OR[1].id.in)); return []; };
+  employee.findMany = async (query: any) => {
+    assert.ok(
+      query.where.OR.some((scope: any) => scope.companyId === "company"),
+    );
+    assert.ok(Array.isArray(query.where.OR[1].id.in));
+    return [];
+  };
   workTrackService.getDataEntrySheets = async () => ({
     __COMPANY_MASTER_SHEET_ENTRIES__: app,
   });
@@ -140,6 +146,71 @@ test("sync imports, exports, preserves independent edits, skips unchanged writes
       db.get("google_sheets_connection_v1").syncError,
       /changed during sync/,
     );
+    moved = false;
+    reads = 0;
+    db.set("google_sheets_connection_v1", {
+      ...db.get("google_sheets_connection_v1"),
+      workerSheets: { Worker: "person" },
+    });
+    grid = [
+      grid[0],
+      [
+        "31/10/2026",
+        "https://personal-google.test",
+        "Medbiomate",
+        "",
+        "Not Assigned",
+        "Not Uploaded",
+        "",
+        "",
+      ],
+    ];
+    const assigned = {
+      ...app[0],
+      companyName: "person",
+      notes: "assigned-task",
+      status: "Assigned",
+    };
+    const personal = {
+      ...app[0],
+      companyName: "person",
+      notes: "personal-task",
+      sourceUrl: "https://personal-app.test",
+    };
+    const unrelated = {
+      ...app[0],
+      companyName: "other",
+      notes: "other-task",
+      status: "Assigned",
+    };
+    workTrackService.getDataEntrySheets = async () => ({
+      __COMPANY_MASTER_SHEET_ENTRIES__: [assigned, unrelated],
+      "__INDIVIDUAL_SHEET_ENTRIES__:2026-10-31:person": [personal],
+    });
+    let workerTargets: any;
+    workTrackService.upsertDataEntrySheets = async (
+      _cid: any,
+      targets: any,
+    ) => {
+      workerTargets = targets;
+      return targets;
+    };
+    await syncMaster("company", true, {
+      title: "Worker",
+      employeeId: "person",
+    });
+    assert.deepEqual(Object.keys(workerTargets), [
+      "__INDIVIDUAL_SHEET_ENTRIES__:2026-10-31:person",
+    ]);
+    assert.equal(
+      workerTargets["__INDIVIDUAL_SHEET_ENTRIES__:2026-10-31:person"][0]
+        .companyName,
+      "person",
+    );
+    assert.equal(grid.length, 4);
+    assert.ok(grid.some((r) => r[6] === "assigned-task"));
+    assert.ok(grid.some((r) => r[6] === "personal-task"));
+    assert.ok(!grid.some((r) => r[6] === "other-task"));
   } finally {
     Object.assign(settings, {
       findUnique: originals.findUnique,
