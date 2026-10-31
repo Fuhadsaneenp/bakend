@@ -89,7 +89,7 @@ test("sync imports, exports, preserves independent edits, skips unchanged writes
     db.set(q.where.companyId_key.key, q.update.value);
     return {};
   };
-  employee.findMany = async () => [];
+  employee.findMany = async (query: any) => { assert.ok(query.where.OR.some((scope: any) => scope.companyId === "company")); assert.ok(Array.isArray(query.where.OR[1].id.in)); return []; };
   workTrackService.getDataEntrySheets = async () => ({
     __COMPANY_MASTER_SHEET_ENTRIES__: app,
   });
