@@ -1,3 +1,4 @@
+import { applyDateView } from "./dateView.js";
 import { createHash, randomUUID } from "node:crypto";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError } from "../../lib/errors.js";
@@ -361,6 +362,7 @@ export async function syncMaster(
       },
       update: { value: { scope, rows: nextBaseline } },
     });
+    await applyDateView(cid,c.spreadsheetId,tab);
     const latest = await read(cid);
     if (latest?.spreadsheetId === c.spreadsheetId)
       await write(cid, {
