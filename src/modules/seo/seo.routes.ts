@@ -1,3 +1,4 @@
+import { callback as sheetsCallback, destination as sheetsDestination } from "../google-sheets/sheets.service.js";
 import { callback as adsenseCallback } from "../adsense/adsense.service.js";
 import { adsenseDestination } from "../adsense/adsense.routes.js";
 import { seoCrmClients } from "./seo.clients.js";
@@ -57,6 +58,12 @@ const limited = rateLimit({
 seoRouter.get(
   "/google/callback",
   wrap(async (req, res) => {
+    if (typeof req.query.state === "string" && req.query.state.startsWith("sheets.")) {
+      res.setHeader("Referrer-Policy", "no-referrer");
+      try { await sheetsCallback(req.query.state, z.string().min(1).parse(req.query.code)); res.redirect(sheetsDestination("connected")); }
+      catch { res.redirect(sheetsDestination("failed")); }
+      return;
+    }
     if (typeof req.query.state === "string" && req.query.state.startsWith("adsense.")) {
       res.setHeader("Referrer-Policy", "no-referrer");
       try { const website = await adsenseCallback(req.query.state, z.string().min(1).parse(req.query.code)); res.redirect(adsenseDestination(website) + "&adsense=connected"); }
