@@ -81,7 +81,7 @@ export async function syncMaster(cid: string, initial = false) {
     if (!c?.spreadsheetId || !c.worksheetTitle || (!initial && !c.syncEnabled))
       return;
     const scope = `${c.spreadsheetId}:${c.worksheetId}`;
-    const range = `'${c.worksheetTitle.replace(/'/g, "''")}'!A2:H10000`;
+    const range = `'${c.worksheetTitle.replace(/'/g, "''")}'!A2:H`;
     const get = async () =>
       (await google(
         cid,
