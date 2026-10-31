@@ -108,6 +108,8 @@ test("sync imports, exports, preserves independent edits, skips unchanged writes
     return s;
   };
   global.fetch = async (_url: any, init: any) => {
+    if(String(_url).includes('?fields=sheets'))return new Response(JSON.stringify({sheets:['Company Master Sheet','Worker'].map((title,i)=>({properties:{title,sheetId:i,gridProperties:{rowCount:1001}},basicFilter:{criteria:{'2':{hiddenValues:['Mediyox']}}}}))}));
+    if(init?.method==='POST'&&JSON.parse(init.body).requests){const requests=JSON.parse(init.body).requests;assert.equal(requests[0].clearBasicFilter.sheetId,requests[1].setBasicFilter.filter.range.sheetId);assert.deepEqual(requests[1].setBasicFilter.filter.criteria['2'],{hiddenValues:['Mediyox']});assert.ok(requests[1].setBasicFilter.filter.criteria['0'].condition.values[0].userEnteredValue.includes('$B$1'));return new Response('{}');}
     if (init?.method === "POST") {
       writes++;
       const data = JSON.parse(init.body).data;
