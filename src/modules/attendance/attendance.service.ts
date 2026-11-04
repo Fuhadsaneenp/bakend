@@ -6,6 +6,7 @@ import { ApiError, notFound } from "../../lib/errors.js";
 import type { AuthUser } from "../../middleware/auth.js";
 import { notificationService } from "../notifications/notification.service.js";
 import { isHrEmployee } from "../../lib/coreTeam.js";
+import { allowedCompanyIds, assertCompanyAccess } from "../org/company-access.service.js";
 
 const lateHour = 9;
 const standardWorkMinutes = 8 * 60;
@@ -234,6 +235,8 @@ export const attendanceService = {
   },
 
   async monthlyReportForUser(user: AuthUser, month: number, year: number, requestedCompanyId?: string) {
+    const companyIds = await allowedCompanyIds(user);
+    if (requestedCompanyId) await assertCompanyAccess(user, requestedCompanyId);
     const employee = await prisma.employee.findUnique({
       where: { userId: user.id },
       include: { department: true, designation: true }
@@ -271,14 +274,14 @@ export const attendanceService = {
       }
     } catch {}
 
-    if (isHr || hasAttendanceCompanyGrant) {
-      const targetCompany = requestedCompanyId || fallbackCompanyId;
+    if (isHr || hasAttendanceCompanyGrant || companyIds.length > 1) {
+      const targetCompany = requestedCompanyId;
       if (targetCompany) {
         return this.monthlyReport(targetCompany, month, year);
       }
 
       return prisma.attendance.findMany({
-        where: { workDate: { gte: from, lte: to } },
+        where: { employee: { companyId: { in: companyIds } }, workDate: { gte: from, lte: to } },
         include: { employee: { include: { shift: true, company: true } } },
         orderBy: [{ workDate: "asc" }]
       });
@@ -292,7 +295,7 @@ export const attendanceService = {
         : { id: employee.id };
 
     return prisma.attendance.findMany({
-      where: { employee: employeeWhere, workDate: { gte: from, lte: to } },
+      where: { employee: { ...employeeWhere, companyId: requestedCompanyId || { in: companyIds } }, workDate: { gte: from, lte: to } },
       include: { employee: { include: { shift: true, company: true } } },
       orderBy: [{ workDate: "asc" }]
     });

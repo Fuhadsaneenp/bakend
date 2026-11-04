@@ -65,6 +65,8 @@ export const permissionService = {
     const context = await accessResolverService.getUserAccessContext(userId);
     return {
       user: context.user,
+      companyIds: context.companyIds,
+      hasMultiCompanyAttendanceAccess: context.hasMultiCompanyAttendanceAccess,
       employee: context.employee,
       profiles: context.profiles,
       permissions: context.permissions.map((permission) => ({

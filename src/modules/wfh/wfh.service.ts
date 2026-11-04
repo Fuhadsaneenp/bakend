@@ -7,6 +7,7 @@ import { notificationService } from "../notifications/notification.service.js";
 import { leaveAllocationService } from "./leaveAllocation.service.js";
 import type { AuthUser } from "../../middleware/auth.js";
 import { isHrEmployee } from "../../lib/coreTeam.js";
+import { allowedCompanyIds, assertCompanyAccess } from "../org/company-access.service.js";
 
 const db = prisma as any;
 
@@ -424,6 +425,13 @@ export const wfhService = {
       }
     });
     if (!existing) throw notFound("WFH request");
+    // Resolve the request's company on the server; a missing companyId in the
+    // review body must never bypass the saved company assignments.
+    const companyIds = await allowedCompanyIds(reviewer);
+    if (!companyIds.includes(existing.employee.companyId)) {
+      throw new ApiError(403, "You do not have access to this company");
+    }
+    const isCompanyAttendanceReviewer = companyIds.length > 1 && existing.employee.userId !== reviewer.id;
 
     const reviewerEmployee = await db.employee.findUnique({
       where: { userId: reviewer.id },
@@ -434,7 +442,8 @@ export const wfhService = {
       reviewer.role === Role.SUPER_ADMIN ||
       reviewer.role === Role.HR_ADMIN ||
       Boolean(reviewerEmployee?.isHrHead) ||
-      isHrEmployee(reviewerEmployee);
+      isHrEmployee(reviewerEmployee) ||
+      isCompanyAttendanceReviewer;
 
     const { formatFullName } = await import("../../lib/formatName.js");
     const reviewerName = reviewerEmployee 
@@ -572,10 +581,11 @@ export const wfhService = {
   },
 
   async listForUser(user: AuthUser, requestedCompanyId?: string) {
-    if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN) {
-      const where = requestedCompanyId
-        ? { employee: { companyId: requestedCompanyId } }
-        : undefined;
+    const companyIds = await allowedCompanyIds(user);
+    if (requestedCompanyId) await assertCompanyAccess(user, requestedCompanyId);
+    const companyFilter = requestedCompanyId || { in: companyIds };
+    if (user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN || companyIds.length > 1) {
+      const where = { employee: { companyId: companyFilter } };
       return db.wFHRequest.findMany({
         where,
         include: requestInclude,
@@ -583,7 +593,7 @@ export const wfhService = {
       });
     }
 
-    const targetCompanyId = user.companyId || undefined;
+    const targetCompanyId = requestedCompanyId || (user.companyId && companyIds.includes(user.companyId) ? user.companyId : companyIds[0]);
     if (!targetCompanyId) return [];
 
     const employee = await db.employee.findUnique({
@@ -624,6 +634,7 @@ export const wfhService = {
       try {
         return await db.wFHRequest.findMany({
           where: {
+            employee: { companyId: targetCompanyId },
             OR: [
               { employeeId: employee.id },
               { immediateManagerId: employee.id },
@@ -640,6 +651,7 @@ export const wfhService = {
       } catch {
         return db.wFHRequest.findMany({
           where: {
+            employee: { companyId: targetCompanyId },
             OR: [
               { employeeId: employee.id },
               { employee: { managerId: employee.id } },
@@ -653,7 +665,7 @@ export const wfhService = {
     }
 
     return db.wFHRequest.findMany({
-      where: { employeeId: employee.id },
+      where: { employeeId: employee.id, employee: { companyId: targetCompanyId } },
       include: requestInclude,
       orderBy: { createdAt: "desc" }
     });

@@ -1,6 +1,7 @@
 import { AccessScopeType, Role } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { isHrEmployee } from "../../lib/coreTeam.js";
+import { allowedCompanyIds } from "../org/company-access.service.js";
 
 const legacyRolePermissionFallback: Record<Role, string[]> = {
   SUPER_ADMIN: ["*"],
@@ -128,6 +129,8 @@ export type EffectivePermission = {
 };
 
 export type AccessContext = {
+  companyIds: string[];
+  hasMultiCompanyAttendanceAccess: boolean;
   user: {
     id: string;
     companyId: string | null;
@@ -409,6 +412,7 @@ export const accessResolverService = {
       }
     }
 
+    const companyIds = await allowedCompanyIds(user);
     const permissions = Array.from(permissionMap.values()).sort((a, b) => a.code.localeCompare(b.code));
     const approvalAuthorities = permissions
       .filter((permission) => permission.allowed && (permission.code.includes(".approve") || permission.code.includes(".review") || permission.code.includes(".reject") || permission.code.includes(".return")))
@@ -421,6 +425,8 @@ export const accessResolverService = {
         role: user.role,
         email: user.email
       },
+      companyIds,
+      hasMultiCompanyAttendanceAccess: companyIds.length > 1,
       employee: user.employee
         ? {
             id: user.employee.id,
