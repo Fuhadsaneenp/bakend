@@ -78,9 +78,10 @@ export async function reconcile(companyId: string, month: string, actorId: strin
       const day = old?.day || localDay(date);
       const contentKey = hash([value.site, value.type, String(value.title).trim().toLowerCase(), String(value.companyName).trim().toLowerCase(), String(value.location).trim().toLowerCase()]);
       const urlKey = value.type + ":" + canonicalUrl(value.url);
-      const duplicateOf = seenUrls.get(urlKey) || seenContent.get(contentKey);
+      const sourceValid = ["publish", "published"].includes(String(value.status).toLowerCase()) && String(value.title || "").trim() && value.isValid !== false && !value.duplicateOf;
+      const duplicateOf = sourceValid ? seenUrls.get(urlKey) || seenContent.get(contentKey) : undefined;
       // Exclude URL and content aliases across the complete ledger, not just the selected month.
-      seenUrls.set(urlKey, duplicateOf || key); seenContent.set(contentKey, duplicateOf || key);
+      if (sourceValid) { seenUrls.set(urlKey, duplicateOf || key); seenContent.set(contentKey, duplicateOf || key); }
       if (day.slice(0, 7) !== month || localMinute(date) < 1050) continue;
       seen.add(key);
       const employee = employeeMap.get(old?.employeeId || value.employeeId);

@@ -59,6 +59,10 @@ test("source ingestion, frozen calculations, invalidation audit, overlapping int
     sources.push({ ...input("mediyox", 100, "Old edited record"), createdAt: "2026-11-05T17:00:00+05:30", activityType: "edited" });
     sources.push({ ...input("trikonet", 101, "Missing creation"), createdAt: undefined });
     const sync = await reconcile("med", "2026-11", "admin"); assert.equal(sync.missingCreationTimestamps, 1); assert.equal(rows.length, 4); assert.equal(rows[3].status, "INVALIDATED"); assert.equal(rows[3].estimatedCents, 0);
+    sources.push({ ...input("medbiomate", 98, "New valid role"), createdAt: "2026-11-05T18:00:00+05:30", status: "draft" });
+    sources.push(input("medbiomate", 97, "New valid role"));
+    await reconcile("med", "2026-11", "admin");
+    assert.equal(rows.find(r => r.sourceKey === "medbiomate:job:97").status, "PENDING", "an unpublished draft cannot disqualify the valid saved record");
     sources[0].createdAt = "2026-12-01T18:30:00+05:30";
     await reconcile("med", "2026-12", "admin"); assert.equal(rows.filter(r => r.sourceKey === "medbiomate:job:1").length, 1);
     await reconcile("med", "2026-11", "admin"); assert.equal(rows[0].calculation.issue, "SOURCE_IDENTITY_CHANGED");
