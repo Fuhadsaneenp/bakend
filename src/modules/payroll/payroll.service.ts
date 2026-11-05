@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { isPaidLeave, paidLeaveDays } from "../../lib/paidLeave.js";
 import { endOfDay, startOfDay } from "date-fns";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError } from "../../lib/errors.js";
@@ -141,6 +142,7 @@ function buildPayableDayTotal(input: {
   } | null;
 }) {
   const payableDays = new Map<string, number>();
+  const paidDates = paidLeaveDays(input.wfhRequests);
 
   for (const row of input.attendance) {
     const credit = attendanceCredit(row, input.employee);
@@ -160,6 +162,7 @@ function buildPayableDayTotal(input: {
     const cursor = new Date(effectiveStart);
     while (cursor <= effectiveEnd) {
       const dayKey = formatDayKey(cursor);
+      if (isPaidLeave(request.reason) && !paidDates.has(dayKey)) { cursor.setDate(cursor.getDate() + 1); continue; }
       const attendanceValue = payableDays.get(dayKey) || 0;
       payableDays.set(dayKey, Math.max(attendanceValue, dayCredit));
       cursor.setDate(cursor.getDate() + 1);
@@ -181,6 +184,7 @@ function buildLopDayTotal(input: {
   } | null;
 }) {
   const lopDays = new Map<string, number>();
+  const paidDates = paidLeaveDays(input.wfhRequests);
 
   for (const row of input.attendance) {
     const workTime = row.workDate.getTime();
@@ -200,7 +204,7 @@ function buildLopDayTotal(input: {
     const cursor = new Date(effectiveStart);
     while (cursor <= effectiveEnd) {
       const dayKey = formatDayKey(cursor);
-      const requestLop = getLopDaysForRequest({ status: request.status, reason: request.reason });
+      const requestLop = request.status === "APPROVED" && isPaidLeave(request.reason) && !paidDates.has(dayKey) ? 1 : getLopDaysForRequest({ status: request.status, reason: request.reason });
       lopDays.set(dayKey, Math.max(lopDays.get(dayKey) || 0, requestLop));
       cursor.setDate(cursor.getDate() + 1);
     }
@@ -244,6 +248,7 @@ export function evaluateMedbiomateAttendance(input: {
 
   // Pre-calculate raw credits for each date in a window around the month
   const rawDayCredits = new Map<string, number>();
+  const paidDates = paidLeaveDays(input.employee.wfhRequests);
 
   const getRawDayCredit = (dateStr: string) => {
     if (paidHolidaySet.has(dateStr)) return 1.0;
@@ -259,7 +264,7 @@ export function evaluateMedbiomateAttendance(input: {
       const startKey = formatDayKey(req.startDate);
       const endKey = formatDayKey(req.endDate);
       if (dateStr >= startKey && dateStr <= endKey) {
-        credit = Math.max(credit, requestDayCredit(req));
+        credit = Math.max(credit, isPaidLeave(req.reason) && !paidDates.has(dateStr) ? 0 : requestDayCredit(req));
       }
     }
 
@@ -498,6 +503,7 @@ export function buildAttendanceSnapshot(input: {
     const wfhRequestsInPeriod = input.employee.wfhRequests.filter(
       (row) => row.startDate.getTime() <= employeePeriodEnd.getTime() && row.endDate.getTime() >= employeePeriodStart.getTime()
     );
+    const paidDates = paidLeaveDays(input.employee.wfhRequests);
 
     for (const request of wfhRequestsInPeriod) {
       const effectiveStart = new Date(Math.max(request.startDate.getTime(), employeePeriodStart.getTime()));
@@ -508,7 +514,7 @@ export function buildAttendanceSnapshot(input: {
       while (requestCursor <= effectiveEnd) {
         const dayKey = formatDayKey(requestCursor);
         const currentCredit = dayCredits.get(dayKey) ?? 0;
-        dayCredits.set(dayKey, Math.max(currentCredit, requestDayCredit(request)));
+        dayCredits.set(dayKey, Math.max(currentCredit, isPaidLeave(request.reason) && !paidDates.has(dayKey) ? 0 : requestDayCredit(request)));
         requestCursor.setDate(requestCursor.getDate() + 1);
       }
     }
@@ -949,12 +955,13 @@ export const payrollService = {
     });
   },
 
-  async recalculateDraftRun(companyId: string, runId: string) {
+  async recalculateDraftRun(companyId: string, runId: string, employeeId?: string) {
     const run = await prisma.payrollRun.findFirst({
       where: { id: runId, companyId },
       include: {
         company: true,
         payslips: {
+          where: employeeId ? { employeeId } : undefined,
           include: {
             employee: {
               include: {
@@ -1055,6 +1062,11 @@ export const payrollService = {
       netTotal += netPay;
     }
 
+    if (employeeId) {
+      const unchanged = await prisma.payslip.aggregate({ where: { payrollRunId: run.id, employeeId: { not: employeeId } }, _sum: { grossPay: true, netPay: true } });
+      grossTotal += Number(unchanged._sum.grossPay || 0);
+      netTotal += Number(unchanged._sum.netPay || 0);
+    }
     return prisma.payrollRun.update({
       where: { id: run.id },
       data: { grossTotal, netTotal },

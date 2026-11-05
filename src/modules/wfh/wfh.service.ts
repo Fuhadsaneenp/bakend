@@ -1,4 +1,6 @@
 import { employedDuring, calendarDate } from "../../lib/employment.js";
+import { isPaidLeave } from "../../lib/paidLeave.js";
+import { assertPaidLeaveLimit, withPaidLeaveLock } from "./paid-leave-limit.js";
 import { ApprovalStatus, Role } from "@prisma/client";
 import { differenceInMinutes } from "date-fns";
 import { prisma } from "../../lib/prisma.js";
@@ -305,6 +307,12 @@ function buildFinalState(input: {
 
 export const wfhService = {
   async request(userId: string, data: { startDate: string; endDate: string; reason: string }) {
+    if (!isPaidLeave(data.reason)) return this.requestUnlocked(userId, data);
+    const employee = await getEmployeeByUserId(userId);
+    if (!employee) throw notFound("Employee");
+    return withPaidLeaveLock(employee.id, () => this.requestUnlocked(userId, data));
+  },
+  async requestUnlocked(userId: string, data: { startDate: string; endDate: string; reason: string }) {
     const employee = await getEmployeeByUserId(userId);
     if (!employee) throw notFound("Employee");
     if (!employedDuring(employee, data.startDate, data.endDate) || (employee.dateOfExit && calendarDate(data.endDate) > calendarDate(employee.dateOfExit))) throw new ApiError(400, "Request is outside employment dates");
@@ -330,6 +338,7 @@ export const wfhService = {
     }
 
     const leaveType = parseRequestType(data.reason);
+    if (isPaidLeave(data.reason)) await assertPaidLeaveLimit(employee.id, data);
     const isLeave = isLeaveAllocationRequired(leaveType, data.reason);
     if (isLeave) {
       await leaveAllocationService.validateLeaveBalance(
@@ -404,6 +413,11 @@ export const wfhService = {
   },
 
   async review(requestId: string, reviewer: AuthUser, status: ApprovalStatus) {
+    const row = await db.wFHRequest.findUnique({ where: { id: requestId } });
+    if (row && status === ApprovalStatus.APPROVED && isPaidLeave(row.reason)) return withPaidLeaveLock(row.employeeId, () => this.reviewUnlocked(requestId, reviewer, status));
+    return this.reviewUnlocked(requestId, reviewer, status);
+  },
+  async reviewUnlocked(requestId: string, reviewer: AuthUser, status: ApprovalStatus) {
     const existing = await db.wFHRequest.findUnique({
       where: { id: requestId },
       include: {
@@ -461,6 +475,7 @@ export const wfhService = {
     if (!reviewerIsHrHead && !isImmediateManager && !isHigherManager) {
       throw new ApiError(403, "You are not allowed to review this request");
     }
+    if (status === ApprovalStatus.APPROVED && isPaidLeave(existing.reason)) await assertPaidLeaveLimit(existing.employeeId, existing, true, existing.id);
 
     let request: any;
     const now = new Date();
