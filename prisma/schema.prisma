@@ -1527,3 +1527,51 @@ model SeoLegacySheet {
   createdAt DateTime @default(now())
   @@unique([workspaceId, sourceHash])
 }
+// Discretionary productivity incentives are independent of statutory overtime/payroll.
+model IncentivePolicy {
+  id            String   @id @default(cuid())
+  companyId     String
+  effectiveFrom String   @db.VarChar(10)
+  config        Json
+  createdBy     String
+  createdAt     DateTime @default(now())
+  @@index([companyId, effectiveFrom, createdAt])
+}
+
+model IncentiveCredit {
+  id             String   @id @default(cuid())
+  companyId      String
+  employeeId     String
+  sourceKey      String   @db.VarChar(191)
+  sourceUrl      String   @db.Text
+  kind           String   @db.VarChar(16)
+  occurredAt     DateTime
+  day            String   @db.VarChar(10)
+  month          String   @db.VarChar(7)
+  policyId       String?
+  snapshot       Json
+  calculation    Json
+  verification   Json?
+  standardMinutes Float   @default(0)
+  creditedMinutes Float   @default(0)
+  estimatedCents Int      @default(0)
+  approvedCents  Int      @default(0)
+  status         String   @default("PENDING") @db.VarChar(32)
+  revision       Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  @@unique([companyId, sourceKey])
+  @@index([companyId, month, employeeId])
+}
+
+model IncentiveAudit {
+  id         String   @id @default(cuid())
+  companyId  String
+  creditId   String?
+  actorId    String
+  action     String   @db.VarChar(40)
+  detail     Json
+  createdAt  DateTime @default(now())
+  @@index([companyId, createdAt])
+  @@index([creditId, createdAt])
+}

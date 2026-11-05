@@ -14,6 +14,7 @@ ln -sfn /home/u743262110/stems-migration-20261024/backend/storage storage
 npm ci --ignore-scripts --no-audit --no-fund > "$app/../install.log" 2>&1
 npm rebuild --foreground-scripts >> "$app/../install.log" 2>&1
 npx prisma generate > ../prisma.log 2>&1
+NODE_ENV=production node scripts/install-productivity-incentive.mjs > ../incentive-schema.log 2>&1
 mkdir -p tmp
 node --input-type=commonjs <<'JS'
 const fs=require('fs');

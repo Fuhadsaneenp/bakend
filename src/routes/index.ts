@@ -1,4 +1,5 @@
 import { googleSheetsRouter } from "../modules/google-sheets/sheets.routes.js";
+import { productivityIncentiveRouter } from "../modules/productivity-incentive/routes.js";
 import { adsenseRouter } from "../modules/adsense/adsense.routes.js";
 import { mcpEvidenceRouter } from "../integrations/mcp-evidence.js";
 import { jobMonitoringRouter } from "../modules/job-monitoring/routes.js";
@@ -28,6 +29,7 @@ import { exec } from "child_process";
 import { whatsappWebhookRouter } from "./whatsappWebhook.js";
 
 export const apiRouter = Router();
+apiRouter.use("/productivity-incentive", productivityIncentiveRouter);
 apiRouter.use("/google-sheets", googleSheetsRouter);
 apiRouter.use("/mcp", mcpEvidenceRouter);
 apiRouter.use("/wordpress", wordpressRouter);

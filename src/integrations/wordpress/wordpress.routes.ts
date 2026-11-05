@@ -155,6 +155,8 @@ wordpressRouter.post("/:site/uploads", async (req, res, next) => {
     }
 
     // Durable upload records are rebuilt into employee/company sheets on read.
+    // Reconcile incentives from acknowledged source records; never block upload success.
+    if (process.env.NODE_ENV === "production") void import("../../modules/productivity-incentive/sync.js").then(m => m.captureIncentiveSource(employee.companyId, value)).catch(error => console.error("[Productivity incentive] Capture failed:", error.message));
     res.json({ synced: true, employeeId: employee.id, employeeName: name });
   } catch (error) {
     next(error);
