@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { paidLeaveDays, isPaidLeave } from "../src/lib/paidLeave.js";
+import { paidLeaveDays, isPaidLeave, firstPaidLeaveDay } from "../src/lib/paidLeave.js";
 import { assertPaidLeaveLimit, withPaidLeaveLock } from "../src/modules/wfh/paid-leave-limit.js";
 import { prisma } from "../src/lib/prisma.js";
 import mariadb from "mariadb";
@@ -36,4 +36,11 @@ test("payroll credits October 12 but does not pay October 30 as a second paid-le
   const snapshot = buildAttendanceSnapshot({ month: 10, year: 2026, type: "REGULAR", employee: { dateOfJoining: new Date("2020-01-01"), company: { name: "Second Tales LLP", worksSevenDays: true }, attendance: [], wfhRequests: [leave("2026-10-30"), leave("2026-10-12")] } });
   assert.equal(snapshot.dayCredits.get("2026-10-12"), 1);
   assert.equal(snapshot.dayCredits.get("2026-10-30"), 0);
+});
+
+test("three-month eligibility respects the 15th cutoff and rolls into the next year", () => {
+  assert.equal(firstPaidLeaveDay("2026-08-14"), "2026-11-14");
+  assert.equal(firstPaidLeaveDay("2026-08-15"), "2026-11-15");
+  assert.equal(firstPaidLeaveDay("2026-08-25"), "2026-12-01");
+  assert.equal(firstPaidLeaveDay("2026-09-16"), "2027-01-01");
 });

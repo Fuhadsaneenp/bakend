@@ -1,5 +1,5 @@
 import { employedDuring, calendarDate } from "../../lib/employment.js";
-import { isPaidLeave } from "../../lib/paidLeave.js";
+import { firstPaidLeaveDay, isPaidLeave, leaveDay } from "../../lib/paidLeave.js";
 import { assertPaidLeaveLimit, withPaidLeaveLock } from "./paid-leave-limit.js";
 import { ApprovalStatus, Role } from "@prisma/client";
 import { differenceInMinutes } from "date-fns";
@@ -338,7 +338,11 @@ export const wfhService = {
     }
 
     const leaveType = parseRequestType(data.reason);
-    if (isPaidLeave(data.reason)) await assertPaidLeaveLimit(employee.id, data);
+    if (isPaidLeave(data.reason)) {
+      const eligibleFrom = firstPaidLeaveDay(employee.dateOfJoining);
+      if (leaveDay(data.startDate) < eligibleFrom) throw new ApiError(400, `Paid Leave is available from ${eligibleFrom}.`);
+      await assertPaidLeaveLimit(employee.id, data);
+    }
     const isLeave = isLeaveAllocationRequired(leaveType, data.reason);
     if (isLeave) {
       await leaveAllocationService.validateLeaveBalance(
@@ -475,7 +479,11 @@ export const wfhService = {
     if (!reviewerIsHrHead && !isImmediateManager && !isHigherManager) {
       throw new ApiError(403, "You are not allowed to review this request");
     }
-    if (status === ApprovalStatus.APPROVED && isPaidLeave(existing.reason)) await assertPaidLeaveLimit(existing.employeeId, existing, true, existing.id);
+    if (status === ApprovalStatus.APPROVED && isPaidLeave(existing.reason)) {
+      const eligibleFrom = firstPaidLeaveDay(existing.employee.dateOfJoining);
+      if (leaveDay(existing.startDate) < eligibleFrom) throw new ApiError(400, `Paid Leave is available from ${eligibleFrom}.`);
+      await assertPaidLeaveLimit(existing.employeeId, existing, true, existing.id);
+    }
 
     let request: any;
     const now = new Date();
