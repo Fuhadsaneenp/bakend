@@ -21,6 +21,6 @@ export function paidLeaveDays(requests: Leave[]) {
 /** Eligibility uses the employee's joining date and calendar months in IST. */
 export function firstPaidLeaveDay(joined: Date | string) {
   const [year, month, day] = leaveDay(joined).split("-").map(Number);
-  if (day > 15) return new Date(Date.UTC(year, month + 3, 1)).toISOString().slice(0, 10);
+  if (day >= 15) return new Date(Date.UTC(year, month + 3, 1)).toISOString().slice(0, 10);
   return new Date(Date.UTC(year, month + 2, day)).toISOString().slice(0, 10);
 }

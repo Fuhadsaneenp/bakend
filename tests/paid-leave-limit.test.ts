@@ -40,7 +40,7 @@ test("payroll credits October 12 but does not pay October 30 as a second paid-le
 
 test("three-month eligibility respects the 15th cutoff and rolls into the next year", () => {
   assert.equal(firstPaidLeaveDay("2026-08-14"), "2026-11-14");
-  assert.equal(firstPaidLeaveDay("2026-08-15"), "2026-11-15");
+  assert.equal(firstPaidLeaveDay("2026-08-15"), "2026-12-01");
   assert.equal(firstPaidLeaveDay("2026-08-25"), "2026-12-01");
   assert.equal(firstPaidLeaveDay("2026-09-16"), "2027-01-01");
 });
