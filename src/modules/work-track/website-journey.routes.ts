@@ -103,7 +103,7 @@ websiteJourneyCollector.post("/:collectorId",
       const ua = req.get("user-agent") || "";
       if (/bot|crawler|spider|headless/i.test(ua) || req.get("dnt") === "1" || req.get("sec-gpc") === "1") return res.sendStatus(204);
       const event = eventSchema.parse(payload);
-      const ip = (req.get("x-real-ip") || req.socket.remoteAddress || "").replace(/^::ffff:/i, "");
+      const ip = (req.get("x-real-ip") || req.get("x-forwarded-for")?.split(",").at(-1)?.trim() || req.socket.remoteAddress || "").replace(/^::ffff:/i, "");
       event.context = await visitorContext(ip, ua, event.device === "Tablet");
       const projectId = (row.value as { projectId?: string }).projectId;
       if (event.playback?.projectId !== projectId) delete event.playback;
