@@ -11,11 +11,21 @@ const handler = (path: string, method: string) => (employeeRouter as any).stack.
 const employee = { id: 'employee', userId: 'user', companyId: 'company', status: 'ACTIVE', dateOfJoining: new Date('1999-01-01'), dateOfExit: null };
 let writes: any[];
 let lookup: any;
-function setup(record: any = employee) {
+function setup(record: any = employee, pendingCards = 0, successorManagerId: string | null = null) {
   writes = [];
   (prisma.employee as any).findFirst = async (args: any) => { lookup = args.where; return record?.companyId === (args.where.companyId || record?.companyId) ? record : null; };
   (prisma as any).$transaction = async (fn: any) => fn({
-    employee: { update: async (args: any) => { writes.push(['employee', args]); return { ...record, ...args.data }; } },
+    employee: {
+      count: async () => 0,
+      findFirst: async () => ({ id: 'successor', dateOfExit: null }),
+      findUnique: async () => ({ managerId: successorManagerId }),
+      updateMany: async (args: any) => { writes.push(['reports', args]); },
+      update: async (args: any) => { writes.push(['employee', args]); return { ...record, ...args.data }; }
+    },
+    workCard: { count: async () => pendingCards, updateMany: async (args: any) => { writes.push(['cards', args]); } },
+    seoTask: { updateMany: async (args: any) => { writes.push(['seo', args]); } },
+    metaLead: { count: async () => 0, updateMany: async (args: any) => { writes.push(['leads', args]); } },
+    client: { count: async () => 0, updateMany: async (args: any) => { writes.push(['clients', args]); } },
     user: { update: async (args: any) => { writes.push(['user', args]); } },
     auditLog: { create: async (args: any) => { writes.push(['audit', args]); } }
   });
@@ -100,4 +110,27 @@ test('default employee selections are active; archive and period queries preserv
       assert.deepEqual(result.map((record: any) => record.id), expected);
     }
   } finally { employeeService.listForUser = original; }
+});
+
+test('exit with open work requires a successor before writing anything', async () => {
+  setup(employee, 1);
+  const { error } = await exit({ dateOfExit: '2000-10-13', exitReason: 'Resigned' });
+  assert.match(error.message, /successor/);
+  assert.equal(writes.length, 0);
+});
+
+test('handover transfers open work and direct reports and retains approved cards', async () => {
+  setup({ ...employee, status: 'INACTIVE', dateOfExit: new Date('2000-10-13') });
+  const { error } = await exit({ dateOfExit: '2000-10-13', exitReason: 'Resigned', successorId: 'successor', handoverOnly: true });
+  assert.equal(error, undefined);
+  assert.deepEqual(writes.map(entry => entry[0]), ['seo', 'cards', 'leads', 'clients', 'reports', 'audit']);
+  assert.deepEqual(writes[1][1].where, { companyId: 'company', assignedToId: 'employee', status: { not: 'APPROVED' } });
+  assert.equal(writes[4][1].data.managerId, 'successor');
+});
+
+test('handover rejects a successor who reports to the departing manager', async () => {
+  setup(employee, 1, 'employee');
+  const { error } = await exit({ dateOfExit: '2000-10-13', exitReason: 'Resigned', successorId: 'successor' });
+  assert.match(error.message, /reporting chain/);
+  assert.equal(writes.length, 0);
 });

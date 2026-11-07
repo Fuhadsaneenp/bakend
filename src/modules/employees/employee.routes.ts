@@ -1,3 +1,4 @@
+import { activeEmployeeWhere } from "../../lib/employeeEligibility.js";
 import { EXIT_REASONS, calendarDate, hasExited, isActiveEmployee, employedDuring } from "../../lib/employment.js";
 import { LetterType, Role } from "@prisma/client";
 import { Router } from "express";
@@ -415,17 +416,54 @@ employeeRouter.post("/:id/exit", requireHrOrRoles(Role.SUPER_ADMIN, Role.HR_ADMI
     const body = z.object({
       dateOfExit: z.string().refine(value => /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value.slice(0, 10)).toISOString().slice(0, 10) === value.slice(0, 10), "Invalid exit date"),
       exitReason: z.preprocess(value => ({ Resignation: "Resigned", Termination: "Terminated", Retirement: "Retired", Other: "Others" }[String(value)] || value), z.enum(EXIT_REASONS)),
-      exitRemarks: z.string().max(5000).optional()
+      exitRemarks: z.string().max(5000).optional(),
+      successorId: z.string().min(1).optional(),
+      handoverOnly: z.boolean().default(false)
     }).parse(req.body);
     const employee = await prisma.employee.findFirst({
       where: { id: req.params.id, ...(req.user!.role === Role.SUPER_ADMIN ? {} : { companyId: req.user!.companyId! }) }
     });
     if (!employee) throw new ApiError(404, "Employee not found");
-    if (hasExited(employee) && employee.dateOfExit) throw new ApiError(409, "Employee exit is already recorded");
+    if (body.handoverOnly && !hasExited(employee) && employee.status !== "INACTIVE") throw new ApiError(400, "Employee has not exited");
+    if (!body.handoverOnly && hasExited(employee) && employee.dateOfExit) throw new ApiError(409, "Employee exit is already recorded");
     const exitDay = body.dateOfExit.slice(0, 10);
     if (exitDay < calendarDate(employee.dateOfJoining)) throw new ApiError(400, "Exit date cannot precede joining date");
     const effective = exitDay < calendarDate(new Date());
     const updated = await prisma.$transaction(async tx => {
+      const companyId = employee.companyId;
+      const cards = { companyId, assignedToId: employee.id, status: { not: "APPROVED" } };
+      const reports = { companyId, managerId: employee.id, ...activeEmployeeWhere() };
+      const clients = { companyId, accountManagerId: employee.id };
+      const leads = { companyId, assignedToId: employee.id, leadStatus: { notIn: ["CONVERTED", "NOT_INTERESTED", "WRONG_NUMBER", "CLOSED"] } };
+      if (!body.successorId) {
+        const pending = await Promise.all([
+          tx.workCard.count({ where: cards }),
+          tx.employee.count({ where: reports }),
+          tx.client.count({ where: clients }),
+          tx.metaLead.count({ where: leads })
+        ]);
+        if (body.handoverOnly || pending.some(Boolean)) throw new ApiError(400, "Choose an active successor for open work, clients and direct reports");
+      } else {
+        const successor = await tx.employee.findFirst({ where: { id: body.successorId, companyId, ...activeEmployeeWhere() } });
+        if (!successor || successor.id === employee.id || successor.dateOfExit) {
+          throw new ApiError(400, "Choose an active successor without a scheduled exit from the same company");
+        }
+        const visited = new Set([employee.id]);
+        let managerId: string | null = successor.id;
+        while (managerId) {
+          if (visited.has(managerId)) throw new ApiError(400, "The successor cannot be below this employee in the reporting chain");
+          visited.add(managerId);
+          const manager: { managerId: string | null } | null = await tx.employee.findUnique({ where: { id: managerId }, select: { managerId: true } });
+          managerId = manager?.managerId ?? null;
+        }
+        await tx.seoTask.updateMany({ where: { workCard: cards }, data: { employeeId: successor.id } });
+        await tx.workCard.updateMany({ where: cards, data: { assignedToId: successor.id } });
+        await tx.metaLead.updateMany({ where: leads, data: { assignedToId: successor.id } });
+        await tx.client.updateMany({ where: clients, data: { accountManagerId: successor.id } });
+        await tx.employee.updateMany({ where: reports, data: { managerId: successor.id } });
+        await tx.auditLog.create({ data: { actorUserId: req.user!.id, action: "EMPLOYEE_HANDOVER", entity: "Employee", entityId: employee.id, metadata: { successorId: successor.id } } });
+      }
+      if (body.handoverOnly) return employee;
       const updated = await tx.employee.update({ where: { id: employee.id }, data: {
         status: effective ? (body.exitReason === "Terminated" ? "TERMINATED" : "INACTIVE") : "ACTIVE",
         dateOfExit: new Date(exitDay), exitReason: body.exitReason,

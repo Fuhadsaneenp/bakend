@@ -425,11 +425,11 @@ export function buildAttendanceSnapshot(input: {
   employee: {
     dateOfJoining: Date;
     dateOfExit?: Date | null;
+    customAttendanceHoursEnabled?: boolean | null;
+    customFullDayHours?: Prisma.Decimal | number | null;
+    customHalfDayHours?: Prisma.Decimal | number | null;
     shift?: { workingDays?: string | null } | null;
     company?: { name?: string | null; legalName?: string | null; worksSevenDays?: boolean | null } | null;
-    customAttendanceHoursEnabled?: boolean | null;
-    customFullDayHours?: any;
-    customHalfDayHours?: any;
     attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date; workMinutes?: number | null }>;
     wfhRequests: Array<{ startDate: Date; endDate: Date; reason: string; status: string }>;
   };
@@ -438,21 +438,15 @@ export function buildAttendanceSnapshot(input: {
   const startOfMonthDate = new Date(input.year, input.month - 1, 1);
   const totalDaysInMonth = endOfMonthDate.getDate();
 
-  let attendanceDays = totalDaysInMonth;
-  if (input.type === "FINAL" && input.employee.dateOfExit) {
-    attendanceDays = input.employee.dateOfExit.getDate();
-  } else if (input.employee.dateOfJoining > startOfMonthDate) {
-    attendanceDays = totalDaysInMonth - input.employee.dateOfJoining.getDate() + 1;
-  }
-
-  const employeePeriodStart =
-    input.employee.dateOfJoining > startOfMonthDate
-      ? startOfDay(input.employee.dateOfJoining)
-      : startOfDay(startOfMonthDate);
-  const employeePeriodEnd =
-    input.type === "FINAL" && input.employee.dateOfExit
-      ? endOfDay(input.employee.dateOfExit)
-      : endOfDay(endOfMonthDate);
+  const firstDay = formatDayKey(input.employee.dateOfJoining);
+  const lastDay = input.employee.dateOfExit ? formatDayKey(input.employee.dateOfExit) : null;
+  const monthPrefix = formatDayKey(startOfMonthDate).slice(0, 7);
+  const startDay = firstDay > monthPrefix + "-01" ? Number(firstDay.slice(8)) : 1;
+  const endDay = lastDay && lastDay < formatDayKey(endOfMonthDate) ? Number(lastDay.slice(8)) : totalDaysInMonth;
+  const overlaps = firstDay <= formatDayKey(endOfMonthDate) && (!lastDay || lastDay >= monthPrefix + "-01");
+  const attendanceDays = overlaps ? Math.max(0, endDay - startDay + 1) : 0;
+  const employeePeriodStart = startOfDay(new Date(input.year, input.month - 1, overlaps ? startDay : totalDaysInMonth + 1));
+  const employeePeriodEnd = endOfDay(new Date(input.year, input.month - 1, overlaps ? endDay : 0));
 
   const dayCredits = new Map<string, number>();
   let medbiomateBonus = 0;
@@ -551,6 +545,9 @@ export function computePayrollAmounts(input: {
     employeeCode: string;
     dateOfJoining: Date;
     dateOfExit?: Date | null;
+    customAttendanceHoursEnabled?: boolean | null;
+    customFullDayHours?: Prisma.Decimal | number | null;
+    customHalfDayHours?: Prisma.Decimal | number | null;
     shift?: { workingDays?: string | null } | null;
     company?: { name?: string | null; legalName?: string | null; worksSevenDays?: boolean | null } | null;
     attendance: Array<{ checkInAt?: Date | null; checkOutAt?: Date | null; workDate: Date; workMinutes?: number | null }>;
@@ -676,20 +673,6 @@ async function deliverPayslipById(payslipId: string) {
 
 export const payrollService = {
   async generate(companyId: string, processedBy: string, month: number, year: number, type: "REGULAR" | "FINAL" = "REGULAR", employeeId?: string) {
-    const existing = await prisma.payrollRun.findUnique({
-      where: { companyId_month_year_type: { companyId, month, year, type } }
-    });
-    if (existing) {
-      if (existing.status.startsWith("DRAFT")) {
-        await prisma.$transaction([
-          prisma.payslip.deleteMany({ where: { payrollRunId: existing.id } }),
-          prisma.payrollRun.delete({ where: { id: existing.id } })
-        ]);
-      } else {
-        throw new ApiError(409, "Payroll already generated and approved/paid for this period and type");
-      }
-    }
-
     const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });
     const holidaySetting = await prisma.companySetting.findUnique({
       where: { companyId_key: { companyId, key: "timeoff_holidays" } }
@@ -704,21 +687,11 @@ export const payrollService = {
       where: {
         companyId,
         salary: { isNot: null },
-        ...(employeeId
-          ? { id: employeeId }
-          : type === "FINAL"
-            ? {
-                OR: [
-                  { status: "TERMINATED" },
-                  { status: "INACTIVE" },
-                  { dateOfExit: { not: null } }
-                ]
-              }
-            : {
-                dateOfJoining: { lte: endOfDay(endOfMonthDate) },
-                OR: [{ dateOfExit: null, status: { not: "TERMINATED" } }, { dateOfExit: { gte: new Date(year, month - 1, 1) } }]
-              }
-        )
+        id: employeeId,
+        dateOfJoining: { lte: endOfDay(endOfMonthDate) },
+        ...(type === "FINAL"
+          ? { dateOfExit: { gte: startOfMonthDate, lte: endOfDay(endOfMonthDate) }, settlementStatus: "PENDING" }
+          : { OR: [{ dateOfExit: null, status: { not: "TERMINATED" } }, { dateOfExit: { gte: startOfMonthDate } }] })
       },
       include: {
         salary: true,
@@ -754,6 +727,26 @@ export const payrollService = {
     let netTotal = 0;
 
     const run = await prisma.$transaction(async (tx) => {
+      const existing = await tx.payrollRun.findUnique({
+        where: { companyId_month_year_type: { companyId, month, year, type } }
+      });
+      if (existing) {
+        if (existing.status.startsWith("DRAFT")) {
+          if (employeeId && await tx.payslip.count({ where: { payrollRunId: existing.id, employeeId: { not: employeeId } } })) {
+            throw new ApiError(409, "Regenerate the full draft to preserve payslips for other employees");
+          }
+          await tx.payslip.deleteMany({ where: { payrollRunId: existing.id } });
+          await tx.payrollRun.delete({ where: { id: existing.id } });
+        } else {
+          throw new ApiError(409, "Payroll already generated and approved/paid for this period and type");
+        }
+      }
+
+      const overlappingPayslip = await tx.payslip.findFirst({
+        where: { month, year, employeeId: { in: employees.map(employee => employee.id) } },
+        select: { id: true }
+      });
+      if (overlappingPayslip) throw new ApiError(409, "An employee already has a payslip in another payroll run for this period");
       const run = await tx.payrollRun.create({
         data: {
           companyId,
@@ -779,6 +772,9 @@ export const payrollService = {
             employeeCode: employee.employeeCode,
             dateOfJoining: employee.dateOfJoining,
             dateOfExit: employee.dateOfExit,
+            customAttendanceHoursEnabled: employee.customAttendanceHoursEnabled,
+            customFullDayHours: employee.customFullDayHours,
+            customHalfDayHours: employee.customHalfDayHours,
             shift: employee.shift,
             company: employee.company,
             attendance: employee.attendance,
@@ -787,9 +783,7 @@ export const payrollService = {
             salaryHistory: employee.salaryHistory
           }
         });
-        const deductions = (employee.salaryHistory && employee.salaryHistory.length > 1)
-          ? computedDeductions
-          : decimalToNumber(salary.deductions);
+        const deductions = computedDeductions;
         
         const grossPay = basic + allowances;
         const netPay = Math.max(0, grossPay - deductions);
@@ -995,7 +989,7 @@ export const payrollService = {
       const salary = payslip.employee.salary;
       if (!salary) continue;
 
-      const { attendanceDays, payableDays, basic, allowances, deductions: computedDeductions } = computePayrollAmounts({
+      const { attendanceDays, payableDays, basic, allowances } = computePayrollAmounts({
         month: run.month,
         year: run.year,
         type: payrollType,
@@ -1005,6 +999,9 @@ export const payrollService = {
           employeeCode: payslip.employee.employeeCode,
           dateOfJoining: payslip.employee.dateOfJoining,
           dateOfExit: payslip.employee.dateOfExit,
+          customAttendanceHoursEnabled: payslip.employee.customAttendanceHoursEnabled,
+          customFullDayHours: payslip.employee.customFullDayHours,
+          customHalfDayHours: payslip.employee.customHalfDayHours,
           shift: payslip.employee.shift,
           company: payslip.employee.company,
           attendance: payslip.employee.attendance.filter(
