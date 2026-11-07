@@ -1,7 +1,7 @@
 import { callback as sheetsCallback, destination as sheetsDestination } from "../google-sheets/sheets.service.js";
 import { callback as adsenseCallback } from "../adsense/adsense.service.js";
 import { adsenseDestination } from "../adsense/adsense.routes.js";
-import { seoCrmClients } from "./seo.clients.js";
+import { provisionSeoCrmClients, seoCrmClients } from "./seo.clients.js";
 import {
   Router,
   type Request,
@@ -89,6 +89,7 @@ seoRouter.get(
       where: { userId: u.id, companyId: company(u) },
       select: { id: true },
     });
+    if (admin(u)) await provisionSeoCrmClients(company(u));
     const eligibleClients = await seoCrmClients(company(u));
     const eligibleIds = new Set(eligibleClients.map(client => client.id));
     const candidates = await prisma.seoWorkspace.findMany({
