@@ -1,3 +1,4 @@
+import { visitorContext } from "./visitor-context.js";
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { Router, text } from "express";
 import rateLimit from "express-rate-limit";
@@ -22,6 +23,17 @@ const eventSchema = z.object({
   path: z.string().max(500).regex(/^\/(?!\/)[^?#]*$/),
   source: z.string().max(253).regex(/^[a-z0-9.-]*$/i),
   device: z.enum(["Mobile", "Desktop", "Tablet"]),
+  kind: z.enum(["page", "engagement", "metadata"]).optional(),
+  visibleSeconds: z.number().int().min(0).max(86400).optional(),
+  pageId: z.string().uuid().optional(),
+  acquisition: z.object({
+    source: z.string().max(120), medium: z.string().max(120),
+    campaign: z.string().max(120), paid: z.boolean()
+  }).optional(),
+  context: z.object({
+    browser: z.string().max(60), os: z.string().max(60),
+    country: z.string().max(2), city: z.string().max(150)
+  }).optional(),
   playback: z.object({ projectId: identifier, userId: identifier, sessionId: identifier }).optional()
 });
 
@@ -88,7 +100,11 @@ websiteJourneyCollector.post("/:collectorId",
       if (!row || row.key !== collectorKey(id) || (row.value as { origin?: string }).origin !== origin) return res.sendStatus(403);
       let payload: unknown;
       try { payload = JSON.parse(req.body); } catch { return res.sendStatus(400); }
+      const ua = req.get("user-agent") || "";
+      if (/bot|crawler|spider|headless/i.test(ua) || req.get("dnt") === "1" || req.get("sec-gpc") === "1") return res.sendStatus(204);
       const event = eventSchema.parse(payload);
+      const ip = (req.get("x-real-ip") || req.socket.remoteAddress || "").replace(/^::ffff:/i, "");
+      event.context = await visitorContext(ip, ua, event.device === "Tablet");
       const projectId = (row.value as { projectId?: string }).projectId;
       if (event.playback?.projectId !== projectId) delete event.playback;
       const key = eventPrefix(id) + randomBytes(12).toString("hex");

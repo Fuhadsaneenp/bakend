@@ -30,6 +30,14 @@ import('./scripts/schedule-job-backup.mjs').catch(e=>console.error(e.message));
 import('./dist/src/server.js').catch(e=>{console.error(e);process.exit(1)});
 `);
 JS
+# Keep the offline approximate location database outside versioned releases.
+if [ ! -s "$base/config/dbip-city.mmdb" ]; then
+  geo_month=$(date -u +%Y-%m)
+  curl --fail --location --max-time 180 "https://download.db-ip.com/free/dbip-city-lite-$geo_month.mmdb.gz" -o "$base/config/dbip-city.mmdb.gz"
+  gzip -dc "$base/config/dbip-city.mmdb.gz" > "$base/config/dbip-city.mmdb.next"
+  mv "$base/config/dbip-city.mmdb.next" "$base/config/dbip-city.mmdb"
+  rm "$base/config/dbip-city.mmdb.gz"
+fi
 # Check staged database connectivity before changing routing.
 NODE_ENV=production node --input-type=module <<'JS'
 import dotenv from 'dotenv';
