@@ -47,7 +47,9 @@ function unseal(value: string) {
 
 const connectionKey = (clientId: string) => `website-journey:client:${clientId}`;
 const collectorKey = (id: string) => `website-journey:collector:${id}`;
-const eventPrefix = (id: string) => `website-journey:event:${id}:`;
+const eventNamespace = "website-journey:event:";
+const eventPrefix = (id: string) => `${eventNamespace}${id}:`;
+const eventKeyRange = (prefix: string) => ({ gte: prefix, lt: prefix.slice(0, -1) + ";" });
 const windowStart = () => new Date(Date.now() - 30 * 86400000);
 let nextCleanup = 0;
 
@@ -55,7 +57,7 @@ function pruneExpiredVisits() {
   if (Date.now() < nextCleanup) return;
   nextCleanup = Date.now() + 3600000;
   void prisma.companySetting.deleteMany({
-    where: { key: { startsWith: "website-journey:event:" }, createdAt: { lt: windowStart() } }
+    where: { key: eventKeyRange(eventNamespace), createdAt: { lt: windowStart() } }
   }).catch(() => { nextCleanup = Date.now() + 60000; });
 }
 const getConnection = async (companyId: string, clientId: string) => {
@@ -115,7 +117,7 @@ websiteJourneyRouter.get("/:workspaceId", async (req, res, next) => {
     if (!connection) return res.json({ connection: null, events: [] });
     pruneExpiredVisits();
     const start = windowStart();
-    const where = { companyId, key: { startsWith: eventPrefix(connection.collectorId) } };
+    const where = { companyId, key: eventKeyRange(eventPrefix(connection.collectorId)) };
     const events = await prisma.companySetting.findMany({
       where: { ...where, createdAt: { gte: start } },
       orderBy: { createdAt: "desc" },
