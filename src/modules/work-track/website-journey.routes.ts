@@ -49,16 +49,17 @@ const connectionKey = (clientId: string) => `website-journey:client:${clientId}`
 const collectorKey = (id: string) => `website-journey:collector:${id}`;
 const eventNamespace = "website-journey:event:";
 const eventPrefix = (id: string) => `${eventNamespace}${id}:`;
-const eventKeyRange = (prefix: string) => ({ gte: prefix, lt: prefix.slice(0, -1) + ";" });
 const windowStart = () => new Date(Date.now() - 30 * 86400000);
 let nextCleanup = 0;
 
 function pruneExpiredVisits() {
   if (Date.now() < nextCleanup) return;
   nextCleanup = Date.now() + 3600000;
-  void prisma.companySetting.deleteMany({
-    where: { key: eventKeyRange(eventNamespace), createdAt: { lt: windowStart() } }
-  }).catch(() => { nextCleanup = Date.now() + 60000; });
+  void prisma.$executeRaw`
+    DELETE FROM CompanySetting
+    WHERE CAST(\`key\` AS BINARY) LIKE CAST(${eventNamespace + "%"} AS BINARY)
+      AND createdAt < ${windowStart()}
+  `.catch(() => { nextCleanup = Date.now() + 60000; });
 }
 const getConnection = async (companyId: string, clientId: string) => {
   const row = await prisma.companySetting.findUnique({
@@ -117,11 +118,16 @@ websiteJourneyRouter.get("/:workspaceId", async (req, res, next) => {
     if (!connection) return res.json({ connection: null, events: [] });
     pruneExpiredVisits();
     const start = windowStart();
-    const where = { companyId, key: eventKeyRange(eventPrefix(connection.collectorId)) };
+    const matching = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM CompanySetting
+      WHERE companyId = ${companyId}
+        AND CAST(\`key\` AS BINARY) LIKE CAST(${eventPrefix(connection.collectorId) + "%"} AS BINARY)
+        AND createdAt >= ${start}
+      ORDER BY createdAt DESC LIMIT 5000
+    `;
     const events = await prisma.companySetting.findMany({
-      where: { ...where, createdAt: { gte: start } },
+      where: { companyId, id: { in: matching.map(event => event.id) } },
       orderBy: { createdAt: "desc" },
-      take: 5000,
       select: { id: true, value: true, createdAt: true }
     });
     res.json({
