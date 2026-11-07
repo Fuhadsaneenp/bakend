@@ -5,7 +5,7 @@ import { z } from "zod";
 import { env } from "../../config/env.js";
 import { ApiError } from "../../lib/errors.js";
 import { prisma } from "../../lib/prisma.js";
-import { requirePermission } from "../../middleware/auth.js";
+import { admin, company, scope } from "../seo/seo.access.js";
 
 const connectionSchema = z.object({
   origin: z.string().url().max(250).transform(value => new URL(value)).refine(url =>
@@ -100,19 +100,18 @@ websiteJourneyCollector.post("/:collectorId",
 );
 
 export const websiteJourneyRouter = Router();
-const canView = requirePermission("worktrack.client.view");
-const canManage = requirePermission("worktrack.settings.manage");
 const insightsSchema = z.array(z.object({
   metricName: z.string(),
   information: z.array(z.record(z.unknown()))
 }));
 const insights = new Map<string, { expires: number; request: Promise<z.infer<typeof insightsSchema>> }>();
 
-websiteJourneyRouter.get("/:clientId", canView, async (req, res, next) => {
+websiteJourneyRouter.get("/:workspaceId", async (req, res, next) => {
   try {
-    const companyId = req.user?.companyId;
-    if (!companyId) throw new ApiError(403, "Workspace required");
-    const connection = await getConnection(companyId, identifier.parse(req.params.clientId));
+    const user = req.user!;
+    const companyId = company(user);
+    const { workspace: { clientId } } = await scope(user, identifier.parse(req.params.workspaceId));
+    const connection = await getConnection(companyId, clientId);
     if (!connection) return res.json({ connection: null, events: [] });
     pruneExpiredVisits();
     const start = windowStart();
@@ -135,11 +134,12 @@ websiteJourneyRouter.get("/:clientId", canView, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-websiteJourneyRouter.put("/:clientId", canManage, async (req, res, next) => {
+websiteJourneyRouter.put("/:workspaceId", async (req, res, next) => {
   try {
-    const companyId = req.user?.companyId;
-    if (!companyId) throw new ApiError(403, "Workspace required");
-    const clientId = identifier.parse(req.params.clientId);
+    const user = req.user!;
+    const companyId = company(user);
+    const { workspace: { clientId } } = await scope(user, identifier.parse(req.params.workspaceId));
+    if (!admin(user)) throw new ApiError(403, "SEO administrator required");
     const input = connectionSchema.parse(req.body);
     const existing = await getConnection(companyId, clientId);
     const sameWebsite = existing?.origin === input.origin && existing.projectId === input.projectId;
@@ -165,11 +165,11 @@ websiteJourneyRouter.put("/:clientId", canManage, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-websiteJourneyRouter.get("/:clientId/clarity", canView, async (req, res, next) => {
+websiteJourneyRouter.get("/:workspaceId/clarity", async (req, res, next) => {
   try {
-    const companyId = req.user?.companyId;
-    if (!companyId) throw new ApiError(403, "Workspace required");
-    const clientId = identifier.parse(req.params.clientId);
+    const user = req.user!;
+    const companyId = company(user);
+    const { workspace: { clientId } } = await scope(user, identifier.parse(req.params.workspaceId));
     const connection = await getConnection(companyId, clientId);
     if (!connection?.encryptedToken) throw new ApiError(404, "Add a Clarity API token in settings");
     const key = `${companyId}:${clientId}`;
