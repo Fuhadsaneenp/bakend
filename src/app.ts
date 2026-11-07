@@ -1,5 +1,6 @@
 import { startJobMonitor } from "./modules/job-monitoring/worker.js";
 import cors from "cors";
+import { websiteJourneyCollector } from "./modules/work-track/website-journey.routes.js";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -74,6 +75,7 @@ export const createApp = () => {
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: false
   }));
+  app.use("/api/website-journey/collect", websiteJourneyCollector);
   app.use(cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);

@@ -3,6 +3,7 @@ import { dataEntryDayView } from "../../lib/dataEntryDayView.js";
 import { sheetSnapshot } from "../../lib/sheetSnapshot.js";
 import { Role } from "@prisma/client";
 import { Router } from "express";
+import { websiteJourneyRouter } from "./website-journey.routes.js";
 import multer from "multer";
 import { z } from "zod";
 import { requireAnyPermission, requireAuth, requirePermission, requireRoles } from "../../middleware/auth.js";
@@ -73,6 +74,7 @@ async function resolveDataEntryCatalogCompanyId(companyId?: string | null) {
 }
 
 workTrackRouter.use(requireAuth);
+workTrackRouter.use("/website-journey", websiteJourneyRouter);
 
 // HR data is kept separate from shared department tasks. Grants cannot bypass this role guard.
 const hrTaskSchema = z.object({
