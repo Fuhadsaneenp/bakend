@@ -82,7 +82,7 @@ export function transition(current: string, next: string, manager: boolean) {
     IN_PROGRESS: ["ASSIGNED", "SUBMITTED"],
     REJECTED: ["IN_PROGRESS"],
     CORRECTIONS: ["IN_PROGRESS"],
-    SUBMITTED: manager ? ["APPROVED", "REJECTED", "CORRECTIONS"] : [],
+    SUBMITTED: manager ? ["IN_PROGRESS", "APPROVED", "REJECTED", "CORRECTIONS"] : ["IN_PROGRESS"],
   };
   if (!allowed[current]?.includes(next))
     throw new ApiError(409, "Invalid task transition");

@@ -134,7 +134,10 @@ export async function updateTask(
           ? { completedQuantity: quantity, remarks: body.remarks }
           : {}),
         ...(review ? { feedback: body.feedback, quality: body.quality } : {}),
-        ...(body.status === "IN_PROGRESS" ? { startTime: new Date() } : {}),
+        ...(body.status === "IN_PROGRESS" ? {
+          startTime: task.status === "SUBMITTED" ? task.startTime ?? new Date() : new Date(),
+          ...(task.status === "SUBMITTED" ? { completionTime: null } : {}),
+        } : {}),
         ...(body.status === "ASSIGNED" ? { startTime: null } : {}),
         ...(body.status === "SUBMITTED" ? { completionTime: new Date() } : {}),
         points,

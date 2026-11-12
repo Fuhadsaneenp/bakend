@@ -36,6 +36,7 @@ test("SEO aggregates weighted positions and derives CTR from site totals", () =>
   });
 });
 test("Review workflow and date validation reject invalid transitions and impossible dates", () => {
+  transition("SUBMITTED", "IN_PROGRESS", false);
   transition("SUBMITTED", "APPROVED", true);
   assert.throws(() => transition("SUBMITTED", "APPROVED", false));
   assert.throws(() => transition("APPROVED", "APPROVED", true));
