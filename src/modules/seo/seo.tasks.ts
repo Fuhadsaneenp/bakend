@@ -2,23 +2,33 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "../../lib/prisma.js";
 import { ApiError } from "../../lib/errors.js";
 import type { AuthUser } from "../../middleware/auth.js";
-import { scope, company, employeeAssigned } from "./seo.access.js";
+import { scope, company, employeeAssigned, admin } from "./seo.access.js";
 import { transition, defaults, hash } from "./seo.domain.js";
 export async function createTask(
   u: AuthUser,
   id: string,
   body: {
-    employeeId: string;
+    employeeId?: string;
     category: string;
     title: string;
     description: string;
-    dueDate: string;
+    dueDate?: string;
     targetQuantity: number;
     project: string;
   },
 ) {
   const a = await scope(u, id, "worktrack.task.assign", true);
-  await employeeAssigned(id, body.employeeId, company(u));
+  const employeeId = body.employeeId || a.employeeId;
+  if (!employeeId) throw new ApiError(400, "Select an employee or link your account to an active employee profile");
+  if (admin(u) && employeeId === a.employeeId) {
+    const active = await prisma.employee.findFirst({
+      where: { id: employeeId, companyId: company(u), status: "ACTIVE", dateOfExit: null },
+      select: { id: true },
+    });
+    if (!active) throw new ApiError(400, "An active employee profile is required");
+  } else {
+    await employeeAssigned(id, employeeId, company(u));
+  }
   return prisma.$transaction(async (tx) => {
     const work = await tx.workCard.create({
       data: {
@@ -30,8 +40,8 @@ export async function createTask(
         category: body.category,
         priority: "NORMAL",
         complexity: "MEDIUM",
-        deadline: new Date(body.dueDate),
-        assignedToId: body.employeeId,
+        deadline: body.dueDate ? new Date(body.dueDate) : new Date(),
+        assignedToId: employeeId,
         assignedById: a.employeeId,
         status: "PENDING",
         pointsEarned: 0,
@@ -41,7 +51,7 @@ export async function createTask(
       data: {
         workspaceId: id,
         workCardId: work.id,
-        employeeId: body.employeeId,
+        employeeId,
         category: body.category,
         description: body.description,
         targetQuantity: body.targetQuantity,

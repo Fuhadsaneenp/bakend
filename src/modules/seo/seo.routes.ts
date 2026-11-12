@@ -422,12 +422,12 @@ seoRouter.post(
         req.params.id,
         z
           .object({
-            employeeId: text,
-            category: z.enum(categories),
+            employeeId: text.optional(),
+            category: z.string().trim().max(100).default(""),
             title: text,
-            description: text,
-            dueDate: z.string().datetime(),
-            targetQuantity: z.number().positive().max(100000),
+            description: z.string().trim().max(10000).default(""),
+            dueDate: z.string().datetime().optional(),
+            targetQuantity: z.number().positive().max(100000).default(1),
             project: z.string().max(200).default(""),
           })
           .parse(req.body),
