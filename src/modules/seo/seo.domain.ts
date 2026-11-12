@@ -79,7 +79,7 @@ export function aggregate(
 export function transition(current: string, next: string, manager: boolean) {
   const allowed: Record<string, string[]> = {
     ASSIGNED: ["IN_PROGRESS"],
-    IN_PROGRESS: ["SUBMITTED"],
+    IN_PROGRESS: ["ASSIGNED", "SUBMITTED"],
     REJECTED: ["IN_PROGRESS"],
     CORRECTIONS: ["IN_PROGRESS"],
     SUBMITTED: manager ? ["APPROVED", "REJECTED", "CORRECTIONS"] : [],

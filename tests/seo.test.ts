@@ -40,6 +40,9 @@ test("Review workflow and date validation reject invalid transitions and impossi
   assert.throws(() => transition("SUBMITTED", "APPROVED", false));
   assert.throws(() => transition("APPROVED", "APPROVED", true));
   transition("REJECTED", "IN_PROGRESS", false);
+  transition("IN_PROGRESS", "ASSIGNED", false);
+  assert.throws(() => transition("SUBMITTED", "ASSIGNED", false));
+
   assert.throws(() => period("2026-02-30", "2026-03-01"));
   assert.throws(() => period("2026-10-22", "2026-01-01"));
   assert.equal(

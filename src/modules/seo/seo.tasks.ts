@@ -135,6 +135,7 @@ export async function updateTask(
           : {}),
         ...(review ? { feedback: body.feedback, quality: body.quality } : {}),
         ...(body.status === "IN_PROGRESS" ? { startTime: new Date() } : {}),
+        ...(body.status === "ASSIGNED" ? { startTime: null } : {}),
         ...(body.status === "SUBMITTED" ? { completionTime: new Date() } : {}),
         points,
         ...(body.status === "APPROVED"

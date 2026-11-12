@@ -446,6 +446,7 @@ seoRouter.patch(
         z
           .object({
             status: z.enum([
+              "ASSIGNED",
               "IN_PROGRESS",
               "SUBMITTED",
               "APPROVED",
