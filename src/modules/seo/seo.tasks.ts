@@ -104,11 +104,6 @@ export async function updateTask(
         400,
         "Completed quantity cannot exceed the assigned target",
       );
-    if (
-      body.status === "SUBMITTED" &&
-      (!quantity || !(task.evidence.length || body.evidence?.length))
-    )
-      throw new ApiError(400, "Completed quantity and evidence are required");
     if (body.status === "APPROVED" && body.quality === undefined)
       throw new ApiError(400, "Quality score required");
     const rule = await tx.seoPointRule.findUnique({
@@ -123,9 +118,9 @@ export async function updateTask(
           (rule?.points ?? fallback[1])
         : 0;
     // Compare-and-set stops concurrent reviews from awarding twice.
-    const evidenceHash = hash(
-      JSON.stringify(task.evidence.map((e) => e.url).sort()),
-    );
+    const evidenceHash = task.evidence.length
+      ? hash(JSON.stringify(task.evidence.map((e) => e.url).sort()))
+      : null;
     const changed = await tx.seoTask.updateMany({
       where: { id: task.id, status: task.status },
       data: {
